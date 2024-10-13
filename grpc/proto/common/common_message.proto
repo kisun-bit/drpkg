@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package commonMessage;
+option go_package = "github.com/kisun-bit/drpkg/grpc/proto/common";
+
+message FuncIn {
+  bytes Raw = 1;
+}
+
+message FuncOut {
+  bytes Raw = 1;
+}

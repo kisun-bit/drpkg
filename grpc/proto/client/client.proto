@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+import "grpc/proto/common/common_message.proto";
+
+package client;
+option go_package = "github.com/kisun-bit/drpkg/grpc/proto/client";
+
+service Client {
+  rpc GenericInvoke (commonMessage.FuncIn) returns (commonMessage.FuncOut);
+}
