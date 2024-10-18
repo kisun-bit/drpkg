@@ -1,6 +1,6 @@
 ## 操作`QCow2`镜像文件的公共库
 
-此公共库依赖于`qemu-img`和`qemu-iow`两个工具, 请于`gitlab`的`libvirtdiskrw`仓库中(路径:`qemu-7.2.0/method2_executable/build/linux/amd64`)下载使用.
+此公共库依赖于`qemu-img`和`qemu-iow`两个工具, 请于`github`的`libvirtdiskrw`仓库中(路径:`qemu-7.2.0/method2_executable/build/linux/amd64`)下载使用.
 对于`qemu-img`, 如果你的环境中安装了`qemuutils`包, `qemu-img`会自动安装的, 但是`qemu-iow`是我们内部编写的, 必须从`libvirtdiskrw`仓库中下载
 
 ## 示例：
