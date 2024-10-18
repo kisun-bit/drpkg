@@ -1,10 +1,16 @@
 syntax = "proto3";
 
-import "grpc/proto/common/common_message.proto";
+import "grpc/proto/common/common.proto";
 
 package client;
 option go_package = "github.com/kisun-bit/drpkg/grpc/proto/client";
 
 service Client {
-  rpc GenericInvoke (commonMessage.FuncIn) returns (commonMessage.FuncOut);
+  rpc Ping(common.PingRequest) returns (common.PingResponse);
+  rpc Command(common.CommandRequest) returns (common.CommandResponse);
+  rpc SystemInfo(common.SystemInfoRequest) returns (common.SystemInfoResponse);
+  rpc OpenFile(common.OpenFileRequest) returns (common.OpenFileResponse);
+  rpc ReadAt(common.ReadAtRequest) returns (common.ReadAtResponse);
+  rpc WriteAt(common.WriteAtRequest) returns (common.WriteAtResponse);
+  rpc GenericInvoke(common.FuncIn) returns (common.FuncOut);
 }

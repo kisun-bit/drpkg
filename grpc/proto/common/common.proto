@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package common;
+option go_package = "github.com/kisun-bit/drpkg/grpc/proto/common";
+
+enum HandleType {
+  NormalFile = 0;
+}
+
+message FuncIn {
+  bytes raw = 1;
+}
+
+message FuncOut {
+  bytes raw = 1;
+}
+
+message Handle {
+  HandleType type = 1;
+  string descriptor = 2;
+}
+
+message WriteAtRequest {
+  Handle handle = 1;
+  int64 offset = 2;
+  bytes data = 3;
+}
+
+message WriteAtResponse {
+  int32 n = 1;
+}
+
+message ReadAtRequest {
+  Handle handle = 1;
+  int64 offset = 2;
+  int32 length = 3;
+}
+
+message ReadAtResponse {
+  bool eof = 1;
+  bytes data = 2;
+}
+
+message PingRequest {}
+
+message PingResponse {}
+
+message CommandRequest {
+  bool withStdout = 1;
+  bool withStderr = 2;
+  string caller = 3;
+  repeated string args = 4;
+}
+
+message CommandResponse {
+  int32 exit = 1;
+  string stdout = 2;
+  string stderr = 3;
+}
+
+message OpenFileRequest {
+  string Path = 1;
+  int32 flag = 2;
+  uint32 mode = 3;
+}
+
+message OpenFileResponse {
+  Handle handle = 1;
+}
+
+message SystemInfoRequest {
+  bool refresh = 1;
+}
+
+message SystemInfoResponse {
+  string json = 1;
+}
