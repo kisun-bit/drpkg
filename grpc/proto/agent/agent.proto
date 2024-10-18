@@ -2,15 +2,24 @@ syntax = "proto3";
 
 import "grpc/proto/common/common.proto";
 
-package client;
-option go_package = "github.com/kisun-bit/drpkg/grpc/proto/client";
+package agent;
+option go_package = "github.com/kisun-bit/drpkg/grpc/proto/agent";
 
-service Client {
+// 终端.
+service Agent {
   rpc Ping(common.PingRequest) returns (common.PingResponse);
   rpc Command(common.CommandRequest) returns (common.CommandResponse);
   rpc SystemInfo(common.SystemInfoRequest) returns (common.SystemInfoResponse);
   rpc OpenFile(common.OpenFileRequest) returns (common.OpenFileResponse);
+  rpc CloseHandle(common.CloseHandleRequest) returns (common.CloseHandleResponse);
   rpc ReadAt(common.ReadAtRequest) returns (common.ReadAtResponse);
   rpc WriteAt(common.WriteAtRequest) returns (common.WriteAtResponse);
+
+  // 通用调用.
   rpc GenericInvoke(common.FuncIn) returns (common.FuncOut);
+}
+
+// 终端更新服务.
+service AgentUpdater {
+
 }

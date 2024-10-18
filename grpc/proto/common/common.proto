@@ -68,6 +68,12 @@ message OpenFileResponse {
   Handle handle = 1;
 }
 
+message CloseHandleRequest {
+  Handle handle = 1;
+}
+
+message CloseHandleResponse {}
+
 message SystemInfoRequest {
   bool refresh = 1;
 }
