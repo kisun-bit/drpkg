@@ -7,7 +7,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/kisun-bit/drpkg/disk/table"
 	"github.com/kisun-bit/drpkg/sys/ioctl"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/sjson"
@@ -303,11 +303,11 @@ func installedWindows(spa WindowsSharedPartAttrs) bool {
 func getDiskBrief(diskSharedAttrs WindowsSharedDiskAttrs, diskLabelType string, size int64) string {
 	dn, _ := ioctl.ParseDiskNumberFromHardDiskPath(diskSharedAttrs.DiskPath)
 	production := strings.Join([]string{diskSharedAttrs.Vendor, diskSharedAttrs.Product, diskSharedAttrs.Revision}, "")
-	production = basic.TrimAllSpace(production)
+	production = util.TrimAllSpace(production)
 	if production == "" {
 		production = "HardDisk"
 	}
-	totalHuman := basic.TrimAllSpace(humanize.IBytes(uint64(size)))
+	totalHuman := util.TrimAllSpace(humanize.IBytes(uint64(size)))
 	return fmt.Sprintf("HD%v[%s]:%s-%s(%s)", dn, diskLabelType, strings.ToUpper(diskSharedAttrs.BusType), production, totalHuman)
 }
 
@@ -319,7 +319,7 @@ func getPartBrief(partSharedAttrs WindowsSharedPartAttrs, partSize int64, typeDe
 	if partSharedAttrs.VolumeLabel != "" {
 		volDescItems = append(volDescItems, partSharedAttrs.VolumeLabel)
 	} else if typeDesc != "" {
-		volDescItems = append(volDescItems, basic.TrimAllSpace(typeDesc))
+		volDescItems = append(volDescItems, util.TrimAllSpace(typeDesc))
 	} else {
 		volDescItems = append(volDescItems, "Unknown")
 	}
@@ -344,12 +344,12 @@ func getPartBrief(partSharedAttrs WindowsSharedPartAttrs, partSize int64, typeDe
 
 	if partSharedAttrs.VolumeUsedBytes != 0 && partSharedAttrs.VolumeTotalBytes != 0 {
 		volUsage := fmt.Sprintf("(Used/Total:%s/%s)",
-			basic.TrimAllSpace(humanize.IBytes(uint64(partSharedAttrs.VolumeUsedBytes))),
-			basic.TrimAllSpace(humanize.IBytes(uint64(partSharedAttrs.VolumeTotalBytes))))
+			util.TrimAllSpace(humanize.IBytes(uint64(partSharedAttrs.VolumeUsedBytes))),
+			util.TrimAllSpace(humanize.IBytes(uint64(partSharedAttrs.VolumeTotalBytes))))
 		volDescItems = append(volDescItems, volUsage)
 	} else {
 		volUsage := fmt.Sprintf("(Used/Total:--/%s)",
-			basic.TrimAllSpace(humanize.IBytes(uint64(partSize))),
+			util.TrimAllSpace(humanize.IBytes(uint64(partSize))),
 		)
 		volDescItems = append(volDescItems, volUsage)
 	}

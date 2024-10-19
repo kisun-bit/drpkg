@@ -5,7 +5,7 @@ import (
 	"github.com/kisun-bit/drpkg/disk/filesystem/fossick/fs/ntfs"
 	"github.com/kisun-bit/drpkg/disk/filesystem/fossick/fs/xfs"
 	"github.com/kisun-bit/drpkg/sys/ioctl"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/kisun-bit/drpkg/util/logger"
 	"github.com/pkg/errors"
 	"math"
@@ -237,7 +237,7 @@ func (bi *BitmapIterator) BlockAllocated(blkIdx, bitStart, bitEnd int64) (addr E
 		}, nil
 	}
 	// 对比 bitStart 至 bitEnd 之间的所有比特位，是否存在非0位.
-	firstNonZeroBit, allocated := basic.ExistedNonZeroBit(bi.b.Binary, bitStart, bitEnd)
+	firstNonZeroBit, allocated := util.ExistedNonZeroBit(bi.b.Binary, bitStart, bitEnd)
 	//logger.Debugf("[%v] bitStart=%v bitEnd=%v firstNonZeroBit=%v",
 	//	allocated, bitStart, bitEnd, firstNonZeroBit)
 	return EffectBlockAddr{

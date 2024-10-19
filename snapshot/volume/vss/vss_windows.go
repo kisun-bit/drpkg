@@ -5,7 +5,7 @@ package vss
 
 import (
 	"fmt"
-	"gitlab.example.com/jrsa/stduio-agents/sysmigrator/pkg/ioctls"
+	"github.com/kisun-bit/drpkg/sys/ioctl"
 	"math"
 	"path/filepath"
 	"runtime"
@@ -1206,7 +1206,7 @@ func QueryVssSnapshot() ([]Snapshot, error) {
 		}
 
 		volID := windows.UTF16PtrToString(props.snapshot.originalVolumeName)
-		drive, _ := ioctls.QueryVolumeDriveNameByVolumeMountPoint(volID)
+		drive, _ := ioctl.QueryVolumeDriveNameByVolumeMountPoint(volID)
 
 		ss = append(ss, Snapshot{
 			DrivePath:       drive,

@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 	"os"
@@ -729,7 +729,7 @@ func QueryDeviceNumber(device string) string {
 		devFile := filepath.Join(SysClassBlock, device, "dev")
 		b, err := os.ReadFile(devFile)
 		if err == nil {
-			return basic.TrimAllSpace(string(b))
+			return util.TrimAllSpace(string(b))
 		}
 	}
 	return ""
@@ -931,7 +931,7 @@ func GrubVersionAndPathForOnlineSystem() (version int, grubInstallPath, grubMkCo
 		match := re.FindStringSubmatch(versionStr)
 		if len(match) > 1 {
 			ver := match[1]
-			verInt64 := basic.MustInt64(string(ver[0]))
+			verInt64 := util.MustInt64(string(ver[0]))
 			if verInt64 > 0 {
 				version = int(verInt64)
 			}

@@ -3,7 +3,7 @@ package ext
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/kisun-bit/drpkg/util/logger"
 	"github.com/pkg/errors"
 	"math"
@@ -124,7 +124,7 @@ func Extract(device string) (clusterSize int, bitmapBinary []byte, err error) {
 				// 说明此块组仅有blocks，无SuperBlock、GDT等等等.
 				// logger.Debugf("EXT2/3/4 Extract(%s) %s. Ignore to fix data bitmap", device, curGroupDesc)
 			} else if needFixBlocks > 0 {
-				basic.SetBits(bitmap, int(needFixBlocks))
+				util.SetBits(bitmap, int(needFixBlocks))
 				logger.Warnf("EXT2/3/4 Extract(%s) %s. fix %v bits",
 					device, curGroupDesc, needFixBlocks)
 			} else {

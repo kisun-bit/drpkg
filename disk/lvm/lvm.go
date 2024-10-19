@@ -2,7 +2,7 @@ package lvm
 
 import (
 	"fmt"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/pkg/errors"
 	"strconv"
 	"strings"
@@ -31,7 +31,7 @@ func lvmProbe() (bool, error) {
 		return false, nil
 	case 0:
 		SupportLVM = true
-		noSpaceOs := strings.Split(basic.TrimAllSpace(o), ":")
+		noSpaceOs := strings.Split(util.TrimAllSpace(o), ":")
 		if len(noSpaceOs) > 1 && unicode.IsDigit(rune(noSpaceOs[1][0])) {
 			LVMMarjorVersion, _ = strconv.Atoi(string(noSpaceOs[1][0]))
 		}

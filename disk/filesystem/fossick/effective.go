@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cespare/xxhash/v2"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/kisun-bit/drpkg/util/logger"
 	"github.com/panjf2000/ants/v2"
 	"github.com/pkg/errors"
@@ -32,7 +32,7 @@ type EffectiveData struct {
 
 func (ed *EffectiveData) Repr() string {
 	return fmt.Sprintf("EffectiveData(Offset=%v,Length=%v,LenBytes=%v,ClusterBitmapStart=%v,ClusterBitmapEnd=%v,md5=%s)",
-		ed.Offset, ed.Length, len(ed.Bytes), ed.ClusterBitmapStart, ed.ClusterBitmapEnd, basic.Md5(ed.Bytes[:ed.Length]))
+		ed.Offset, ed.Length, len(ed.Bytes), ed.ClusterBitmapStart, ed.ClusterBitmapEnd, util.Md5(ed.Bytes[:ed.Length]))
 }
 
 type RIdxes struct {
@@ -104,9 +104,9 @@ func NewEffectiveDataReader(
 		deviceReader:     dReader,
 		deviceStream:     dReader,
 		readerAt:         dReader,
-		referHashIsNil:   basic.IsNil(referHash),
+		referHashIsNil:   util.IsNil(referHash),
 		referHash:        referHash,
-		currentHashIsNil: basic.IsNil(currentHash),
+		currentHashIsNil: util.IsNil(currentHash),
 		currentHash:      currentHash,
 		blockSize:        blockSize,
 		readCores:        readCores,
@@ -151,9 +151,9 @@ func NewEffectiveDataReaderWithStreamAndBitmapIter(
 		logger:           logger,
 		deviceStream:     stream,
 		readerAt:         stream,
-		referHashIsNil:   basic.IsNil(referHash),
+		referHashIsNil:   util.IsNil(referHash),
 		referHash:        referHash,
-		currentHashIsNil: basic.IsNil(currentHash),
+		currentHashIsNil: util.IsNil(currentHash),
 		currentHash:      currentHash,
 		blockSize:        blockSize,
 		readCores:        readCores,
@@ -345,7 +345,7 @@ func (edr *EffectiveDataReader) setError(err error) {
 }
 
 func (edr *EffectiveDataReader) cancelled() bool {
-	return basic.Cancelled(edr.ctx)
+	return util.Cancelled(edr.ctx)
 }
 
 func (edr *EffectiveDataReader) errored() bool {

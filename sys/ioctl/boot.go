@@ -1,8 +1,6 @@
 package ioctl
 
-import (
-	"www.velocidex.com/golang/velociraptor/vql/efi"
-)
+import "github.com/kisun-bit/drpkg/sys/efi"
 
 func IsBootByUEFI() bool {
 	vars, e := efi.GetEfiVariables()

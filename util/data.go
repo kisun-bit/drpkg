@@ -1,11 +1,14 @@
-package basic
+package util
 
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"fmt"
 	"reflect"
+	"runtime"
 	"strconv"
 	"unicode"
+	"unsafe"
 )
 
 func MustInt64(s string) int64 {
@@ -74,18 +77,108 @@ func IsLastCharDigit(s string) bool {
 	return unicode.IsDigit(rune(lastChar))
 }
 
-func IsNil(input interface{}) bool {
-	if input == nil {
+func IsNil(v interface{}) bool {
+	if v == nil {
 		return true
 	}
-	if reflect.TypeOf(input).Kind() == reflect.Ptr && reflect.ValueOf(input).IsNil() {
-		return true
+	switch reflect.TypeOf(v).Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Chan, reflect.Slice:
+		return reflect.ValueOf(v).IsNil()
+	default:
+		return false
 	}
-	return false
+}
+
+func CompareFuncs(a func(), b func()) bool {
+	if a == nil || b == nil {
+		return false
+	}
+
+	name_a := runtime.FuncForPC(reflect.ValueOf(a).Pointer()).Name()
+	name_b := runtime.FuncForPC(reflect.ValueOf(b).Pointer()).Name()
+
+	return name_a == name_b
 }
 
 func Md5(b []byte) string {
 	m := md5.New()
 	m.Write(b)
 	return hex.EncodeToString(m.Sum(nil))
+}
+
+// AllocateBuff 分配一个8字节对齐的字节缓冲区.
+func AllocateBuff(length int) []byte {
+	buffer := make([]byte, length+8)
+	offset := int(uintptr(unsafe.Pointer(&buffer[0])) & uintptr(0xF))
+
+	return buffer[offset:]
+}
+
+func BytesEqual(a []byte, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for idx, a_item := range a {
+		if a_item != b[idx] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func ToString(x interface{}) string {
+	switch t := x.(type) {
+	case string:
+		return t
+
+	case []byte:
+		return string(t)
+
+	case fmt.Stringer:
+		return t.String()
+
+	default:
+		return fmt.Sprintf("%v", x)
+	}
+}
+
+func ToInt64(x interface{}) (int64, bool) {
+	switch t := x.(type) {
+	case bool:
+		if t {
+			return 1, true
+		} else {
+			return 0, true
+		}
+	case int:
+		return int64(t), true
+	case uint8:
+		return int64(t), true
+	case int8:
+		return int64(t), true
+	case uint16:
+		return int64(t), true
+	case int16:
+		return int64(t), true
+	case uint32:
+		return int64(t), true
+	case int32:
+		return int64(t), true
+	case uint64:
+		return int64(t), true
+	case int64:
+		return t, true
+
+	case string:
+		value, err := strconv.ParseInt(t, 0, 64)
+		return value, err == nil
+
+	case float64:
+		return int64(t), true
+
+	default:
+		return 0, false
+	}
 }

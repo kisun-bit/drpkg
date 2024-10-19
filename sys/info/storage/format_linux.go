@@ -8,7 +8,7 @@ import (
 	"github.com/kisun-bit/drpkg/disk/lvm"
 	"github.com/kisun-bit/drpkg/disk/table"
 	"github.com/kisun-bit/drpkg/sys/ioctl"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/sjson"
@@ -300,7 +300,7 @@ func getDiskBrief(diskSharedAttrs LinuxSharedDiskAttrs, diskLabelType string, pv
 			diskSharedAttrs.DiskPath, diskSharedAttrs.VolumeFilesystem, diskSharedAttrs.VolumeMountPath,
 			diskSharedAttrs.VolumeUsedBytes, diskSharedAttrs.VolumeTotalBytes, size)
 	}
-	production := basic.TrimAllSpace(diskSharedAttrs.Model)
+	production := util.TrimAllSpace(diskSharedAttrs.Model)
 	if production == "" {
 		production = "UnknownProduct"
 	}
@@ -308,7 +308,7 @@ func getDiskBrief(diskSharedAttrs LinuxSharedDiskAttrs, diskLabelType string, pv
 		diskSharedAttrs.DiskPath,
 		strings.ToUpper(diskSharedAttrs.BusType),
 		strings.ReplaceAll(diskSharedAttrs.Model, " ", ""),
-		basic.TrimAllSpace(humanize.IBytes(uint64(size))))
+		util.TrimAllSpace(humanize.IBytes(uint64(size))))
 }
 
 func getPartBrief(lvmInfo LinuxLVM, partSharedAttrs LinuxSharedPartAttrs, partSize int64, typeDesc string) string {
@@ -327,16 +327,16 @@ func getPartBrief(lvmInfo LinuxLVM, partSharedAttrs LinuxSharedPartAttrs, partSi
 		return _getPVBrief(partSharedAttrs.VolumePath, pvUsed, pvSize)
 	}
 	return fmt.Sprintf("Part-%s:(Used:--/%s)",
-		basic.TrimAllSpace(typeDesc), basic.TrimAllSpace(humanize.IBytes(uint64(partSize))))
+		util.TrimAllSpace(typeDesc), util.TrimAllSpace(humanize.IBytes(uint64(partSize))))
 }
 
 func _getDiskBrief(path, label, bus, model string, size int64) string {
 	// 格式举例: Disk-/dev/sda3[GPT]:SCSI-VirtualDisk(40GB)
-	production := basic.TrimAllSpace(model)
+	production := util.TrimAllSpace(model)
 	if production == "" {
 		production = "UnknownProduct"
 	}
-	totalHuman := basic.TrimAllSpace(humanize.IBytes(uint64(size)))
+	totalHuman := util.TrimAllSpace(humanize.IBytes(uint64(size)))
 	return fmt.Sprintf("%s-%v[%s]:%s-%s(%s)",
 		"Disk", path, label, strings.ToUpper(bus), production, totalHuman)
 }
@@ -346,7 +346,7 @@ func _getVolumeBrief(path, filesystem_, mountPath string, used, total, partSize 
 	if mountPath == "" {
 		mountPath = "--"
 	}
-	usedDesc := basic.TrimAllSpace(humanize.IBytes(uint64(used)))
+	usedDesc := util.TrimAllSpace(humanize.IBytes(uint64(used)))
 	if used == 0 {
 		usedDesc = "--"
 	}
@@ -354,30 +354,30 @@ func _getVolumeBrief(path, filesystem_, mountPath string, used, total, partSize 
 	if fsDesc == "" {
 		fsDesc = ""
 	}
-	totalDesc := basic.TrimAllSpace(humanize.IBytes(uint64(total)))
+	totalDesc := util.TrimAllSpace(humanize.IBytes(uint64(total)))
 	if total == 0 {
-		totalDesc = basic.TrimAllSpace(humanize.IBytes(uint64(partSize)))
+		totalDesc = util.TrimAllSpace(humanize.IBytes(uint64(partSize)))
 	}
 	return fmt.Sprintf("%s-%s(Mount:%s)%s:(Used/Total:%s/%s)", "Volume", path, mountPath, fsDesc, usedDesc, totalDesc)
 }
 
 func _getPVBrief(path string, used, total int64) string {
 	// 格式举例: PV-/dev/sda3[LVM]:(Used/Total:--/40GB)
-	usedDesc := basic.TrimAllSpace(humanize.IBytes(uint64(used)))
+	usedDesc := util.TrimAllSpace(humanize.IBytes(uint64(used)))
 	if used < 0 {
 		usedDesc = "0B"
 	}
-	totalDesc := basic.TrimAllSpace(humanize.IBytes(uint64(total)))
+	totalDesc := util.TrimAllSpace(humanize.IBytes(uint64(total)))
 	return fmt.Sprintf("%s-%s[LVM]:(Used/Total:%s/%s)", "PV", path, usedDesc, totalDesc)
 }
 
 func _getVGBrief(name string, used, total int64) string {
 	// 格式举例: VG-VolGroup[LVM]:(Used/Total:--/40GB)
-	usedDesc := basic.TrimAllSpace(humanize.IBytes(uint64(used)))
+	usedDesc := util.TrimAllSpace(humanize.IBytes(uint64(used)))
 	if used < 0 {
 		usedDesc = "0B"
 	}
-	totalDesc := basic.TrimAllSpace(humanize.IBytes(uint64(total)))
+	totalDesc := util.TrimAllSpace(humanize.IBytes(uint64(total)))
 	return fmt.Sprintf("%s-%s[LVM]:(Used/Total:%s/%s)", "VG", name, usedDesc, totalDesc)
 }
 
@@ -386,7 +386,7 @@ func _getLVBrief(vgName, lvName, attr, filesystem_, mountPath, pool, origin stri
 	attrBytes, err := lvm.ParseLvAttrs(attr)
 	if err != nil {
 		return fmt.Sprintf("LV-%s/%s[ERROR ATTR]:(Used/Total:--/%s)",
-			vgName, lvName, basic.TrimAllSpace(humanize.IBytes(uint64(lvSize))))
+			vgName, lvName, util.TrimAllSpace(humanize.IBytes(uint64(lvSize))))
 	}
 	if isVolume {
 		return _getVolumeBrief(
@@ -415,6 +415,6 @@ func _getLVBrief(vgName, lvName, attr, filesystem_, mountPath, pool, origin stri
 		vgName,
 		lvName,
 		attr,
-		basic.TrimAllSpace(humanize.IBytes(uint64(lvSize))),
+		util.TrimAllSpace(humanize.IBytes(uint64(lvSize))),
 	)
 }

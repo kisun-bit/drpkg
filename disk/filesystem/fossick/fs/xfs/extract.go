@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/kisun-bit/drpkg/sys/ioctl"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/kisun-bit/drpkg/util/logger"
 	"github.com/lunixbochs/struc"
 	"github.com/masahiro331/go-xfs-filesystem/xfs"
@@ -72,7 +72,7 @@ func Extract(device string) (clusterSize int, bitmapBinary []byte, err error) {
 	logger.Debugf("XFS Extract(%s). Bitmap bytes size is %v", device, bitmapBytesLen)
 	logger.Debugf("XFS Extract(%s). Block size is %v", device, clusterSize)
 
-	basic.SetBits(bitmapBinary, int(xfsHandle.PrimaryAG.SuperBlock.Dblocks))
+	util.SetBits(bitmapBinary, int(xfsHandle.PrimaryAG.SuperBlock.Dblocks))
 
 	// XFS文件系统由一组组AG构成. 每一个AG可以理解为一个小XFS.
 	// |<--------------------            XFS              ----------------------->|
@@ -128,7 +128,7 @@ func Extract(device string) (clusterSize int, bitmapBinary []byte, err error) {
 				ba := agfAbsBlockAddr(i, xfsHandle.PrimaryAG.SuperBlock, rec.StartBlock)
 				for j := uint32(0); j < rec.BlockCount; j++ {
 					idx := ba + int64(j)
-					basic.SetBit(bitmapBinary, idx, false)
+					util.SetBit(bitmapBinary, idx, false)
 				}
 			}
 		}

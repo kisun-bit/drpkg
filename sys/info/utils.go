@@ -2,7 +2,7 @@ package info
 
 import (
 	"fmt"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/gjson"
@@ -23,7 +23,7 @@ func patchUniqueID(jsonInfo, jsonObjPath, uniqueID string) (patchedJsonInfo stri
 		return "", err
 	}
 	patchedJsonInfo, err = sjson.Set(patchedJsonInfo,
-		fmt.Sprintf("%s.unique_id_md5", jsonObjPath), basic.Md5([]byte(uniqueID)))
+		fmt.Sprintf("%s.unique_id_md5", jsonObjPath), util.Md5([]byte(uniqueID)))
 	if err != nil {
 		return "", err
 	}

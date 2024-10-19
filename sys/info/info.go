@@ -8,7 +8,7 @@ import (
 	"github.com/kisun-bit/drpkg/sys/info/network"
 	"github.com/kisun-bit/drpkg/sys/info/storage"
 	"github.com/kisun-bit/drpkg/sys/ioctl"
-	"github.com/kisun-bit/drpkg/util/basic"
+	"github.com/kisun-bit/drpkg/util"
 	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -224,9 +224,9 @@ func NewSystemDebugInfo(json_ string) (debug string) {
 
 	mem_ := gjson.Get(json_, "memory")
 	debugContents = append(debugContents,
-		formatKeyValue("Memory Size", basic.TrimAllSpace(humanize.IBytes(uint64(mem_.Get("total").Int())))),
-		formatKeyValue("Memory Used", basic.TrimAllSpace(humanize.IBytes(uint64(mem_.Get("used").Int())))),
-		formatKeyValue("Memory Avail", basic.TrimAllSpace(humanize.IBytes(uint64(mem_.Get("available").Int())))),
+		formatKeyValue("Memory Size", util.TrimAllSpace(humanize.IBytes(uint64(mem_.Get("total").Int())))),
+		formatKeyValue("Memory Used", util.TrimAllSpace(humanize.IBytes(uint64(mem_.Get("used").Int())))),
+		formatKeyValue("Memory Avail", util.TrimAllSpace(humanize.IBytes(uint64(mem_.Get("available").Int())))),
 	)
 
 	if kernel := gjson.Get(json_, "default_kernel"); kernel.Exists() {
@@ -485,10 +485,10 @@ func generateTargetDevicePath(localDevicePath, localDiskPath, targetDiskPath str
 	if localDevicePath == localDiskPath {
 		return targetDiskPath
 	}
-	if (basic.IsLastCharDigit(localDiskPath) && basic.IsLastCharDigit(targetDiskPath)) ||
-		(!basic.IsLastCharDigit(localDiskPath) && !basic.IsLastCharDigit(targetDiskPath)) {
+	if (util.IsLastCharDigit(localDiskPath) && util.IsLastCharDigit(targetDiskPath)) ||
+		(!util.IsLastCharDigit(localDiskPath) && !util.IsLastCharDigit(targetDiskPath)) {
 		return strings.Replace(localDevicePath, localDiskPath, targetDiskPath, 1)
-	} else if basic.IsLastCharDigit(localDiskPath) && !basic.IsLastCharDigit(targetDiskPath) {
+	} else if util.IsLastCharDigit(localDiskPath) && !util.IsLastCharDigit(targetDiskPath) {
 		return strings.Replace(localDevicePath, localDiskPath+"p", targetDiskPath, 1)
 	} else {
 		return strings.Replace(localDevicePath, localDiskPath, targetDiskPath+"p", 1)
