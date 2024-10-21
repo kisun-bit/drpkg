@@ -182,3 +182,10 @@ func ToInt64(x interface{}) (int64, bool) {
 		return 0, false
 	}
 }
+
+func MaxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
