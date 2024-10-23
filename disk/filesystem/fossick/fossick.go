@@ -40,14 +40,14 @@ func GetFilesystemTypeByStream(stream readAtCloser) (fsType Filesystem, err erro
 	if string(compatibleHeader[0x20:0x20+len(OracleDiskMagic)]) == OracleDiskMagic {
 		return OracleASM, nil
 	}
+	if string(compatibleHeader[80:80+len(FAT32Magic)]) == FAT32Magic {
+		return FAT, nil
+	}
 	if string(compatibleHeader[:len(XFSMagic)]) == XFSMagic {
 		return XFS, nil
 	}
 	if string(compatibleHeader[:len(NTFSMagic)]) == NTFSMagic {
 		return NTFS, nil
-	}
-	if string(compatibleHeader[:len(FAT32Magic)]) == FAT32Magic {
-		return FAT, nil
 	}
 	if string(compatibleHeader[:len(BTRFSMagic)]) == BTRFSMagic {
 		return BTRFS, nil
