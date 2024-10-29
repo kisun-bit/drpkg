@@ -76,7 +76,7 @@ func Extract(device string) (clusterSize int, bitmapBinary []byte, err error) {
 		curGroupDesc := fmt.Sprintf("Group%v(%v-%v)",
 			blockGroupIndex, blockGroupIndex*numbBlocksPerGroup, (blockGroupIndex+1)*numbBlocksPerGroup-1)
 
-		// 获取当前块组的块位图所处的快组编号（注意当前快组的块位图不一定位于当前快组）.
+		// 获取当前块组的块位图所处的块组编号（注意当前块组的块位图不一定位于当前块组）.
 		superBlockSize := (1024/blockSize + 1) * blockSize
 		descriptorLocation := superBlockSize + blockGroupIndex*groupDescriptorSize // GDT在SuperBlock之后.
 		descriptor := make([]byte, groupDescriptorSize)
@@ -116,8 +116,8 @@ func Extract(device string) (clusterSize int, bitmapBinary []byte, err error) {
 		// logger.Debugf("EXT2/3/4 Extract(%s) %s. Data-bitmap(Location at %v) is\n%s",
 		//	 device, curGroupDesc, bitmapBlockLowLoc, hex.Dump(bitmap))
 
-		// 块组的数据位图为空时, 强制修正快组位图，从而保证EXT2/3/4的基本结构.
-		// 保证SuperBlock至第一个可用块之间的位图点全部为1. 除非, 第一个可用块的块号恰好是此快组的起始索引, 便不做修正.
+		// 块组的数据位图为空时, 强制修正块组位图，从而保证EXT2/3/4的基本结构.
+		// 保证SuperBlock至第一个可用块之间的位图点全部为1. 除非, 第一个可用块的块号恰好是此块组的起始索引, 便不做修正.
 		if bitmap[0]&0b11000000 != 0b11000000 {
 			needFixBlocks := firstUnusedBlockLocation - blockGroupIndex*numbBlocksPerGroup
 			if needFixBlocks == 0 {
