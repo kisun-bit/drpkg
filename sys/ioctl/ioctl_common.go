@@ -10,7 +10,7 @@ func IsVirtualGuest() bool {
 	isXen := strings.Contains(lowerManu, "xen")
 	isHyperV := strings.Contains(lowerManu, "microsoft corporation")
 	isVitualBox := strings.Contains(lowerManu, "oracle corporation")
-	isKVM := strings.Contains(lowerManu, "red hat, inc.")
+	isKVM := strings.Contains(lowerManu, "red hat")
 	isGoogleCloud := strings.Contains(lowerManu, "google")
 	isAmazonEC2 := strings.Contains(lowerManu, "amazon ec2")
 
