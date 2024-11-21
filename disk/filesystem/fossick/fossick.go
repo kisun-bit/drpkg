@@ -43,6 +43,9 @@ func GetFilesystemTypeByStream(stream readAtCloser) (fsType Filesystem, err erro
 	if string(compatibleHeader[80:80+len(FAT32Magic)]) == FAT32Magic {
 		return FAT, nil
 	}
+	if string(compatibleHeader[52:52+len(FAT16Magic)]) == FAT16Magic {
+		return VFAT, nil
+	}
 	if string(compatibleHeader[:len(XFSMagic)]) == XFSMagic {
 		return XFS, nil
 	}

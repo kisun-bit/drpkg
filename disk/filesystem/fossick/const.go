@@ -4,6 +4,7 @@ const (
 	Unknown   Filesystem = "raw"
 	NTFS      Filesystem = "ntfs"
 	FAT       Filesystem = "fat"
+	VFAT      Filesystem = "vfat"
 	EXT       Filesystem = "ext2/3/4" // 没有较好地办法从superblock域中区分这三种文件系统, 参考:https://unix.stackexchange.com/questions/123009/reliable-way-to-detect-ext2-or-ext3-or-ext4
 	XFS       Filesystem = "xfs"
 	OracleASM Filesystem = "oracle-asm"
@@ -16,6 +17,7 @@ const (
 const (
 	EXTMagic        = "\x53\xEF"
 	FAT32Magic      = "\x20\x20\x46\x41\x54\x33\x32\x20\x20\x20"
+	FAT16Magic      = "\x20\x20\x46\x41\x54\x31\x36\x20\x20\x20"
 	NTFSMagic       = "\xEB\x52\x90\x4E\x54\x46\x53"
 	XFSMagic        = "\x58\x46\x53\x42"
 	BTRFSMagic      = "\x5F\xB7\xE1\x82"
