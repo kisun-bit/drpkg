@@ -600,7 +600,8 @@ func IsEncryptedByBitlocker(diskPath string, volumeStartOffset int64) (bool, err
 	}
 
 	bitlockerBytes := make([]byte, 4096)
-	if err = windows.ReadFile(handle, bitlockerBytes, nil, nil); err != nil {
+	var done uint32
+	if err = windows.ReadFile(handle, bitlockerBytes, &done, nil); err != nil {
 		return false, errors.Wrapf(err, "read device")
 	}
 	if string(bitlockerBytes[:11]) == "\xEB\x58\x90\x2D\x46\x56\x45\x2D\x46\x53\x2D" {
