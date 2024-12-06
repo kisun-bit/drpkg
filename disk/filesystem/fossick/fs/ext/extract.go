@@ -3,7 +3,6 @@ package ext
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/kisun-bit/drpkg/util"
 	"github.com/kisun-bit/drpkg/util/logger"
 	"github.com/pkg/errors"
 	"math"
@@ -94,12 +93,23 @@ func Extract(device string) (clusterSize int, bitmapBinary []byte, err error) {
 			dataBitmapLocation = (dataBitmapHighLocation<<32 | dataBitmapLowLocation) * blockSize
 		}
 
+		// 检查ext4文件系统的bgFlags标记，判定其是否存在BLOCK_UNINIT(0x2)属性.
+		dataBitmapInitialized := true
+		if groupDescriptorSize != 32 {
+			bgFlags := binary.LittleEndian.Uint16(descriptor[0x12:0x14])
+			if bgFlags&0x2 != 0 {
+				dataBitmapInitialized = false
+			}
+		}
+
 		// 获取位图.
 		bitmap := make([]byte, blockSize)
-		_, err = deviceHandle.ReadAt(bitmap, dataBitmapLocation)
-		if err != nil {
-			return 0, nil, errors.Errorf(
-				"failed to read bitmap from %s", curGroupDesc)
+		if dataBitmapInitialized {
+			_, err = deviceHandle.ReadAt(bitmap, dataBitmapLocation)
+			if err != nil {
+				return 0, nil, errors.Errorf(
+					"failed to read bitmap from %s", curGroupDesc)
+			}
 		}
 
 		// 获取第一个可用块数的Block位置.
@@ -116,23 +126,24 @@ func Extract(device string) (clusterSize int, bitmapBinary []byte, err error) {
 		// logger.Debugf("EXT2/3/4 Extract(%s) %s. Data-bitmap(Location at %v) is\n%s",
 		//	 device, curGroupDesc, bitmapBlockLowLoc, hex.Dump(bitmap))
 
+		_ = firstUnusedBlockLocation
 		// 块组的数据位图为空时, 强制修正块组位图，从而保证EXT2/3/4的基本结构.
 		// 保证SuperBlock至第一个可用块之间的位图点全部为1. 除非, 第一个可用块的块号恰好是此块组的起始索引, 便不做修正.
-		if bitmap[0]&0b11000000 != 0b11000000 {
-			needFixBlocks := firstUnusedBlockLocation - blockGroupIndex*numbBlocksPerGroup
-			if needFixBlocks == 0 {
-				// 说明此块组仅有blocks，无SuperBlock、GDT等等等.
-				// logger.Debugf("EXT2/3/4 Extract(%s) %s. Ignore to fix data bitmap", device, curGroupDesc)
-			} else if needFixBlocks > 0 {
-				util.SetBits(bitmap, int(needFixBlocks))
-				logger.Warnf("EXT2/3/4 Extract(%s) %s. fix %v bits",
-					device, curGroupDesc, needFixBlocks)
-			} else {
-				return 0, nil, errors.Errorf(
-					"failed to fix bitmap from %s, invalid first unused block index %v",
-					curGroupDesc, firstUnusedBlockLocation)
-			}
-		}
+		//if bitmap[0]&0b11000000 != 0b11000000 {
+		//	needFixBlocks := firstUnusedBlockLocation - blockGroupIndex*numbBlocksPerGroup
+		//	if needFixBlocks == 0 {
+		//		// 说明此块组仅有blocks，无SuperBlock、GDT等等等.
+		//		// logger.Debugf("EXT2/3/4 Extract(%s) %s. Ignore to fix data bitmap", device, curGroupDesc)
+		//	} else if needFixBlocks > 0 {
+		//		util.SetBits(bitmap, int(needFixBlocks))
+		//		logger.Warnf("EXT2/3/4 Extract(%s) %s. fix %v bits",
+		//			device, curGroupDesc, needFixBlocks)
+		//	} else {
+		//		return 0, nil, errors.Errorf(
+		//			"failed to fix bitmap from %s, invalid first unused block index %v",
+		//			curGroupDesc, firstUnusedBlockLocation)
+		//	}
+		//}
 
 		// 位图信息整合.
 		bitmapBinary = append(bitmapBinary, bitmap...)
