@@ -1,0 +1,94 @@
+package others
+
+import (
+	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"reflect"
+	"unicode"
+)
+
+// SetBits 设置位图前numBits个比特为1
+func SetBits(array []byte, numBits int) {
+	byteIndex := numBits / 8
+	bitOffset := numBits % 8
+
+	for i := 0; i < byteIndex; i++ {
+		array[i] = 0xFF
+	}
+
+	if bitOffset > 0 {
+		mask := byte(0xFF << (8 - bitOffset))
+		array[byteIndex] |= mask
+	}
+}
+
+// SetBit 设置位图，i从0开始
+func SetBit(array []byte, i int64, v bool) {
+	index := i / 8
+	bit := int(7 - i%8)
+
+	if v {
+		array[index] |= 1 << bit
+	} else {
+		array[index] &= ^(1 << bit)
+	}
+}
+
+// ExistedNonZeroBit 遍历字节数组的指定比特区间，返回首个非0比特位索引
+func ExistedNonZeroBit(array []byte, startBit, endBit int64) (firstNonZeroBitIdx int64, existed bool) {
+	totalBit := int64(len(array)) * 8
+	if startBit > totalBit {
+		return 0, false
+	}
+	if endBit > totalBit {
+		endBit = totalBit - 1
+	}
+
+	for bitIndex := startBit; bitIndex < endBit; bitIndex++ {
+		byteIndex := bitIndex / 8
+		bitPosition := bitIndex % 8
+
+		if array[byteIndex]&(1<<(7-bitPosition)) != 0 {
+			return bitIndex, true
+		}
+	}
+	return 0, false
+}
+
+// StringEndWithDigit 判断字符串的最后一个字符是否是数字
+func StringEndWithDigit(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+
+	lastChar := s[len(s)-1]
+	return unicode.IsDigit(rune(lastChar))
+}
+
+// Md5 计算md5
+func Md5(b []byte) string {
+	m := md5.New()
+	m.Write(b)
+	return hex.EncodeToString(m.Sum(nil))
+}
+
+// IsNilType 判断变量是否是空指针
+func IsNilType(input interface{}) bool {
+	if input == nil {
+		return true
+	}
+	if reflect.TypeOf(input).Kind() == reflect.Ptr && reflect.ValueOf(input).IsNil() {
+		return true
+	}
+	return false
+}
+
+func IsContextDone(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
