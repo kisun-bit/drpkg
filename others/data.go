@@ -8,6 +8,39 @@ import (
 	"unicode"
 )
 
+type Number interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
+		~float64 | ~float32
+}
+
+// Min 返回一组数的最小值
+func Min[T Number](nums ...T) T {
+	if len(nums) == 0 {
+		return T(0)
+	}
+	min := nums[0]
+	for _, v := range nums[1:] {
+		if v < min {
+			min = v
+		}
+	}
+	return min
+}
+
+// Max 返回一组数中的最大值
+func Max[T Number](nums ...T) T {
+	if len(nums) == 0 {
+		return T(0)
+	}
+	max := nums[0]
+	for _, v := range nums[1:] {
+		if v > max {
+			max = v
+		}
+	}
+	return max
+}
+
 // SetBits 设置位图前numBits个比特为1
 func SetBits(array []byte, numBits int) {
 	byteIndex := numBits / 8
