@@ -23,10 +23,23 @@ func ExecDir() string {
 	return dir
 }
 
-const windowsDiskObjPrefix = `\\.\PHYSICALDRIVE`
+const (
+	windowsDiskObjPrefix         = `\\.\PHYSICALDRIVE`
+	windowsVolumeShadowObjPrefix = `\\?\GLOBALROOT\DEVICE\HARDDISKVOLUMESHADOWCOPY`
+	windowsVolumeObjPrefix       = `\\?\VOLUME`
+)
 
 func IsWindowsDisk(path string) bool {
 	return strings.HasPrefix(strings.ToUpper(path), windowsDiskObjPrefix)
+}
+
+func IsWindowsVolumeShadow(path string) bool {
+	return strings.HasPrefix(strings.ToUpper(path), windowsVolumeShadowObjPrefix)
+}
+
+func IsWindowsVolume(path string) bool {
+	upperPath := strings.ToUpper(path)
+	return strings.HasSuffix(path, `:\`) || strings.HasPrefix(upperPath, windowsVolumeObjPrefix)
 }
 
 // WindowsDiskPathFromID 基于Windows磁盘ID去生成磁盘路径
@@ -94,6 +107,10 @@ func CopyFile(src, dst string) (int64, error) {
 	}()
 
 	return io.Copy(destination, source)
+}
+
+func FileSize(path string) (size uint64, err error) {
+	return GetFileSize(path)
 }
 
 func getCurrentDirByExecutable() string {
