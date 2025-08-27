@@ -5,7 +5,6 @@ go 1.20
 require (
 	github.com/pkg/errors v0.9.1
 	go.uber.org/zap v1.27.0
-	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b
 	golang.org/x/sys v0.28.0
 	google.golang.org/grpc v1.65.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
