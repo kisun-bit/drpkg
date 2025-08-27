@@ -14,9 +14,7 @@ import (
 )
 
 func NewFileLogWriter(path string, maxSize, maxAge, maxBackups int) *lumberjack.Logger {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		panic(fmt.Sprintf("无法创建日志目录: %v", err))
-	}
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	return &lumberjack.Logger{
 		Filename:   path,
 		MaxSize:    maxSize,
