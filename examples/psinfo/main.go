@@ -1,7 +1,8 @@
 package main
 
 import (
-	"github.com/davecgh/go-spew/spew"
+	"fmt"
+
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/info"
 )
@@ -11,5 +12,5 @@ func main() {
 	if err != nil {
 		logger.Fatal(err)
 	}
-	spew.Dump(psi)
+	fmt.Println(psi.String())
 }
