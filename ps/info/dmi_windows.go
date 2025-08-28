@@ -4,19 +4,19 @@ import (
 	wmi_ "github.com/yusufpapurcu/wmi"
 )
 
-func QueryDmi() (*DmiInfo, error) {
+func QueryDmi() (DmiInfo, error) {
 	var bios []Win32_BIOS
 	var baseboard []Win32_BaseBoard
 	var systemProduct []Win32_ComputerSystemProduct
 
 	if err := wmi_.Query("SELECT Manufacturer, SerialNumber, SMBIOSBIOSVersion, ReleaseDate FROM Win32_BIOS", &bios); err != nil {
-		return nil, err
+		return DmiInfo{}, err
 	}
 	if err := wmi_.Query("SELECT Manufacturer, Product, SerialNumber, Version FROM Win32_BaseBoard", &baseboard); err != nil {
-		return nil, err
+		return DmiInfo{}, err
 	}
 	if err := wmi_.Query("SELECT UUID, IdentifyingNumber, Vendor, Version, SKUNumber, Name FROM Win32_ComputerSystemProduct", &systemProduct); err != nil {
-		return nil, err
+		return DmiInfo{}, err
 	}
 
 	_fixVal := func(_val string) string {
@@ -26,7 +26,8 @@ func QueryDmi() (*DmiInfo, error) {
 		return _val
 	}
 
-	di := new(DmiInfo)
+	di := DmiInfo{}
+
 	if len(bios) > 0 {
 		di.BIOSVendor = _fixVal(bios[0].Manufacturer)
 		di.BIOSVersion = _fixVal(bios[0].SMBIOSBIOSVersion)

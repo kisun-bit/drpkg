@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func QueryDmi() (*DmiInfo, error) {
+func QueryDmi() (DmiInfo, error) {
 	_readDmiVal := func(_name string) string {
 		if _val, _e := os.ReadFile("/sys/class/dmi/id/" + _name); _e == nil {
 			if string(_val) == "To be filled by O.E.M." {
@@ -16,7 +16,7 @@ func QueryDmi() (*DmiInfo, error) {
 		return ""
 	}
 
-	di := new(DmiInfo)
+	di := DmiInfo{}
 	di.BIOSVendor = _readDmiVal("bios_vendor")
 	di.BIOSVersion = _readDmiVal("bios_version")
 	di.BIOSDate = _readDmiVal("bios_date")

@@ -37,11 +37,15 @@ func UnameR() (string, error) {
 }
 
 func SystemManufacturer() string {
-	_, out, e := command.Execute("dmidecode -s system-manufacturer")
-	if e != nil {
+	r, out, _ := command.Execute("dmidecode -s system-manufacturer")
+	if r == 0 {
+		return strings.TrimSpace(out)
+	}
+	dmi, err := QueryDmi()
+	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(out)
+	return dmi.SystemName
 }
 
 func QueryLinuxKernels(rootDir string) ([]LinuxKernel, error) {

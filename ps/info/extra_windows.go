@@ -4,7 +4,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v3/process"
+	"golang.org/x/sys/windows/registry"
 )
 
 func IsMemoryOS() bool {
@@ -23,7 +25,7 @@ func IsMemoryOS() bool {
 }
 
 func QueryLinuxKernels(_ string) ([]LinuxKernel, error) {
-	return []string{}, nil
+	return []LinuxKernel{}, nil
 }
 
 func UnameR() (string, error) {
