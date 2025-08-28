@@ -4,6 +4,29 @@ import (
 	wmi_ "github.com/yusufpapurcu/wmi"
 )
 
+type Win32_BIOS struct {
+	Manufacturer      string
+	SerialNumber      string
+	SMBIOSBIOSVersion string
+	ReleaseDate       string
+}
+
+type Win32_BaseBoard struct {
+	Manufacturer string
+	Product      string
+	SerialNumber string
+	Version      string
+}
+
+type Win32_ComputerSystemProduct struct {
+	UUID              string
+	IdentifyingNumber string
+	Vendor            string
+	Version           string
+	SKUNumber         string
+	Name              string
+}
+
 func QueryDmi() (DmiInfo, error) {
 	var bios []Win32_BIOS
 	var baseboard []Win32_BaseBoard

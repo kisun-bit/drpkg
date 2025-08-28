@@ -7,19 +7,19 @@ import (
 )
 
 type LinuxKernel struct {
-	Name      string
-	Vmlinuz   string
-	SystemMap string
-	Config    string
-	Initrd    string
-	Bootable  bool
-	Default   bool
+	Name      string `json:"name"`
+	Vmlinuz   string `json:"vmlinuz"`
+	SystemMap string `json:"systemMap"`
+	Config    string `json:"config"`
+	Initrd    string `json:"initrd"`
+	Bootable  bool   `json:"bootable"`
+	Default   bool   `json:"default"`
 }
 
 type LinuxRelease struct {
-	Distro    string
-	ReleaseID string
-	Version   string
+	Distro    string `json:"distro"`
+	ReleaseID string `json:"releaseId"`
+	Version   string `json:"version"`
 }
 
 func IsVirtualHost(manufacturer string) bool {

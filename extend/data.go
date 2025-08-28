@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"reflect"
+	"strings"
 	"unicode"
 )
 
@@ -124,4 +125,14 @@ func IsContextDone(ctx context.Context) bool {
 	default:
 		return false
 	}
+}
+
+func IsWinGUIDFormat(guid string) bool {
+	if !strings.HasPrefix(guid, "{") || !strings.HasSuffix(guid, "}") {
+		return false
+	}
+	if len(guid) != len("{XXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}") {
+		return false
+	}
+	return true
 }
