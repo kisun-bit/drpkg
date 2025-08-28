@@ -24,6 +24,7 @@ type LinuxRelease struct {
 
 type LinuxSwap struct {
 	Filename string `json:"filename"`
+	Device   string `json:"device"`
 	Type     string `json:"type"`
 	Size     int64  `json:"size"`
 	Used     int64  `json:"used"`

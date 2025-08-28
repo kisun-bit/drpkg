@@ -184,8 +184,13 @@ func QuerySwapInfo() (ss []LinuxSwap, err error) {
 			Priority: int(extend.MustInt64(lineItems[4])),
 		}
 		if strings.HasPrefix(s.Filename, "/dev") {
+			s.Device = s.Filename
 			s.UUID = extend.MatchDevLinkName("/dev/disk/by-uuid", filepath.Base(s.Filename))
 			s.Label = extend.MatchDevLinkName("/dev/disk/by-label", filepath.Base(s.Filename))
+			if strings.HasPrefix(filepath.Base(s.Filename), "dm-") {
+				dmName := extend.MatchDevLinkName("/dev/mapper", filepath.Base(s.Filename))
+				s.Device = filepath.Join("/dev/mapper", dmName)
+			}
 		}
 		ss = append(ss, s)
 	}
