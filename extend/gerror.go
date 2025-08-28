@@ -1,4 +1,4 @@
-package others
+package extend
 
 import "sync"
 

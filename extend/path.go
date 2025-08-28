@@ -1,7 +1,6 @@
-package others
+package extend
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +10,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 // ExecDir 返回程序运行的目录
@@ -79,6 +80,42 @@ func IsDir(path string) bool {
 	return false
 }
 
+// IsLinkTargetExisted 链接目标文件是否存在
+func IsLinkTargetExisted(searchDir, name string, recursive bool) bool {
+	var found bool
+	var walkFunc filepath.WalkFunc = func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return err
+			}
+			if filepath.Base(target) == name {
+				found = true
+				return filepath.SkipDir
+			}
+		}
+		if !recursive && info.IsDir() && path != searchDir {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+	err := filepath.Walk(searchDir, walkFunc)
+	if err != nil {
+		return false
+	}
+	return found
+}
+
+func FilenameIfExisted(path string) string {
+	if IsExisted(path) {
+		return filepath.Base(path)
+	}
+	return ""
+}
+
 // CopyFile 拷贝文件
 func CopyFile(src, dst string) (int64, error) {
 	stat, err := os.Stat(src)
@@ -107,6 +144,19 @@ func CopyFile(src, dst string) (int64, error) {
 	}()
 
 	return io.Copy(destination, source)
+}
+
+func GlobReadFiles(globPath string) string {
+	files, _ := filepath.Glob(globPath)
+	var output []string
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		output = append(output, string(data))
+	}
+	return strings.TrimSpace(strings.Join(output, "\n"))
 }
 
 func FileSize(path string) (size uint64, err error) {

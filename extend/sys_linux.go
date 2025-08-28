@@ -1,4 +1,13 @@
-package others
+package extend
+
+import (
+	"os"
+	"runtime"
+	"syscall"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
+)
 
 func GetFileSize(fileName string) (size uint64, err error) {
 	var errno syscall.Errno
