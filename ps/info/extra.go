@@ -3,7 +3,7 @@ package info
 import (
 	"strings"
 
-	"github.com/kisun-bit/drpkg/ps/efi/efi"
+	"github.com/kisun-bit/drpkg/ps/efi"
 )
 
 type LinuxKernel struct {
