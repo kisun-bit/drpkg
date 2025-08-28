@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kisun-bit/drpkg/command"
 	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v3/process"
 	"golang.org/x/sys/windows/registry"
@@ -54,4 +55,9 @@ func SystemManufacturer() string {
 
 func QuerySwapInfo() (_ []LinuxSwap, _ error) {
 	return nil, nil
+}
+
+func SupportCPUVirtual() bool {
+	_, o, _ := command.Execute("wmic cpu get VirtualizationFirmwareEnabled")
+	return strings.Contains(o, "TRUE")
 }

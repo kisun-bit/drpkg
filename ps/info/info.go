@@ -20,6 +20,8 @@ type PublicInfo struct {
 	IsVirtualHost bool `json:"isVirtualHost"`
 	// BootType 启动类型(bios、uefi)
 	BootType string `json:"bootType"`
+	// EnableVTX 是否支持虚拟cpu
+	EnableVTX bool `json:"enableVTX"`
 	// IFList 网卡信息
 	IFList []IF `json:"ifList"`
 }
@@ -31,6 +33,7 @@ type PrivateInfo struct {
 
 type LinuxPrivateInfo struct {
 	Effective bool          `json:"effective"`
+	EfiDir    string        `json:"efiDir"`
 	Kernels   []LinuxKernel `json:"kernels"`
 	Release   LinuxRelease  `json:"release"`
 	Swaps     []LinuxSwap   `json:"swaps"`
@@ -70,6 +73,7 @@ func (p *PSInfo) fillPublicInfo() (err error) {
 	p.Public.IsMemoryOS = IsMemoryOS()
 	p.Public.IsVirtualHost = IsVirtualHost(p.Public.DmiInfo.SystemName)
 	p.Public.BootType = QueryBootType()
+	p.Public.EnableVTX = SupportCPUVirtual()
 	if p.Public.IFList, err = QueryIFList(); err != nil {
 		return err
 	}

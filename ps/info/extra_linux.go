@@ -196,3 +196,99 @@ func QuerySwapInfo() (ss []LinuxSwap, err error) {
 	}
 	return ss, nil
 }
+
+// SupportCPUVirtual 是否支持CPU虚拟化
+// 如Intel VT-x、AMD-V
+func SupportCPUVirtual() bool {
+	_, out, _ := command.Execute("egrep -o 'vmx|svm' /proc/cpuinfo")
+	return strings.Contains(out, "vmx") || strings.Contains(out, "svm")
+}
+
+func QueryEfiDir(rootDir string, releaseID string) string {
+	defaultEFIDir := filepath.Join(rootDir, "boot/efi/EFI")
+	if !extend.IsExisted(defaultEFIDir) {
+		return ""
+	}
+	des, err := os.ReadDir(defaultEFIDir)
+	if err != nil {
+		return ""
+	}
+	for _, d := range des {
+		if len(des) == 1 {
+			return filepath.Join(defaultEFIDir, d.Name())
+		}
+		if len(des) == 2 {
+			if strings.ToLower(d.Name()) != "boot" {
+				return filepath.Join(defaultEFIDir, d.Name())
+			}
+			continue
+		}
+		if strings.ToLower(releaseID) == strings.ToLower(d.Name()) {
+			return filepath.Join(defaultEFIDir, d.Name())
+		}
+	}
+	return ""
+}
+
+func QueryGRUB(root string, bootByEfi bool) (cfgPath string, grubVersion int, err error) {
+	if isUEFI && efiDirName == "" {
+		return "", 0, errors.New("when booting with UEFI, the efi directory must exist")
+	}
+
+	// NOTE:
+	// 通过配置文件路径确定grubVersion的版本是不健壮的.
+
+	offlineBootDir := filepath.Join(root, "boot")
+	offlineEFIBootDir := filepath.Join(root, "boot/efi/EFI", efiDirName)
+
+	cfgMaybe := ""
+	if isUEFI {
+		cfgMaybe = filepath.Join(offlineEFIBootDir, "grub.cfg")
+		if pathIsFile(cfgMaybe) {
+			return chrootPath(root, cfgMaybe), 2, nil
+		}
+		// 尝试从/etc/grub2-efi.cfg进行探测.
+		etcGRUBEFIFile := filepath.Join(root, "etc", "grub2-efi.cfg")
+		if path, e := resolveSymlink(etcGRUBEFIFile); e == nil {
+			return chrootPath(root, path), 2, nil
+		}
+		// 仍然未找到, 那么就以关键路径逐一猜测.
+	}
+
+	cfgMaybe = filepath.Join(offlineBootDir, "grub2", "grub.cfg")
+	if pathIsFile(cfgMaybe) {
+		return chrootPath(root, cfgMaybe), 2, nil
+	}
+
+	// ubuntu 系列是如此.
+	cfgMaybe = filepath.Join(offlineBootDir, "grub", "grub.cfg")
+	if pathIsFile(cfgMaybe) {
+		return chrootPath(root, cfgMaybe), 2, nil
+	}
+
+	// grub一定是Legacy版本.
+	cfgMaybe = filepath.Join(offlineBootDir, "grub", "grub.conf")
+	if pathIsFile(cfgMaybe) {
+		return chrootPath(root, cfgMaybe), 1, nil
+	}
+
+	// grub一定是Legacy版本.
+	cfgMaybe = filepath.Join(offlineBootDir, "grub", "menu.lst")
+	if pathIsFile(cfgMaybe) {
+		return chrootPath(root, cfgMaybe), 1, nil
+	}
+
+	// 尝试从/etc/grub2.cfg进行探测.
+	etcGRUB2File := filepath.Join(root, "etc", "grub2.cfg")
+	if path, e := resolveSymlink(etcGRUB2File); e == nil {
+		return chrootPath(root, path), 2, nil
+	}
+
+	// 尝试从/etc/grub.conf进行探测.
+	etcGRUBFile := filepath.Join(root, "etc", "grub.conf")
+	if path, e := resolveSymlink(etcGRUBFile); e == nil {
+		return chrootPath(root, path), 2, nil
+	}
+
+	return "", 0, errors.New("failed to find grub config file")
+}
