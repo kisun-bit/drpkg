@@ -33,6 +33,7 @@ type LinuxPrivateInfo struct {
 	Effective bool          `json:"effective"`
 	Kernels   []LinuxKernel `json:"kernels"`
 	Release   LinuxRelease  `json:"release"`
+	Swaps     []LinuxSwap   `json:"swaps"`
 }
 
 type WindowsPrivateInfo struct {
@@ -83,7 +84,11 @@ func (p *PSInfo) fillPrivateInfo() (err error) {
 			return err
 		}
 		p.Private.Linux.Release = QueryLinuxRelease("/")
-
+		if p.Private.Linux.Swaps, err = QuerySwapInfo(); err != nil {
+			return err
+		}
+	case "windows":
+		p.Private.Windows.Effective = true
 	}
 	return nil
 }

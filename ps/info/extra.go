@@ -22,6 +22,16 @@ type LinuxRelease struct {
 	Version   string `json:"version"`
 }
 
+type LinuxSwap struct {
+	Filename string `json:"filename"`
+	Type     string `json:"type"`
+	Size     int64  `json:"size"`
+	Used     int64  `json:"used"`
+	Priority int    `json:"priority"`
+	UUID     string `json:"uuid"`
+	Label    string `json:"label"`
+}
+
 func IsVirtualHost(manufacturer string) bool {
 	lowerManu := strings.ToLower(manufacturer)
 

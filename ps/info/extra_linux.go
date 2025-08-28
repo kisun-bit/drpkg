@@ -165,3 +165,29 @@ func QueryLinuxRelease(rootDir string) LinuxRelease {
 	lr.Distro = lr.ReleaseID + lr.Version
 	return lr
 }
+
+func QuerySwapInfo() (ss []LinuxSwap, err error) {
+	bs, err := os.ReadFile("/proc/swaps")
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(string(bs), "\n") {
+		lineItems := strings.Fields(line)
+		if len(lineItems) < 5 || len(lineItems) > 0 && !strings.HasPrefix(lineItems[0], "/") {
+			continue
+		}
+		s := LinuxSwap{
+			Filename: lineItems[0],
+			Type:     lineItems[1],
+			Size:     extend.MustInt64(lineItems[2]) * 1024,
+			Used:     extend.MustInt64(lineItems[3]) * 1024,
+			Priority: int(extend.MustInt64(lineItems[4])),
+		}
+		if strings.HasPrefix(s.Filename, "/dev") {
+			s.UUID = extend.MatchDevLinkName("/dev/disk/by-uuid", filepath.Base(s.Filename))
+			s.Label = extend.MatchDevLinkName("/dev/disk/by-label", filepath.Base(s.Filename))
+		}
+		ss = append(ss, s)
+	}
+	return ss, nil
+}

@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"reflect"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -12,6 +13,11 @@ import (
 type Number interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
 		~float64 | ~float32
+}
+
+func MustInt64(s string) int64 {
+	i, _ := strconv.ParseInt(s, 10, 64)
+	return i
 }
 
 // Min 返回一组数的最小值

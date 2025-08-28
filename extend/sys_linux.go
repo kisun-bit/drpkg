@@ -2,6 +2,7 @@ package extend
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"unsafe"
@@ -36,4 +37,25 @@ func GetFileSize(fileName string) (size uint64, err error) {
 	} else {
 		return uint64(info.Size()), nil
 	}
+}
+
+func MatchDevLinkName(base string, deviceName string) string {
+	if IsExisted(base) {
+		files, err := os.ReadDir(base)
+		if err != nil {
+			return ""
+		}
+		for _, file := range files {
+			filename := file.Name()
+			path := filepath.Join(base, filename)
+			linkTarget, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return ""
+			}
+			if linkTarget == filepath.Join("/dev", deviceName) {
+				return filename
+			}
+		}
+	}
+	return ""
 }

@@ -88,3 +88,7 @@ func OpenDevice(path string) (windows.Handle, error) {
 		0,
 	)
 }
+
+func MatchDevLinkName(_ string, _ string) string {
+	return ""
+}

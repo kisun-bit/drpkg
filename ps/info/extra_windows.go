@@ -51,3 +51,7 @@ func SystemManufacturer() string {
 	}
 	return val
 }
+
+func QuerySwapInfo() (_ []LinuxSwap, _ error) {
+	return nil, nil
+}
