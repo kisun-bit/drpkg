@@ -3,6 +3,7 @@ package info
 import (
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/kisun-bit/drpkg/ps/efi"
 )
 
@@ -63,4 +64,13 @@ func QueryBootType() string {
 		return "uefi"
 	}
 	return "bios"
+}
+
+func QueryEfiDir(rootDir string, releaseID string) string {
+	efiVars, e := efi.GetEfiVariables()
+	if e == nil && len(efiVars) > 0 {
+		return ""
+	}
+	spew.Dump(efiVars)
+	return ""
 }

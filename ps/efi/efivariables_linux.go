@@ -4,7 +4,7 @@ package efi
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
 )
 
@@ -12,7 +12,7 @@ const efiPath = "/sys/firmware/efi/efivars/"
 
 func GetEfiVariables() ([]EfiVariable, error) {
 	var result []EfiVariable
-	files, err := ioutil.ReadDir(efiPath)
+	files, err := os.ReadDir(efiPath)
 	if err != nil {
 		return nil, err
 	}
@@ -35,5 +35,5 @@ func GetEfiVariables() ([]EfiVariable, error) {
 func GetEfiVariableValue(namespace string, name string) ([]byte, error) {
 	namespace = strings.Trim(namespace, "{}")
 
-	return ioutil.ReadFile(fmt.Sprintf("%s%s-%s", efiPath, name, namespace))
+	return os.ReadFile(fmt.Sprintf("%s%s-%s", efiPath, name, namespace))
 }

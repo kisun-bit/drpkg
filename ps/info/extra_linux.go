@@ -204,32 +204,6 @@ func SupportCPUVirtual() bool {
 	return strings.Contains(out, "vmx") || strings.Contains(out, "svm")
 }
 
-func QueryEfiDir(rootDir string, releaseID string) string {
-	defaultEFIDir := filepath.Join(rootDir, "boot/efi/EFI")
-	if !extend.IsExisted(defaultEFIDir) {
-		return ""
-	}
-	des, err := os.ReadDir(defaultEFIDir)
-	if err != nil {
-		return ""
-	}
-	for _, d := range des {
-		if len(des) == 1 {
-			return filepath.Join(defaultEFIDir, d.Name())
-		}
-		if len(des) == 2 {
-			if strings.ToLower(d.Name()) != "boot" {
-				return filepath.Join(defaultEFIDir, d.Name())
-			}
-			continue
-		}
-		if strings.ToLower(releaseID) == strings.ToLower(d.Name()) {
-			return filepath.Join(defaultEFIDir, d.Name())
-		}
-	}
-	return ""
-}
-
 //func QueryGRUB(root string, bootByEfi bool) (cfgPath string, grubVersion int, err error) {
 //	if isUEFI && efiDirName == "" {
 //		return "", 0, errors.New("when booting with UEFI, the efi directory must exist")
