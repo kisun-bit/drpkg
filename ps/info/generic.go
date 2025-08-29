@@ -14,8 +14,8 @@ type Generic struct {
 	Hostname string `json:"hostname"`
 	// OS 系统类型
 	OS string `json:"os"`
-	// Arch 系统架构
-	Arch string `json:"arch"`
+	// OCIArch 系统架构
+	OCIArch string `json:"ociArch"`
 	// Cpu CPU信息
 	Cpu []cpu.InfoStat `json:"cpu"`
 	// Mem 内存信息
@@ -25,7 +25,7 @@ type Generic struct {
 // QueryGeneric 查询通用信息
 func QueryGeneric() (g Generic, err error) {
 	g.OS = runtime.GOOS
-	g.Arch = runtime.GOARCH
+	g.OCIArch = runtime.GOARCH
 
 	if g.Hostname, err = os.Hostname(); err != nil {
 		return
