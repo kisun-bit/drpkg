@@ -4,8 +4,11 @@ go 1.20
 
 require (
 	github.com/davecgh/go-spew v1.1.1
+	github.com/dustin/go-humanize v1.0.1
+	github.com/lunixbochs/struc v0.0.0-20241101090106-8d528fa2c543
 	github.com/pkg/errors v0.9.1
 	github.com/shirou/gopsutil/v3 v3.24.5
+	github.com/thoas/go-funk v0.9.3
 	github.com/yusufpapurcu/wmi v1.2.4
 	go.uber.org/zap v1.27.0
 	golang.org/x/sys v0.28.0
