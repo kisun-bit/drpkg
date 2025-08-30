@@ -80,6 +80,20 @@ func IsDir(path string) bool {
 	return false
 }
 
+// IsEmptyDir 判断目录是否为空
+func IsEmptyDir(dir string) bool {
+	f, err := os.Open(dir)
+	if err != nil {
+		return true
+	}
+	defer f.Close()
+	ds, err := f.ReadDir(1)
+	if err != nil {
+		return true
+	}
+	return len(ds) == 0
+}
+
 // IsLinkTargetExisted 链接目标文件是否存在
 func IsLinkTargetExisted(searchDir, name string, recursive bool) bool {
 	var found bool

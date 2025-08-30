@@ -1,5 +1,7 @@
 package info
 
+import "runtime"
+
 type LinuxTarget struct {
 	GoArch     string `json:"goArch"`     // Architecture name according to Go
 	LinuxArch  string `json:"linuxArch"`  // Architecture name according to the Linux Kernel
@@ -136,4 +138,18 @@ var LinuxTargets = []LinuxTarget{
 		BigEndian: true,
 		Bits:      64,
 	},
+}
+
+func QueryLinuxTarget() LinuxTarget {
+	goArch := runtime.GOARCH
+	for _, lt := range LinuxTargets {
+		if lt.GoArch == goArch {
+			return lt
+		}
+	}
+	// 未知架构
+	return LinuxTarget{
+		GoArch: goArch,
+		Bits:   0,
+	}
 }
