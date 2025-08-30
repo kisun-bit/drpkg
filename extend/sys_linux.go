@@ -1,6 +1,7 @@
 package extend
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -58,4 +59,34 @@ func MatchDevLinkName(base string, deviceName string) string {
 		}
 	}
 	return ""
+}
+
+func DevBlockSize(dev string) (uint32, error) {
+	fd, err := os.OpenFile(dev, os.O_RDONLY, 0600)
+	if err != nil {
+		return 0, fmt.Errorf("fail to open %s: %w", dev, err)
+	}
+	defer fd.Close()
+
+	var blksize uint32
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd.Fd(), uintptr(LinuxIOCTLGetBLKBSZ), uintptr(unsafe.Pointer(&blksize)))
+	if errno != 0 {
+		return 0, os.NewSyscallError("ioctl", errno)
+	}
+	return blksize, nil
+}
+
+func DevPhysicalBlockSize(dev string) (uint32, error) {
+	fd, err := os.OpenFile(dev, os.O_RDONLY, 0600)
+	if err != nil {
+		return 0, fmt.Errorf("fail to open %s: %w", dev, err)
+	}
+	defer fd.Close()
+
+	var physicalBlksize uint32
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd.Fd(), uintptr(LinuxIOCTLGetBLKPBSZ), uintptr(unsafe.Pointer(&physicalBlksize)))
+	if errno != 0 {
+		return 0, os.NewSyscallError("ioctl", errno)
+	}
+	return physicalBlksize, nil
 }

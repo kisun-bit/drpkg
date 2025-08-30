@@ -142,3 +142,12 @@ func IsWinGUIDFormat(guid string) bool {
 	}
 	return true
 }
+
+func TrimAllSpace(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+}

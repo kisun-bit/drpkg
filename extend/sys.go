@@ -14,5 +14,7 @@ const (
 // ########################################## Linux平台相关 ##########################################
 const (
 	LinuxIOCTLGetBlockSize   = 0x00001260
-	LinuxIOCTLGetBlockSize64 = 0x80081272 // 获取设备大小.
+	LinuxIOCTLGetBLKPBSZ     = 0x0000126b
+	LinuxIOCTLGetBlockSize64 = 0x80081272 // 获取设备大小
+	LinuxIOCTLGetBLKBSZ      = 0x80081270
 )
