@@ -34,6 +34,18 @@ type LinuxSwap struct {
 	Label    string `json:"label"`
 }
 
+type WindowsRelease struct {
+	OsName  string         `json:"osName"`
+	Type    string         `json:"type"` // 可取client、server之一
+	Version WindowsVersion `json:"version"`
+}
+
+type WindowsVersion struct {
+	Major int `json:"major"`
+	Minor int `json:"minor"`
+	Build int `json:"build"`
+}
+
 func IsVirtualHost(manufacturer string) bool {
 	lowerManu := strings.ToLower(manufacturer)
 

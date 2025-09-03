@@ -266,3 +266,7 @@ func SupportCPUVirtual() bool {
 //
 //	return "", 0, errors.New("failed to find grub config file")
 //}
+
+func QueryWindowsRelease() (WindowsRelease, error) {
+	return WindowsRelease{}, errors.New("not implemented on linux")
+}
