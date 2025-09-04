@@ -47,6 +47,12 @@ type WindowsVersion struct {
 	Build int `json:"build"`
 }
 
+type EFI struct {
+	Effective   bool   `json:"effective"`
+	BootCurrent string `json:"bootCurrent"`
+	BootFile    string `json:"bootFile"`
+}
+
 func IsVirtualHost(manufacturer string) bool {
 	lowerManu := strings.ToLower(manufacturer)
 
@@ -92,7 +98,10 @@ func QueryEFIInfo() (e EFI, err error) {
 		if err != nil {
 			return e, err
 		}
-		cur, err := efi.BytesToU16(bcText[4:])
+		if len(bcText) == 6 {
+			bcText = bcText[4:]
+		}
+		cur, err := efi.BytesToU16(bcText)
 		if err != nil {
 			return e, err
 		}
