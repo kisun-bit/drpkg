@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+//
+// 请参考：https://github.com/Foxboron/go-uefi
+//
+
 const efiPath = "/sys/firmware/efi/efivars/"
 
 func GetEfiVariables() ([]EfiVariable, error) {

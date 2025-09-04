@@ -1,81 +1,62 @@
 package efi
 
 import (
+	"bytes"
 	"fmt"
+	"log"
+	"regexp"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/pkg/errors"
 )
 
-func ParseBootCurrent(raw []byte) (int, error) {
-	raw = raw[4:]
-	// 数据是一个小端序的uint16类型
-	l := len(raw)
-	if l != 2 {
-		return -1, errors.Errorf("failed to read BootCurrent data: data length (%d) is not 2", l)
+// DecodeUTF16 decodes the input as a utf16 string.
+// Code from https://github.com/u-root/u-root/blob/master/pkg/uefivars/vars.go
+// https://gist.github.com/bradleypeabody/185b1d7ed6c0c2ab6cec
+func DecodeUTF16(b []byte) (string, error) {
+	if len(b)%2 != 0 {
+		return "", errors.New("must have even length byte slice")
 	}
-	bootCurrent, _, err := GetEFIUint(raw, 16)
-	return int(bootCurrent), err
+
+	u16s := make([]uint16, 1)
+	ret := &bytes.Buffer{}
+	b8buf := make([]byte, 4)
+
+	lb := len(b)
+	for i := 0; i < lb; i += 2 {
+		v, e := BytesToU16(b[i : i+2])
+		if e != nil {
+			return "", e
+		}
+		u16s[0] = v
+		r := utf16.Decode(u16s)
+		n := utf8.EncodeRune(b8buf, r[0])
+		ret.Write(b8buf[:n])
+	}
+
+	return ret.String(), nil
 }
 
-func GetEFIUint(data []byte, bits int) (uint64, int, error) {
-	if bits%8 != 0 {
-		return 0, 0, errors.Errorf("failed to get EFI uint: bits (%d) are not multiple of 8", bits)
+// BytesToU16 converts a []byte of length 2 to a uint16.
+func BytesToU16(b []byte) (uint16, error) {
+	if len(b) != 2 {
+		log.Fatalf("BytesToU16: bad len %d (%x)", len(b), b)
 	}
-	nb := bits / 8
-	if nb == 0 {
-		return 0, 0, nil
-	} else if len(data) < nb {
-		return 0, 0, errors.Errorf("failed to get EFI uint%d: insufficient data (%d bytes), expected %d", bits, len(data), nb)
-	}
-	var val = uint64(data[nb-1])
-	for i := nb - 2; i >= 0; i-- {
-		val = val*256 + uint64(data[i])
-	}
-	return val, nb, nil
+	return uint16(b[0]) + (uint16(b[1]) << 8), nil
 }
 
-func BootEntryName(bootNumber int) string {
+func BootEntryName(bootNumber uint16) string {
 	return fmt.Sprintf("Boot%04X", bootNumber)
 }
 
-//// UnmarshalLoadOption decodes a binary EFI_LOAD_OPTION into a LoadOption.
-//func UnmarshalLoadOption(data []byte) (*LoadOption, error) {
-//	if len(data) < 6 {
-//		return nil, fmt.Errorf("invalid load option: minimum 6 bytes are required, got %d", len(data))
-//	}
-//	lenPath := binary.LittleEndian.Uint16(data[4:6])
-//	// Search for UTF-16 null code
-//	nullIdx := bytes.Index(data[6:], []byte{0x00, 0x00})
-//	if nullIdx == -1 {
-//		return nil, errors.New("no null code point marking end of Description found")
-//	}
-//	descriptionEnd := 6 + nullIdx + 1
-//	descriptionRaw := data[6:descriptionEnd]
-//	description, err := Encoding.NewDecoder().Bytes(descriptionRaw)
-//	if err != nil {
-//		return nil, fmt.Errorf("error decoding UTF-16 in Description: %w", err)
-//	}
-//	descriptionEnd += 2 // 2 null bytes terminating UTF-16 string
-//	_ = description
-//	if descriptionEnd+int(lenPath) > len(data) {
-//		return nil, fmt.Errorf("declared length of FilePath (%d) overruns available data (%d)", lenPath, len(data)-descriptionEnd)
-//	}
-//	filePathData := data[descriptionEnd : descriptionEnd+int(lenPath)]
-//	opt.FilePath, filePathData, err = UnmarshalDevicePath(filePathData)
-//	if err != nil {
-//		return nil, fmt.Errorf("failed unmarshaling FilePath: %w", err)
-//	}
-//	for len(filePathData) > 0 {
-//		var extraPath DevicePath
-//		extraPath, filePathData, err = UnmarshalDevicePath(filePathData)
-//		if err != nil {
-//			return nil, fmt.Errorf("failed unmarshaling ExtraPath: %w", err)
-//		}
-//		opt.ExtraPaths = append(opt.ExtraPaths, extraPath)
-//	}
-//
-//	if descriptionEnd+int(lenPath) < len(data) {
-//		opt.OptionalData = data[descriptionEnd+int(lenPath):]
-//	}
-//	return &opt, nil
-//}
+// MatchUEFIPath 匹配 \EFI 开头、.efi 结尾的 UEFI 启动程序路径
+func MatchUEFIPath(s string) (string, bool) {
+	// 正则：以 \EFI 或 /EFI 开头，中间可以有任意非换行字符，.efi 结尾
+	re := regexp.MustCompile(`(?i)([\\/]{1}EFI[\\/][\s\S]*?\.efi)`)
+	match := re.FindString(s)
+	if match != "" {
+		return match, true
+	}
+	return "", false
+}
