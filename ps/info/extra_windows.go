@@ -1,6 +1,7 @@
 package info
 
 import (
+	"golang.org/x/sys/windows"
 	"os"
 	"strings"
 
@@ -60,4 +61,34 @@ func QuerySwapInfo() (_ []LinuxSwap, _ error) {
 func SupportCPUVirtual() bool {
 	_, o, _ := command.Execute("wmic cpu get VirtualizationFirmwareEnabled")
 	return strings.Contains(o, "TRUE")
+}
+
+func QueryWindowsRelease() (WindowsRelease, error) {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
+	if err != nil {
+		return WindowsRelease{}, err
+	}
+	defer key.Close()
+	val, valType, err := key.GetStringValue("ProductName")
+	if err != nil {
+		return WindowsRelease{}, err
+	}
+	if valType != registry.SZ {
+		return WindowsRelease{}, errors.Errorf("unexpected value type: %d", valType)
+	}
+
+	w := WindowsRelease{}
+	w.OsName = val
+	w.Type = "client"
+	if strings.Contains(strings.ToLower(val), "server") {
+		w.Type = "server"
+	}
+
+	v := windows.RtlGetVersion()
+	w.Version = WindowsVersion{
+		Major: int(v.MajorVersion),
+		Minor: int(v.MinorVersion),
+		Build: int(v.BuildNumber),
+	}
+	return w, nil
 }
