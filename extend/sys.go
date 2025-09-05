@@ -13,6 +13,32 @@ const (
 	IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS = 0x00560000
 )
 
+// 关于存储总线类型的枚举值, 请参考: https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ne-winioctl-storage_bus_type
+const (
+	BusTypeUnknown WIN_STORAGE_BUS_TYPE = iota + 0 // Unknown bus type.
+	BusTypeScsi                                    // SCSI bus.
+	BusTypeAtapi                                   // ATAPI bus.
+	BusTypeAta                                     // ATA Bus.
+	BusType1394                                    // IEEE-1394 bus.
+	BusTypeSsa                                     // SSA bus. 高性能存储网络.
+	BusTypeFibre                                   // Fibre Channel bus. FC存储.
+	BusTypeUsb                                     // USB bus.
+	BusTypeRAID                                    // RAID bus.
+	BusTypeiScsi                                   // iSCSI bus.
+	BusTypeSas                                     // Serial Attached SCSI (SAS) bus. 串行SCSI. W2k3 SP1之后(包含)才支持.
+	BusTypeSata                                    // SATA bus. W2k3 SP1之后(包含)才支持.
+	BusTypeSd
+	BusTypeMmc
+	BusTypeVirtual
+	BusTypeFileBackedVirtual
+	BusTypeSpaces
+	BusTypeNvme
+	BusTypeSCM
+	BusTypeUfs
+	BusTypeMax
+	BusTypeMaxReserved WIN_STORAGE_BUS_TYPE = 0x7F
+)
+
 // ########################################## Linux平台相关 ##########################################
 const (
 	LinuxIOCTLGetBlockSize   = 0x00001260

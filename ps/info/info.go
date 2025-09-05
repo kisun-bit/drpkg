@@ -26,6 +26,8 @@ type PublicInfo struct {
 	EnableVTX bool `json:"enableVTX"`
 	// IFList 网卡信息
 	IFList []IF `json:"ifList"`
+	// Volumes 卷列表
+	Volumes []Volume `json:"volumes"`
 }
 
 type PrivateInfo struct {
@@ -83,6 +85,9 @@ func (p *PSInfo) fillPublicInfo() (err error) {
 	}
 	p.Public.EnableVTX = SupportCPUVirtual()
 	if p.Public.IFList, err = QueryIFList(); err != nil {
+		return err
+	}
+	if p.Public.Volumes, err = QueryVolumes(); err != nil {
 		return err
 	}
 	return nil

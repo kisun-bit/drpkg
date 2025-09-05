@@ -92,23 +92,3 @@ func QueryWindowsRelease() (WindowsRelease, error) {
 	}
 	return w, nil
 }
-
-// ListVolumeNames 获取所有的卷标.
-func ListVolumeNames() (volumeNames []string, err error) {
-	buf := make([]uint16, 254)
-	n, e := windows.GetLogicalDriveStrings(254, &buf[0])
-	if err != nil {
-		return nil, e
-	}
-	for _, v := range buf[:n] {
-		letter := string(rune(v))
-		if len(letter) == 0 {
-			continue
-		}
-		if letter[0] <= 'A' || letter[0] > 'Z' {
-			continue
-		}
-		volumeNames = append(volumeNames, letter)
-	}
-	return volumeNames, nil
-}

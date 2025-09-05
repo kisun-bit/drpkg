@@ -151,3 +151,16 @@ func TrimAllSpace(s string) string {
 		return r
 	}, s)
 }
+
+func ReadNullTerminatedAscii(buf []byte, offset int) string {
+	if offset <= 0 {
+		return ""
+	}
+	buf = buf[offset:]
+	for i := 0; i < len(buf); i++ {
+		if buf[i] == 0 {
+			return string(buf[:i])
+		}
+	}
+	return ""
+}
