@@ -2,8 +2,10 @@ package info
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/ps/efi"
 	"github.com/pkg/errors"
 )
@@ -65,6 +67,7 @@ func IsVirtualHost(manufacturer string) bool {
 		"qemu",
 		"xen",
 		"openstack",
+		"kvm",
 		// FIXME 更多
 	}
 
@@ -148,9 +151,16 @@ func QueryEFIInfo() (e EFI, err error) {
 		//
 
 		if e.BootFile == "" {
-			matches, _ := filepath.Glob("/boot/efi/EFI/BOOT/BOOT*.EFI")
-			if len(matches) > 0 {
-				e.BootFile = strings.TrimPrefix(matches[0], "/boot/efi")
+			if !extend.IsWindowsPlatform() {
+				matches, _ := filepath.Glob("/boot/efi/EFI/BOOT/BOOT*.EFI")
+				if len(matches) > 0 {
+					e.BootFile = strings.TrimPrefix(matches[0], "/boot/efi")
+				}
+			} else {
+				if runtime.GOARCH == "amd64" {
+					e.BootFile = "/EFI/Boot/bootx64.efi"
+				}
+				// FIXME arm版本的windows
 			}
 		}
 

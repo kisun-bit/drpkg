@@ -1,5 +1,7 @@
 package extend
 
+import "runtime"
+
 // ########################################## Windows平台相关 ##########################################
 
 // 关于Win32 IOCTL各个控制码使用及其意义, 请参考: https://learn.microsoft.com/en-us/windows/win32/api/winioctl
@@ -18,3 +20,7 @@ const (
 	LinuxIOCTLGetBlockSize64 = 0x80081272 // 获取设备大小
 	LinuxIOCTLGetBLKBSZ      = 0x80081270
 )
+
+func IsWindowsPlatform() bool {
+	return runtime.GOOS == "windows"
+}
