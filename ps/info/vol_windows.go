@@ -53,11 +53,10 @@ func QueryVolumes() ([]Volume, error) {
 			}
 		}
 
-		curVol.AvailBytes, curVol.TotalBytes, _, err = extend.VolumeUsageInfo(mountpoint)
+		curVol.TotalBytes, curVol.UsedBytes, curVol.AvailBytes, err = extend.VolumeUsageInfo(mountpoint)
 		if err != nil {
 			return nil, err
 		}
-		curVol.UsedBytes = curVol.TotalBytes - curVol.AvailBytes
 
 		// TODO 更多信息
 

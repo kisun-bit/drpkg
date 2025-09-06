@@ -156,8 +156,10 @@ func VolumeMountpointToExtents(volumeMountpoint string) ([]DiskExtent, error) {
 }
 
 // VolumeUsageInfo 通过卷名查询其磁盘使用情况.
-func VolumeUsageInfo(volumeMountpoint string) (available, total, free uint64, err error) {
+func VolumeUsageInfo(volumeMountpoint string) (total, used, free uint64, err error) {
+	var available uint64
 	err = windows.GetDiskFreeSpaceEx(windows.StringToUTF16Ptr(volumeMountpoint+"\\"), &available, &total, &free)
+	used = total - free
 	return
 }
 
