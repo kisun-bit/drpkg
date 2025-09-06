@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/lunixbochs/struc"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -410,4 +411,30 @@ func ReadDeviceIoControl(handle windows.Handle, ioctl uint32, inBuffer *byte, in
 	}
 
 	return nil, errno
+}
+
+func VolumeEnabledBitlocker(diskPath string, volumeStartOffset int64) (bool, error) {
+	handle, err := OpenDevice(diskPath)
+	if err != nil {
+		return false, errors.Wrapf(err, "open device")
+	}
+	defer windows.CloseHandle(handle)
+
+	newOff, err := windows.Seek(handle, volumeStartOffset, io.SeekStart)
+	if err != nil {
+		return false, errors.Wrapf(err, "seek device")
+	}
+	if newOff != volumeStartOffset {
+		return false, errors.Errorf("can not seek device to %v", volumeStartOffset)
+	}
+
+	bitlockerBytes := make([]byte, 4096)
+	var done uint32
+	if err = windows.ReadFile(handle, bitlockerBytes, &done, nil); err != nil {
+		return false, errors.Wrapf(err, "read device")
+	}
+	if string(bitlockerBytes[:11]) == "\xEB\x58\x90\x2D\x46\x56\x45\x2D\x46\x53\x2D" {
+		return true, nil
+	}
+	return false, nil
 }

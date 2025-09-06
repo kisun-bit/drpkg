@@ -27,6 +27,8 @@ type Volume struct {
 	// IsBootable 是否为启动卷
 	// true 代表此卷与系统启动相关
 	IsBootable bool `json:"isBootable"`
+	// EnabledBitlocker 卷是否启用了BitLocker加密
+	EnabledBitlocker bool `json:"isBitlocker"`
 
 	// TODO 更多字段
 }

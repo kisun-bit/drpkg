@@ -58,6 +58,13 @@ func QueryVolumes() ([]Volume, error) {
 			return nil, err
 		}
 
+		curVol.EnabledBitlocker, err = extend.VolumeEnabledBitlocker(
+			extend.WindowsDiskPathFromID(des[0].DiskNumber),
+			int64(des[0].StartingOffset))
+		if err != nil {
+			return nil, err
+		}
+
 		// TODO 更多信息
 
 		vols = append(vols, curVol)
