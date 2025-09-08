@@ -1,9 +1,10 @@
 package info
 
 import (
-	"golang.org/x/sys/windows"
 	"os"
 	"strings"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/pkg/errors"
@@ -38,21 +39,21 @@ func QueryLinuxRelease(rootDir string) LinuxRelease {
 	return LinuxRelease{}
 }
 
-func SystemManufacturer() string {
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `HARDWARE\DESCRIPTION\System\BIOS`, registry.QUERY_VALUE)
-	if err != nil {
-		return ""
-	}
-	defer key.Close()
-	val, valType, err := key.GetStringValue("SystemManufacturer")
-	if err != nil {
-		return ""
-	}
-	if valType != registry.SZ {
-		return ""
-	}
-	return val
-}
+//func SystemManufacturer() string {
+//	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `HARDWARE\DESCRIPTION\System\BIOS`, registry.QUERY_VALUE)
+//	if err != nil {
+//		return ""
+//	}
+//	defer key.Close()
+//	val, valType, err := key.GetStringValue("SystemManufacturer")
+//	if err != nil {
+//		return ""
+//	}
+//	if valType != registry.SZ {
+//		return ""
+//	}
+//	return val
+//}
 
 func QuerySwapInfo() (_ []LinuxSwap, _ error) {
 	return nil, nil

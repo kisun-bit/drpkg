@@ -1,7 +1,6 @@
 package info
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -36,78 +35,71 @@ func UnameR() (string, error) {
 	return strings.TrimSpace(o), nil
 }
 
-func SystemManufacturer() string {
-	r, out, _ := command.Execute("dmidecode -s system-manufacturer")
-	if r == 0 {
-		return strings.TrimSpace(out)
-	}
-	dmi, err := QueryDmi()
-	if err != nil {
-		return ""
-	}
-	return dmi.SystemName
-}
-
 func QueryLinuxKernels(rootDir string) ([]LinuxKernel, error) {
-	bootDir := filepath.Join(rootDir, "boot")
+	bootDirs := []string{
+		filepath.Join(rootDir, "boot"),
+		filepath.Join(rootDir, "rofs", "boot"),
+	}
 	libModuleDir := filepath.Join(rootDir, "lib", "modules")
 
 	ds, err := os.ReadDir(libModuleDir)
 	if err != nil {
 		return nil, err
 	}
+	if len(ds) == 0 {
+		return nil, errors.New("no kernels found")
+	}
 
-	kernelNames := make([]string, 0)
+	kernelNames := make([]string, 0, len(ds))
 	for _, d := range ds {
 		kernelNames = append(kernelNames, d.Name())
 	}
-	if len(kernelNames) == 0 {
-		return nil, errors.New("no kernels found")
-	}
 	sort.Strings(kernelNames)
 
-	kernels := make([]LinuxKernel, 0)
-	for _, kernel := range kernelNames {
-		k := LinuxKernel{}
-
-		k.Name = kernel
-		k.Vmlinuz = extend.FilenameIfExisted(filepath.Join(bootDir, fmt.Sprintf("vmlinuz-%s", k.Name)))
-		k.SystemMap = extend.FilenameIfExisted(filepath.Join(bootDir, fmt.Sprintf("System.map-%s", k.Name)))
-		k.Config = extend.FilenameIfExisted(filepath.Join(bootDir, fmt.Sprintf("config-%s", k.Name)))
-
-		initrdSet := make([]string, 0)
-		initrdSet = append(initrdSet, fmt.Sprintf("initrd.img-%s", k.Name))
-		initrdSet = append(initrdSet, fmt.Sprintf("initrd-%s", k.Name))
-		initrdSet = append(initrdSet, fmt.Sprintf("initramfs-%s.img", k.Name))
-		// FIXME: 待补充其他initrd风格......
-
-		for _, initrd := range initrdSet {
-			path := filepath.Join(bootDir, initrd)
-			//if others.IsExisted(path) || others.IsLinkTargetExisted(bootDir, initrd, false) {
-			if extend.IsExisted(path) {
-				k.Initrd = initrd
-				break
-			}
+	// 获取当前运行内核（只在 rootDir == "/" 时使用）
+	var runningKernel string
+	if rootDir == "/" {
+		if uname, err := UnameR(); err == nil {
+			runningKernel = strings.TrimSpace(uname)
 		}
+	}
 
-		if rootDir == "/" {
-			kernelStr, e := UnameR()
-			if e != nil {
-				return nil, e
-			}
-			k.Default = strings.TrimSpace(kernelStr) == k.Name
-		} else {
-			if len(kernelNames) == 1 {
-				k.Default = true
-			}
+	kernels := make([]LinuxKernel, 0, len(kernelNames))
+	for _, name := range kernelNames {
+		k := LinuxKernel{Name: name}
+
+		k.Vmlinuz = firstExistingFile(bootDirs, "vmlinuz-"+name)
+		k.SystemMap = firstExistingFile(bootDirs, "System.map-"+name)
+		k.Config = firstExistingFile(bootDirs, "config-"+name)
+		k.Initrd = firstExistingFile(bootDirs,
+			"initrd.img-"+name,
+			"initrd-"+name,
+			"initramfs-"+name+".img",
+		)
+
+		if runningKernel != "" {
+			k.Default = runningKernel == name
+		} else if len(kernelNames) == 1 {
+			k.Default = true
 		}
 
 		k.Bootable = k.Vmlinuz != "" && k.Initrd != ""
-
 		kernels = append(kernels, k)
 	}
 
 	return kernels, nil
+}
+
+func firstExistingFile(dirs []string, candidates ...string) string {
+	for _, d := range dirs {
+		for _, f := range candidates {
+			path := filepath.Join(d, f)
+			if extend.IsExisted(path) {
+				return f
+			}
+		}
+	}
+	return ""
 }
 
 func QueryLinuxRelease(rootDir string) LinuxRelease {
