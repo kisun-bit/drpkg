@@ -64,6 +64,9 @@ func WindowsDiskIDFromPath(path string) (id uint32, err error) {
 
 // IsExisted 判断此路径是否存在
 func IsExisted(name string) bool {
+	if _, e := os.Stat(name); e == nil {
+		return true
+	}
 	fd, err := os.Open(name)
 	if errors.Is(err, os.ErrNotExist) {
 		return false

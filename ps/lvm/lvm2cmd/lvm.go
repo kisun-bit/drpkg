@@ -2,12 +2,13 @@ package lvm2cmd
 
 import (
 	"fmt"
-	"github.com/kisun-bit/drpkg/command"
-	"github.com/kisun-bit/drpkg/extend"
-	"github.com/pkg/errors"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/kisun-bit/drpkg/command"
+	"github.com/kisun-bit/drpkg/extend"
+	"github.com/pkg/errors"
 )
 
 const (

@@ -53,7 +53,7 @@ func QueryVolumes() ([]Volume, error) {
 
 		label, fs_, vuuid, err := extend.VolumeExtraInfo(mountpoint)
 		if err == nil {
-			curVol.Filesystem = fs_
+			curVol.Filesystem = strings.ToLower(fs_)
 			curVol.UUID = vuuid
 			if label != "" {
 				curVol.Name = fmt.Sprintf("%s (%s)", label, mountpoint)

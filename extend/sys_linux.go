@@ -1,13 +1,17 @@
 package extend
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"unsafe"
 
+	"github.com/thoas/go-funk"
 	"golang.org/x/sys/unix"
 )
 
@@ -89,4 +93,125 @@ func DevPhysicalBlockSize(dev string) (uint32, error) {
 		return 0, os.NewSyscallError("ioctl", errno)
 	}
 	return physicalBlksize, nil
+}
+
+type DevMountpoint struct {
+	Device     string
+	Major      DevMajor
+	Mountpoint string
+	Filesystem string
+}
+
+type DevMajor string
+
+func (dm DevMajor) splitMajor() (major, minor string) {
+	parts := strings.SplitN(string(dm), ":", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return parts[0], parts[1]
+}
+
+func (dm DevMajor) MajorNum() string {
+	major, _ := dm.splitMajor()
+	return major
+}
+
+func (dm DevMajor) MinNum() string {
+	_, minor := dm.splitMajor()
+	return minor
+}
+
+func (dm DevMajor) IsLV() bool {
+	return dm.MajorNum() == "253"
+}
+
+func VolumeMountpoints() (volumeMountpoints []DevMountpoint, err error) {
+	mountpointWithDev := make(map[string]string, 0)
+	mountBinText, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return nil, err
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(mountBinText))
+	for scanner.Scan() {
+		lineGroups := strings.Split(scanner.Text(), " - ")
+		if len(lineGroups) != 2 {
+			continue
+		}
+		fieldsPre := strings.Fields(lineGroups[0])
+		fieldsSuf := strings.Fields(lineGroups[1])
+
+		if len(fieldsPre) < 5 || len(fieldsSuf) < 2 {
+			continue
+		}
+		mountpoint, mountdev, major := fieldsPre[4], fieldsSuf[1], fieldsPre[2]
+		if _, ok := mountpointWithDev[mountpoint]; ok {
+			// 挂载点被设备重复挂载的，始终以第一挂载设备为主
+			continue
+		}
+		if !strings.HasPrefix(mountdev, "/dev") {
+			continue
+		}
+		mountpointWithDev[mountpoint] = mountdev
+		volumeMountpoints = append(volumeMountpoints, DevMountpoint{
+			Device:     mountdev,
+			Major:      DevMajor(major),
+			Mountpoint: mountpoint,
+			Filesystem: fieldsSuf[0],
+		})
+	}
+
+	return volumeMountpoints, nil
+}
+
+func DeviceMajorTable(filter ...string) (map[DevMajor]string, error) {
+	dms := make(map[DevMajor]string)
+
+	entries, err := os.ReadDir("/dev")
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		devPath := filepath.Join("/dev", entry.Name())
+		if !funk.InStrings(filter, devPath) {
+			continue
+		}
+
+		var stat syscall.Stat_t
+		if err := syscall.Stat(devPath, &stat); err != nil {
+			continue
+		}
+
+		// 检查是否是设备文件
+		if stat.Mode&syscall.S_IFCHR != 0 || stat.Mode&syscall.S_IFBLK != 0 {
+			major := uint64(stat.Rdev) >> 8
+			minor := uint64(stat.Rdev) & 0xff
+			dms[DevMajor(fmt.Sprintf("%d:%d", major, minor))] = devPath
+		}
+	}
+
+	return dms, nil
+}
+
+// MountpointUsage 存储使用情况 (available bytes, byte capacity, byte usage, total inodes, inodes free, inode usage, error)
+func MountpointUsage(path string) (int64, int64, int64, int64, int64, int64, error) {
+	statfs := &unix.Statfs_t{}
+	err := unix.Statfs(path, statfs)
+	if err != nil {
+		return 0, 0, 0, 0, 0, 0, err
+	}
+
+	available := int64(statfs.Bavail) * statfs.Bsize
+
+	capacity := int64(statfs.Blocks) * statfs.Bsize
+
+	usage := (int64(statfs.Blocks) - int64(statfs.Bfree)) * statfs.Bsize
+
+	inodes := int64(statfs.Files)
+	inodesFree := int64(statfs.Ffree)
+	inodesUsed := inodes - inodesFree
+
+	return available, capacity, usage, inodes, inodesFree, inodesUsed, nil
 }
