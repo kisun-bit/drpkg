@@ -29,7 +29,11 @@ type Volume struct {
 	// Filesystem 卷的文件系统类型
 	Filesystem string `json:"filesystem"`
 
-	UsageInfo
+	// Usage 卷使用情况
+	Usage UsageInfo `json:"usage"`
+
+	// Size 大小
+	Size uint64 `json:"size"`
 
 	// IsBootable 是否为启动卷
 	// true 代表此卷与系统启动相关

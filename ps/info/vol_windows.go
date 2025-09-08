@@ -46,6 +46,11 @@ func QueryVolumes() ([]Volume, error) {
 			})
 		}
 
+		curVol.Size, err = extend.FileSize(curVol.MountPoint + "\\")
+		if err != nil {
+			return nil, err
+		}
+
 		label, fs_, vuuid, err := extend.VolumeExtraInfo(mountpoint)
 		if err == nil {
 			curVol.Filesystem = fs_
@@ -55,7 +60,7 @@ func QueryVolumes() ([]Volume, error) {
 			}
 		}
 
-		curVol.TotalBytes, curVol.UsedBytes, curVol.AvailBytes, err = extend.VolumeUsageInfo(mountpoint)
+		curVol.Usage.TotalBytes, curVol.Usage.UsedBytes, curVol.Usage.AvailBytes, err = extend.VolumeUsageInfo(mountpoint)
 		if err != nil {
 			return nil, err
 		}
