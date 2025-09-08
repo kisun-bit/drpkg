@@ -94,6 +94,16 @@ func IsEmptyDir(dir string) bool {
 	return len(ds) == 0
 }
 
+func ContainFiles(dir string, filenames ...string) (ok bool) {
+	for _, n := range filenames {
+		p := filepath.Join(dir, n)
+		if !IsExisted(p) {
+			return false
+		}
+	}
+	return true
+}
+
 // IsLinkTargetExisted 链接目标文件是否存在
 func IsLinkTargetExisted(searchDir, name string, recursive bool) bool {
 	var found bool

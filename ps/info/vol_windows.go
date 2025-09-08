@@ -3,9 +3,11 @@ package info
 import (
 	"errors"
 	"fmt"
-	"github.com/kisun-bit/drpkg/extend"
 	"strings"
 	"syscall"
+
+	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/ps/table"
 )
 
 func QueryVolumes() ([]Volume, error) {
@@ -65,7 +67,14 @@ func QueryVolumes() ([]Volume, error) {
 			return nil, err
 		}
 
-		// TODO 更多信息
+		isDiskBootable := false
+		for _, d := range curVol.Segments {
+			if table.IsDiskBootable(d.Disk) {
+				isDiskBootable = true
+				break
+			}
+		}
+		curVol.IsBootable = isDiskBootable && ContainsOSFile(curVol.MountPoint)
 
 		vols = append(vols, curVol)
 	}

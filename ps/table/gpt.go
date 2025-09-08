@@ -1,18 +1,19 @@
-package parttable
+package table
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"strings"
+	"unicode/utf16"
+
 	"github.com/dustin/go-humanize"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/lunixbochs/struc"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
-	"io"
-	"os"
-	"strings"
-	"unicode/utf16"
 )
 
 // GPT GPT磁盘信息结构.
@@ -162,6 +163,7 @@ func NewGPT(disk string, start int64) (gpt GPT, err error) {
 	}
 	gpt, err = newGPT(fp, start)
 	if err != nil {
+		_ = fp.Close()
 		return GPT{}, err
 	}
 	gpt.DiskPath = disk
@@ -189,6 +191,13 @@ func newGPT(disk io.ReadSeeker, start int64) (gpt GPT, err error) {
 		return gpt, nil
 	}
 	return GPT{}, errors.New("invalid gpt signature")
+}
+
+func (gpt *GPT) Close() error {
+	if extend.IsNilType(gpt.disk) {
+		return nil
+	}
+	return gpt.disk.(*os.File).Close()
 }
 
 func (gpt *GPT) markIndex() {

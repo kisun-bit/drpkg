@@ -1,5 +1,12 @@
 package info
 
+import (
+	"runtime"
+	"strings"
+
+	"github.com/kisun-bit/drpkg/extend"
+)
+
 type Volume struct {
 	// Name 卷的显示名称
 	// Windows: "数据卷 (D:)"
@@ -45,4 +52,35 @@ type UsageInfo struct {
 	TotalBytes uint64 `json:"totalBytes"`
 	UsedBytes  uint64 `json:"usedBytes"`
 	AvailBytes uint64 `json:"availBytes"`
+}
+
+func ContainsOSFile(dir string) bool {
+	switch runtime.GOOS {
+	case "windows":
+		if strings.HasSuffix(dir, ":") {
+			dir += "\\"
+		}
+		if strings.ToLower(dir) == "x:\\" && IsMemoryOS() {
+			return true
+		}
+		if extend.ContainFiles(dir, "Windows", "Users", "Program Files") {
+			return true
+		}
+	case "linux":
+		// 从dir本身来说:
+		if strings.HasSuffix(dir, "/boot") {
+			return true
+		}
+		if strings.HasSuffix(dir, "/var") {
+			return true
+		}
+		if strings.HasSuffix(dir, "/usr") {
+			return true
+		}
+		// 从dir子文件来说：
+		if extend.ContainFiles(dir, "boot", "var", "home", "sys", "usr", "root") {
+			return true
+		}
+	}
+	return false
 }

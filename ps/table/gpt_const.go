@@ -1,4 +1,4 @@
-package parttable
+package table
 
 const (
 	GPTPartitionEntryCount = 128

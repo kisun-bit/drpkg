@@ -1,8 +1,9 @@
-package parttable
+package table
 
 import (
-	"github.com/pkg/errors"
 	"os"
+
+	"github.com/pkg/errors"
 )
 
 type DiskType string
@@ -151,4 +152,33 @@ func DetectOSType(diskPath string) (string, error) {
 		}
 	}
 	return "", errors.New("failed to detect os type")
+}
+
+func IsDiskBootable(diskPath string) bool {
+	t, _ := GetDiskType(diskPath)
+	switch t {
+	case DTypeGPT:
+		gpt, e := NewGPT(diskPath, 0)
+		if e != nil {
+			return false
+		}
+		defer gpt.Close()
+		for _, p := range gpt.PartitionEntries {
+			if p.IsBootable() {
+				return true
+			}
+		}
+	case DTypeMBR:
+		mbr, e := NewMBR(diskPath, 0, false)
+		if e != nil {
+			return false
+		}
+		defer mbr.Close()
+		for _, p := range mbr.FullMainPartitionEntries {
+			if p.IsBootable() {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -1,4 +1,4 @@
-package parttable
+package table
 
 const (
 	MBRSignature510               = 0x55

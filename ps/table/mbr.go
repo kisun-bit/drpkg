@@ -1,18 +1,19 @@
-package parttable
+package table
 
 import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/dustin/go-humanize"
-	"github.com/kisun-bit/drpkg/extend"
-	"github.com/lunixbochs/struc"
-	"github.com/pkg/errors"
 	"io"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/dustin/go-humanize"
+	"github.com/kisun-bit/drpkg/extend"
+	"github.com/lunixbochs/struc"
+	"github.com/pkg/errors"
 )
 
 // MBR MBR磁盘信息结构.
@@ -88,6 +89,13 @@ func newEBR(disk io.ReadSeeker, start int64) (_EBR EBR, err error) {
 		return _EBR, err
 	}
 	return _EBR, nil
+}
+
+func (mbr *MBR) Close() error {
+	if extend.IsNilType(mbr.disk) {
+		return nil
+	}
+	return mbr.disk.(*os.File).Close()
 }
 
 // Hexdump 返回MBR/EBR的LBA0的hexdump格式输出.
