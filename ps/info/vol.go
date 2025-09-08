@@ -75,6 +75,9 @@ func ContainsOSFile(dir string) bool {
 		if strings.HasSuffix(dir, "/boot") {
 			return true
 		}
+		if strings.HasSuffix(dir, "/boot/efi") {
+			return true
+		}
 		if strings.HasSuffix(dir, "/var") {
 			return true
 		}
