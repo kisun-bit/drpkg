@@ -1,9 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/kisun-bit/drpkg/ps/info"
 )
 
@@ -13,5 +13,5 @@ func main() {
 		log.Fatalln(err)
 		return
 	}
-	spew.Dump(psi.Public.Volumes)
+	fmt.Println(psi.String())
 }

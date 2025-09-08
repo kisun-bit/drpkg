@@ -64,6 +64,11 @@ func QueryPSInfo() (pi *PSInfo, err error) {
 }
 
 func (p *PSInfo) String() string {
+	j, _ := json.Marshal(*p)
+	return string(j)
+}
+
+func (p *PSInfo) PrettyString() string {
 	j, _ := json.MarshalIndent(*p, "", "  ")
 	return string(j)
 }
