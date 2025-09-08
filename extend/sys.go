@@ -39,6 +39,58 @@ const (
 	BusTypeMaxReserved WIN_STORAGE_BUS_TYPE = 0x7F
 )
 
+type WIN_STORAGE_BUS_TYPE byte
+
+func (busType WIN_STORAGE_BUS_TYPE) String() string {
+	switch busType {
+	case BusTypeUnknown:
+		return "Unknown"
+	case BusTypeScsi:
+		return "Scsi"
+	case BusTypeAtapi:
+		return "Atapi" // 光学设备如CD
+	case BusTypeAta:
+		return "Ata"
+	case BusType1394:
+		return "1394"
+	case BusTypeSsa:
+		return "Ssa"
+	case BusTypeFibre:
+		return "Fibre"
+	case BusTypeUsb:
+		return "Usb"
+	case BusTypeRAID:
+		return "RAID"
+	case BusTypeiScsi:
+		return "iScsi"
+	case BusTypeSas:
+		// SCSI 设备的一种类型，其中 SAS（Serial Attached SCSI，串行连接 SCSI）是其中之一,
+		// SAS 是一种用于连接服务器和存储设备的高速、可靠的接口标准。它是 SCSI 标准的一种延伸，
+		// 采用了串行连接的方式，提供了更高的性能和可靠性.
+		return "Sas"
+	case BusTypeSata:
+		return "Sata"
+	case BusTypeSd:
+		return "Sd"
+	case BusTypeMmc:
+		return "Mmc"
+	case BusTypeVirtual:
+		return "Virtual"
+	case BusTypeFileBackedVirtual:
+		return "FileBackedVirtual"
+	case BusTypeSpaces:
+		return "Spaces"
+	case BusTypeNvme:
+		return "Nvme"
+	case BusTypeSCM:
+		return "SCM"
+	case BusTypeUfs:
+		return "Ufs"
+	default:
+		return ""
+	}
+}
+
 // ########################################## Linux平台相关 ##########################################
 const (
 	LinuxIOCTLGetBlockSize   = 0x00001260
