@@ -7,10 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
+	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 	"golang.org/x/sys/unix"
 )
@@ -214,4 +217,24 @@ func MountpointUsage(path string) (int64, int64, int64, int64, int64, int64, err
 	inodesUsed := inodes - inodesFree
 
 	return available, capacity, usage, inodes, inodesFree, inodesUsed, nil
+}
+
+func GetBootTime() (time.Time, error) {
+	content, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return time.Time{}, errors.Wrapf(err, "read /proc/uptime")
+	}
+
+	fields := strings.Fields(string(content))
+	if len(fields) < 1 {
+		return time.Time{}, errors.Wrapf(err, "fields /proc/uptime")
+	}
+
+	uptimeSeconds, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return time.Time{}, errors.Wrapf(err, "parse uptime from /proc/uptime")
+	}
+
+	bootTime := time.Now().Add(-time.Duration(uptimeSeconds * float64(time.Second)))
+	return bootTime, nil
 }

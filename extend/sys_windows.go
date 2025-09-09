@@ -10,11 +10,12 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/lunixbochs/struc"
-
 	"github.com/pkg/errors"
+	wmi_ "github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows"
 )
 
@@ -386,4 +387,42 @@ func VolumeEnabledBitlocker(diskPath string, volumeStartOffset int64) (bool, err
 		return true, nil
 	}
 	return false, nil
+}
+
+type Win32_OperatingSystem struct {
+	LastBootUpTime string
+}
+
+func GetBootTime() (time.Time, error) {
+	var operatingSystems []Win32_OperatingSystem
+	query := "SELECT LastBootUpTime FROM Win32_OperatingSystem"
+
+	err := wmi_.Query(query, &operatingSystems)
+	if err != nil {
+		return time.Time{}, errors.Wrapf(err, "query operating system")
+	}
+
+	if len(operatingSystems) == 0 {
+		return time.Time{}, errors.New("no operating system found")
+	}
+
+	// WMI 时间格式: 20230909081650.500000+480
+	bootTimeStr := operatingSystems[0].LastBootUpTime
+	// 解析 WMI 时间格式（需要转换）
+	parsedTime, err := parseWMIDateTime(bootTimeStr)
+	if err != nil {
+		return time.Time{}, errors.Wrapf(err, "parse boot time %s", bootTimeStr)
+	}
+
+	return parsedTime, nil
+}
+
+func parseWMIDateTime(wmiTime string) (time.Time, error) {
+	if len(wmiTime) < 14 {
+		return time.Time{}, errors.New("wmi time too short")
+	}
+	// 提取基本日期时间部分: yyyyMMddHHmmss
+	timeStr := wmiTime[:14]
+	layout := "20060102150405"
+	return time.Parse(layout, timeStr)
 }
