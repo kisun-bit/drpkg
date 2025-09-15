@@ -13,5 +13,5 @@ func main() {
 		log.Fatalln(err)
 		return
 	}
-	fmt.Println(psi.String())
+	fmt.Println(psi.PrettyString())
 }

@@ -46,6 +46,7 @@ type LinuxPrivateInfo struct {
 type WindowsPrivateInfo struct {
 	Effective bool           `json:"effective"`
 	Release   WindowsRelease `json:"release"`
+	Updates   []Hotfix       `json:"updates"`
 	// FIXME
 }
 
@@ -113,6 +114,9 @@ func (p *PSInfo) fillPrivateInfo() (err error) {
 	case "windows":
 		p.Private.Windows.Effective = true
 		if p.Private.Windows.Release, err = QueryWindowsRelease(); err != nil {
+			return err
+		}
+		if p.Private.Windows.Updates, err = QueryHotfixList(); err != nil {
 			return err
 		}
 	}
