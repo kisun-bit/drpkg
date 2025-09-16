@@ -1,11 +1,13 @@
 package info
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/thoas/go-funk"
 )
 
 // Generic 通用信息
@@ -17,9 +19,15 @@ type Generic struct {
 	// OCIArch 系统架构
 	OCIArch string `json:"ociArch"`
 	// Cpu CPU信息
-	Cpu []cpu.InfoStat `json:"cpu"`
+	Cpu CpuStat `json:"cpu"`
 	// Mem 内存信息
 	Mem mem.VirtualMemoryStat `json:"mem"`
+}
+
+type CpuStat struct {
+	Models        []string `json:"models"`
+	Slots         int      `json:"slots"` // 通过CoresId+PhysicalId联合去重
+	PhysicalCores int      `json:"physicalCores"`
 }
 
 // QueryGeneric 查询通用信息
@@ -31,7 +39,7 @@ func QueryGeneric() (g Generic, err error) {
 		return
 	}
 
-	if g.Cpu, err = cpu.Info(); err != nil {
+	if g.Cpu, err = QueryCpuStat(); err != nil {
 		return
 	}
 
@@ -42,4 +50,26 @@ func QueryGeneric() (g Generic, err error) {
 	g.Mem = *m
 
 	return g, nil
+}
+
+func QueryCpuStat() (cs CpuStat, err error) {
+	cpuList, err := cpu.Info()
+	if err != nil {
+		return cs, err
+	}
+
+	slotList := make([]string, 0)
+	for _, c := range cpuList {
+		if !funk.InStrings(cs.Models, c.ModelName) {
+			cs.Models = append(cs.Models, c.ModelName)
+		}
+		slotId := fmt.Sprintf("%s-%s", c.PhysicalID, c.CoreID)
+		if !funk.InStrings(slotList, slotId) {
+			slotList = append(slotList, slotId)
+			cs.Slots++
+		}
+		cs.PhysicalCores += int(c.Cores)
+	}
+
+	return cs, nil
 }
