@@ -1,7 +1,6 @@
 package info
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -32,6 +31,13 @@ func QueryVolumes() ([]Volume, error) {
 				return nil, err
 			}
 		} else {
+			isDA, err := IsDirectAccessBlockDevice(devMount.Device)
+			if err != nil {
+				return nil, err
+			}
+			if !isDA {
+				continue
+			}
 			// 普通分区或磁盘
 			seg, err := DiskOrPartitionSegment(devMount.Device)
 			if err != nil {
@@ -72,53 +78,53 @@ func QueryVolumes() ([]Volume, error) {
 	return vols, nil
 }
 
-func DiskOrPartitionSegment(device string) (segment Segment, err error) {
-	if !extend.IsExisted(device) {
-		return segment, errors.Errorf("device %s does not exist", device)
-	}
-
-	isDisk := true
-	deviceClassPath := filepath.Join("/sys/class/block", filepath.Base(device))
-	deviceClassLinkTarget, err := filepath.EvalSymlinks(deviceClassPath)
-	if err != nil {
-		return segment, err
-	}
-
-	if strings.HasSuffix(filepath.Dir(deviceClassLinkTarget), "block") {
-		isDisk = true
-	} else {
-		isDisk = false
-	}
-
-	if !isDisk {
-		segment.Disk = filepath.Join("/dev", filepath.Base(filepath.Dir(deviceClassLinkTarget)))
-		partStartBin, err := os.ReadFile(filepath.Join(deviceClassPath, "start"))
-		if err != nil {
-			return segment, err
-		}
-		partStartBin = bytes.TrimSpace(partStartBin)
-		startSector, err := strconv.ParseUint(string(partStartBin), 10, 64)
-		if err != nil {
-			return segment, err
-		}
-		segment.Start = startSector * 512
-	} else {
-		segment.Disk = device
-	}
-
-	sizeBin, err := os.ReadFile(filepath.Join(deviceClassPath, "size"))
-	if err != nil {
-		return segment, err
-	}
-	sizeBin = bytes.TrimSpace(sizeBin)
-	sectors, err := strconv.ParseUint(string(sizeBin), 10, 64)
-	if err != nil {
-		return segment, err
-	}
-	segment.Size = sectors * 512
-
-	return segment, nil
-}
+//func DiskOrPartitionSegment(device string) (segment Segment, err error) {
+//	if !extend.IsExisted(device) {
+//		return segment, errors.Errorf("device %s does not exist", device)
+//	}
+//
+//	isDisk := true
+//	deviceClassPath := filepath.Join("/sys/class/block", filepath.Base(device))
+//	deviceClassLinkTarget, err := filepath.EvalSymlinks(deviceClassPath)
+//	if err != nil {
+//		return segment, err
+//	}
+//
+//	if strings.HasSuffix(filepath.Dir(deviceClassLinkTarget), "block") {
+//		isDisk = true
+//	} else {
+//		isDisk = false
+//	}
+//
+//	if !isDisk {
+//		segment.Disk = filepath.Join("/dev", filepath.Base(filepath.Dir(deviceClassLinkTarget)))
+//		partStartBin, err := os.ReadFile(filepath.Join(deviceClassPath, "start"))
+//		if err != nil {
+//			return segment, err
+//		}
+//		partStartBin = bytes.TrimSpace(partStartBin)
+//		startSector, err := strconv.ParseUint(string(partStartBin), 10, 64)
+//		if err != nil {
+//			return segment, err
+//		}
+//		segment.Start = startSector * 512
+//	} else {
+//		segment.Disk = device
+//	}
+//
+//	sizeBin, err := os.ReadFile(filepath.Join(deviceClassPath, "size"))
+//	if err != nil {
+//		return segment, err
+//	}
+//	sizeBin = bytes.TrimSpace(sizeBin)
+//	sectors, err := strconv.ParseUint(string(sizeBin), 10, 64)
+//	if err != nil {
+//		return segment, err
+//	}
+//	segment.Size = sectors * 512
+//
+//	return segment, nil
+//}
 
 func LVSegments(lvPath string) (segments []Segment, err error) {
 	if strings.HasPrefix(lvPath, "/dev/mapper") {
@@ -213,4 +219,144 @@ func DeviceUUID(device string) string {
 		}
 	}
 	return ""
+}
+
+//func IsDirectAccessBlockDevice(device string) (bool, error) {
+//	stat, err := os.Lstat(device)
+//	if err != nil {
+//		return false, err
+//	}
+//
+//	if stat.Mode()&os.ModeSymlink == os.ModeSymlink {
+//		device, err = filepath.EvalSymlinks(device)
+//		if err != nil {
+//			return false, err
+//		}
+//	}
+//
+//	deviceClassPath := filepath.Join("/sys/class/block", filepath.Base(device))
+//	deviceClassLinkTarget, err := filepath.EvalSymlinks(deviceClassPath)
+//	if err != nil {
+//		return false, err
+//	}
+//
+//	diskname := filepath.Base(filepath.Dir(deviceClassLinkTarget))
+//	if strings.HasSuffix(filepath.Dir(deviceClassLinkTarget), "block") {
+//		diskname = filepath.Base(device)
+//	}
+//
+//	diskTypePath := filepath.Join("/sys/class/block", diskname, "device", "type")
+//	typeBin, err := os.ReadFile(diskTypePath)
+//	if err != nil {
+//		if errors.Is(err, os.ErrNotExist) {
+//			return false, nil
+//		}
+//		return false, err
+//	}
+//
+//	typeInt, err := strconv.Atoi(string(bytes.TrimSpace(typeBin)))
+//	if err != nil {
+//		return false, err
+//	}
+//
+//	return typeInt == 0, nil
+//}
+
+// resolveDevice 返回真实块设备路径和对应“磁盘名”
+// diskName 即 /sys/class/block/<diskName>
+func resolveDevice(devPath string) (realPath, diskName string, err error) {
+	stat, err := os.Lstat(devPath)
+	if err != nil {
+		return "", "", err
+	}
+	if stat.Mode()&os.ModeSymlink != 0 {
+		devPath, err = filepath.EvalSymlinks(devPath)
+		if err != nil {
+			return "", "", err
+		}
+	}
+
+	base := filepath.Base(devPath)
+	sysPath := filepath.Join("/sys/class/block", base)
+	linkTarget, err := filepath.EvalSymlinks(sysPath)
+	if err != nil {
+		return "", "", err
+	}
+
+	// 如果上级目录就是 "block"，说明本身是磁盘
+	if strings.HasSuffix(filepath.Dir(linkTarget), "block") {
+		return devPath, base, nil
+	}
+	// 否则说明是分区，父目录名即磁盘名
+	return devPath, filepath.Base(filepath.Dir(linkTarget)), nil
+}
+
+// getDeviceType 返回 SCSI peripheral type (0=direct-access,5=CD-ROM...)
+func getDeviceType(diskName string) (int, error) {
+	b, err := os.ReadFile(filepath.Join("/sys/class/block", diskName, "device", "type"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return -1, nil // 某些虚拟块设备可能没有 type
+		}
+		return -1, err
+	}
+	t, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return -1, err
+	}
+	return t, nil
+}
+
+// DiskOrPartitionSegment 计算磁盘或分区的起始偏移与大小
+func DiskOrPartitionSegment(device string) (Segment, error) {
+	var seg Segment
+
+	realDev, diskName, err := resolveDevice(device)
+	if err != nil {
+		return seg, err
+	}
+
+	// 判断是否是磁盘本体还是分区
+	sysPath := filepath.Join("/sys/class/block", filepath.Base(realDev))
+	linkTarget, _ := filepath.EvalSymlinks(sysPath)
+	isDisk := strings.HasSuffix(filepath.Dir(linkTarget), "block")
+
+	if !isDisk {
+		seg.Disk = filepath.Join("/dev", diskName)
+		startBytes, err := os.ReadFile(filepath.Join(sysPath, "start"))
+		if err != nil {
+			return seg, err
+		}
+		start, err := strconv.ParseUint(strings.TrimSpace(string(startBytes)), 10, 64)
+		if err != nil {
+			return seg, err
+		}
+		seg.Start = start * 512
+	} else {
+		seg.Disk = realDev
+	}
+
+	sizeBytes, err := os.ReadFile(filepath.Join(sysPath, "size"))
+	if err != nil {
+		return seg, err
+	}
+	sectors, err := strconv.ParseUint(strings.TrimSpace(string(sizeBytes)), 10, 64)
+	if err != nil {
+		return seg, err
+	}
+	seg.Size = sectors * 512
+	return seg, nil
+}
+
+// IsDirectAccessBlockDevice 判断是否是普通磁盘类设备(type==0)
+func IsDirectAccessBlockDevice(device string) (bool, error) {
+	_, diskName, err := resolveDevice(device)
+	if err != nil {
+		return false, err
+	}
+	t, err := getDeviceType(diskName)
+	if err != nil {
+		return false, err
+	}
+	return t == 0, nil
 }
