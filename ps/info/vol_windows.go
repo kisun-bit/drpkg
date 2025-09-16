@@ -29,6 +29,9 @@ func QueryVolumes() ([]Volume, error) {
 			if errors.As(err, &ec) && ec == 1 {
 				continue
 			}
+			if errors.Is(err, syscall.ERROR_ACCESS_DENIED) {
+				return nil, err
+			}
 			continue
 		}
 		if len(des) == 0 {
