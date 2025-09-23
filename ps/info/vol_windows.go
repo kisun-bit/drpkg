@@ -11,15 +11,28 @@ import (
 )
 
 func QueryVolumes() ([]Volume, error) {
-	mountpoints, err := extend.VolumeMountpoints()
+	//mountpoints, err := extend.VolumeMountpoints()
+	//if err != nil {
+	//	return nil, err
+	//}
+	volumes, err := extend.ListWin32VolumeByWMI()
 	if err != nil {
 		return nil, err
 	}
 
 	vols := make([]Volume, 0)
 
-	for _, mountpoint := range mountpoints {
-		if IsMemoryOS() && strings.ToLower(mountpoint) == "x:" {
+	for _, v := range volumes {
+		drvMountpoint := strings.TrimSuffix(v.Name, "\\")
+		if strings.HasSuffix(v.Name, ":\\") {
+			drvMountpoint = strings.TrimSuffix(v.Name, "\\")
+		}
+
+		mountpoint := strings.TrimSuffix(v.DeviceID, "\\")
+		if IsMemoryOS() && strings.ToLower(v.Name) == "x:\\" {
+			continue
+		}
+		if v.Capacity == 0 || v.DriveType != 3 {
 			continue
 		}
 
@@ -39,8 +52,9 @@ func QueryVolumes() ([]Volume, error) {
 		}
 
 		curVol := Volume{}
-		curVol.Name = fmt.Sprintf("Volume (%s)", mountpoint)
-		curVol.MountPoint = mountpoint
+		curVol.Name = fmt.Sprintf("Volume (%s)", v.Name)
+		curVol.MountPoint = drvMountpoint
+
 		for _, d := range des {
 			curVol.Segments = append(curVol.Segments, Segment{
 				Disk:  extend.WindowsDiskPathFromID(d.DiskNumber),
@@ -49,7 +63,7 @@ func QueryVolumes() ([]Volume, error) {
 			})
 		}
 
-		curVol.Size, err = extend.FileSize(curVol.MountPoint + "\\")
+		curVol.Size, err = extend.FileSize(mountpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -59,7 +73,7 @@ func QueryVolumes() ([]Volume, error) {
 			curVol.Filesystem = strings.ToLower(fs_)
 			curVol.UUID = vuuid
 			if label != "" {
-				curVol.Name = fmt.Sprintf("%s (%s)", label, mountpoint)
+				curVol.Name = fmt.Sprintf("%s (%s)", label, drvMountpoint)
 			}
 		}
 

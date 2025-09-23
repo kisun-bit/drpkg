@@ -45,6 +45,9 @@ func GetFileSize(fileName string) (uint64, error) {
 // 获取卷（含 VSS/Volume）的总容量
 func getVolumeTotalSize(path string) (uint64, error) {
 	var total, free, ava uint64
+	if !strings.HasSuffix(path, "\\") {
+		path += "\\"
+	}
 	if err := windows.GetDiskFreeSpaceEx(
 		windows.StringToUTF16Ptr(path),
 		&ava, &total, &free,
@@ -107,7 +110,7 @@ func MatchDevLinkName(_ string, _ string) string {
 func VolumeMountpoints() (volumeMountpoints []string, err error) {
 	buf := make([]uint16, 254)
 	n, e := windows.GetLogicalDriveStrings(254, &buf[0])
-	if err != nil {
+	if e != nil {
 		return nil, e
 	}
 	for _, v := range buf[:n] {
@@ -121,6 +124,24 @@ func VolumeMountpoints() (volumeMountpoints []string, err error) {
 		volumeMountpoints = append(volumeMountpoints, letter+":")
 	}
 	return volumeMountpoints, nil
+}
+
+type Win32Volume struct {
+	DeviceID     string
+	Name         string
+	BootVolume   bool
+	SystemVolume bool
+	DriveType    uint32
+	Capacity     uint64
+}
+
+func ListWin32VolumeByWMI() ([]Win32Volume, error) {
+	var vols []Win32Volume
+	query := "SELECT DeviceID, Name, BootVolume, SystemVolume, DriveType, Capacity FROM Win32_Volume"
+	if err := wmi_.Query(query, &vols); err != nil {
+		return nil, err
+	}
+	return vols, nil
 }
 
 type DiskExtent struct {
@@ -161,7 +182,10 @@ func VolumeMountpointToExtents(volumeMountpoint string) ([]DiskExtent, error) {
 // VolumeUsageInfo 通过卷名查询其磁盘使用情况.
 func VolumeUsageInfo(volumeMountpoint string) (total, used, free uint64, err error) {
 	var available uint64
-	err = windows.GetDiskFreeSpaceEx(windows.StringToUTF16Ptr(volumeMountpoint+"\\"), &available, &total, &free)
+	if !strings.HasSuffix(volumeMountpoint, "\\") {
+		volumeMountpoint += "\\"
+	}
+	err = windows.GetDiskFreeSpaceEx(windows.StringToUTF16Ptr(volumeMountpoint), &available, &total, &free)
 	used = total - free
 	return
 }
@@ -213,6 +237,9 @@ func PartitionInformationByVolume(volumeMountpoint string) (pi PARTITION_INFORMA
 }
 
 func VolumeMountpointUNC(volumeMountpoint string) string {
+	if IsWindowsVolume(volumeMountpoint) {
+		return strings.TrimSuffix(volumeMountpoint, "\\")
+	}
 	return `\\.\` + volumeMountpoint
 }
 
@@ -255,7 +282,8 @@ func VolumeExtraInfo(volumeMountpoint string) (label string, fs_ string, uuid st
 	uniqID := fmt.Sprintf("%X", lpVolumeSerialNumber)
 	volName, _ := VolumeName(volumeMountpoint) // volName 形如: `\\?\Volume{e3b9397c-0000-0000-0000-100000000000}\`
 	if IsWindowsVolume(volName) {
-		uniqID = strings.TrimSuffix(strings.TrimPrefix(volName, `\\?\Volume{`), `}\`)
+		//uniqID = strings.TrimSuffix(strings.TrimPrefix(volName, `\\?\Volume{`), `}\`)
+		uniqID = volName
 	}
 	if err != nil {
 		if uniqID != "" {
