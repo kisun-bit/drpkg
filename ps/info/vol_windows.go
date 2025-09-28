@@ -3,6 +3,7 @@ package info
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -100,6 +101,10 @@ func QueryVolumes() ([]Volume, error) {
 
 		vols = append(vols, curVol)
 	}
+
+	sort.Slice(vols, func(i, j int) bool {
+		return vols[i].MountPoint < vols[j].MountPoint
+	})
 
 	return vols, nil
 }
