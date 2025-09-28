@@ -113,7 +113,7 @@ func (p *PSInfo) fillPrivateInfo() (err error) {
 		p.Private.Linux.Target = QueryLinuxTarget()
 	case "windows":
 		p.Private.Windows.Effective = true
-		if p.Private.Windows.Release, err = QueryWindowsRelease(); err != nil {
+		if p.Private.Windows.Release, err = QueryWindowsRelease(""); err != nil {
 			return err
 		}
 		if p.Private.Windows.Updates, err = QueryHotfixList(); err != nil {

@@ -64,8 +64,12 @@ func SupportCPUVirtual() bool {
 	return strings.Contains(o, "TRUE")
 }
 
-func QueryWindowsRelease() (WindowsRelease, error) {
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
+func QueryWindowsRelease(HKLMNameIfOffline string) (WindowsRelease, error) {
+	path := `SOFTWARE\Microsoft\Windows NT\CurrentVersion`
+	if HKLMNameIfOffline != "" {
+		path = HKLMNameIfOffline + "\\" + path
+	}
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
 	if err != nil {
 		return WindowsRelease{}, err
 	}
