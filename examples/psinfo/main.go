@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/kisun-bit/drpkg/ps/info"
 )
@@ -14,4 +15,8 @@ func main() {
 		return
 	}
 	fmt.Println(psi.PrettyString())
+
+	for {
+		time.Sleep(1 * time.Second)
+	}
 }

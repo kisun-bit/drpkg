@@ -83,6 +83,7 @@ func GetDiskType(diskPath string) (DiskType, error) {
 	if err != nil {
 		return DTypeRAW, nil
 	}
+	defer mbr_.Close()
 	existedProtectivePart := false
 	for _, p := range mbr_.FullMainPartitionEntries {
 		if p.IsProtectiveMBR() {
@@ -109,6 +110,7 @@ func DetectBootType(diskPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer gpt.Close()
 	for i := 0; i < 128; i++ {
 		if gpt.PartitionEntries[i].PartTypeGUIDInMixedEndian() == BIOSBootPartition {
 			return "bios", nil
@@ -127,6 +129,7 @@ func DetectOSType(diskPath string) (string, error) {
 		if e != nil {
 			return "", e
 		}
+		defer mbr.Close()
 		for i := 0; i < 4; i++ {
 			switch mbr.FullMainPartitionEntries[i].PartitionType {
 			case NTFS, WindowsRecoveryEnv:
@@ -141,6 +144,7 @@ func DetectOSType(diskPath string) (string, error) {
 		if e != nil {
 			return "", e
 		}
+		defer gpt.Close()
 		for i := 0; i < 128; i++ {
 			switch gpt.PartitionEntries[i].PartTypeGUIDInMixedEndian() {
 			case MicroMRE, BasicDataPartition, LDMMetaDataPartition, LDMDataPartition, MicroMSR, IBMGPFSPartition:
