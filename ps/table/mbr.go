@@ -52,6 +52,7 @@ func NewMBR(disk string, start int64, isEBR bool) (mbr MBR, err error) {
 	}
 	mbr, err = newMBR(fp, start, isEBR)
 	if err != nil {
+		_ = fp.Close()
 		return MBR{}, err
 	}
 	mbr.DiskPath = disk
