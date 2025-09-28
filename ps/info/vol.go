@@ -58,7 +58,7 @@ type UsageInfo struct {
 	AvailBytes uint64 `json:"availBytes"`
 }
 
-func ContainsOSFile(dir string) bool {
+func ContainsOSFileOrBootFile(dir string) bool {
 	switch runtime.GOOS {
 	case "windows":
 		if strings.HasSuffix(dir, ":") {
@@ -70,8 +70,10 @@ func ContainsOSFile(dir string) bool {
 		if extend.ContainFiles(dir, "Windows", "Users", "Program Files") {
 			return true
 		}
+		if extend.ContainFiles(dir, "bootmgr", "Boot") {
+			return true
+		}
 	case "linux":
-		// 从dir本身来说:
 		if strings.HasSuffix(dir, "/boot") {
 			return true
 		}
@@ -84,7 +86,6 @@ func ContainsOSFile(dir string) bool {
 		if strings.HasSuffix(dir, "/usr") {
 			return true
 		}
-		// 从dir子文件来说：
 		if extend.ContainFiles(dir, "boot", "var", "home", "sys", "usr", "root") {
 			return true
 		}
