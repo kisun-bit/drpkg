@@ -80,7 +80,7 @@ func IsVirtualHost(manufacturer string) bool {
 	return false
 }
 
-func QueryBootType() string {
+func QueryBootType() BootType {
 	vars, e := efi.GetEfiVariables()
 	if e == nil && len(vars) > 0 {
 		return "uefi"

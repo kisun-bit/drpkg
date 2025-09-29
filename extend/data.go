@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -163,4 +164,20 @@ func ReadNullTerminatedAscii(buf []byte, offset int) string {
 		}
 	}
 	return ""
+}
+
+func ReadIntFromFile(path string) (int64, error) {
+	ret, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(strings.TrimSpace(string(ret)), 0, 64)
+}
+
+func ReadStringFromFile(path string) (string, error) {
+	ret, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(ret)), nil
 }

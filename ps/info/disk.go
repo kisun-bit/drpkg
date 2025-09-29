@@ -1,20 +1,20 @@
 package info
 
-type Purpose int16
+type DiskRoleType string
 
 const (
-	PurposeUnknown Purpose = iota
-	PurposeLVM             // 表明此磁盘是一个PV
-	PurposeVolume          // 表明此磁盘是一个包含文件系统的卷
-	PurposeDisk            // 表明此磁盘是一个包含分区表的磁盘
+	DiskRoleUnknown DiskRoleType = "unknown"
+	DiskRoleLVM     DiskRoleType = "lvm"    // 表明此磁盘是一个PV
+	DiskRoleVolume  DiskRoleType = "volume" // 表明此磁盘是一个包含文件系统的卷
+	DiskRoleDisk    DiskRoleType = "disk"   // 表明此磁盘是一个包含分区表的磁盘
 )
 
-type PartitionTableType string
+type DiskTableType string
 
 const (
-	UnknownLabel PartitionTableType = "unknown"
-	MBR          PartitionTableType = "mbr"
-	GPT          PartitionTableType = "gpt"
+	DiskTableUnknown DiskTableType = "unknown"
+	DiskTableMBR     DiskTableType = "mbr"
+	DiskTableGPT     DiskTableType = "gpt"
 )
 
 type Disk struct {
@@ -25,14 +25,18 @@ type Disk struct {
 	// GUID 全局唯一ID
 	// 计算规则: TODO 如何计算GUID
 	GUID string `json:"guid"`
-	// Size 磁盘大小（单位：字节）
-	Size int64 `json:"size"`
+	// Sectors 磁盘大小（单位：字节）
+	Sectors int64 `json:"size"`
 	// SectorSize 物理扇区大小（单位：字节）
 	SectorSize int `json:"sectorSize"`
-	// SerialNumber 硬件序列号
+	// Vendor 制造商
+	Vendor string `json:"vendor"`
+	// Model 产品型号
+	Model string `json:"model"`
+	// SerialNumber 硬件序列号（注意：可能为空）
 	SerialNumber string `json:"serialNumber"`
-	// Purpose 用途
-	Purpose Purpose `json:"purpose"`
+	// Role 角色
+	Role DiskRoleType `json:"purpose"`
 	// IsOnline 是否已联机
 	IsOnline bool `json:"isOnline"`
 	// IsMsDynamic 是否为Windows动态磁盘
@@ -41,11 +45,22 @@ type Disk struct {
 	IsReadOnly bool `json:"isReadOnly"`
 }
 
-type PartitionTable struct {
+type DiskTable struct {
 	// Device 设备路径
 	Device string `json:"device"`
 	// Type 分区表类型
-	Type PartitionTableType `json:"type"`
+	Type DiskTableType `json:"type"`
 	// Identifier 分区表唯一ID
 	Identifier string `json:"identifier"`
+	// Partitions 分区表项集合
+	Partitions []DiskPartitionTable `json:"partitions"`
+}
+
+type DiskPartitionTable struct {
+	// Type 分区表项的类型
+	Type string `json:"type"`
+	// Start 起始字节
+	Start int `json:"start"`
+	// Size 总大小
+	Size int `json:"size"`
 }

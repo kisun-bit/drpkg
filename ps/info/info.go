@@ -5,6 +5,14 @@ import (
 	"runtime"
 )
 
+type BootType string
+
+const (
+	BootTypeUnknown BootType = "unknown"
+	BootTypeEFI     BootType = "uefi"
+	BootTypeBIOS    BootType = "bios"
+)
+
 type PSInfo struct {
 	// Public 主机公共信息
 	Public PublicInfo `json:"public"`
@@ -21,13 +29,15 @@ type PublicInfo struct {
 	// IsVirtualHost 是否是虚拟机
 	IsVirtualHost bool `json:"isVirtualHost"`
 	// BootType 启动类型(bios、uefi)
-	BootType string `json:"bootType"`
+	BootType BootType `json:"bootType"`
 	// EFIInfo UEFI启动信息
 	EFIInfo EFI `json:"efiInfo"`
 	// EnableVTX 是否支持虚拟cpu
 	EnableVTX bool `json:"enableVTX"`
-	// IFList 网卡信息
+	// IFList 网卡列表
 	IFList []IF `json:"ifList"`
+	// Disks 磁盘列表
+	Disks []Disk `json:"disks"`
 	// Volumes 卷列表
 	Volumes []Volume `json:"volumes"`
 }
@@ -106,6 +116,9 @@ func (p *PSInfo) fillPublicInfo() (err error) {
 		return err
 	}
 	if p.Public.Volumes, err = QueryVolumes(); err != nil {
+		return err
+	}
+	if p.Public.Disks, err = QueryDisks(); err != nil {
 		return err
 	}
 	return nil

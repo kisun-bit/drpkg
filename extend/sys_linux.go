@@ -238,3 +238,73 @@ func GetBootTime() (time.Time, error) {
 	bootTime := time.Now().Add(-time.Duration(uptimeSeconds * float64(time.Second)))
 	return bootTime, nil
 }
+
+func ListDisks() (disks []string, err error) {
+	sysBlockDir := "/sys/class/block"
+	subFiles, err := os.ReadDir(sysBlockDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range subFiles {
+		filename := file.Name()
+		path := filepath.Join(sysBlockDir, filename, "device/type")
+		devType, err := ReadIntFromFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		if devType != 0 {
+			continue
+		}
+		disks = append(disks, filepath.Join("/dev", filename))
+	}
+	return disks, nil
+}
+
+func GetDiskSectorSize(disk string) (int64, error) {
+	return ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "size"))
+}
+
+func GetDiskSectors(disk string) (int64, error) {
+	return ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "queue/hw_sector_size"))
+}
+
+func GetDiskVendor(disk string) (string, error) {
+	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/vendor"))
+	if err == nil {
+		return ret, nil
+	}
+	if errors.Is(err, syscall.ENXIO) || os.IsNotExist(err) {
+		return "", nil
+	}
+	return "", err
+}
+
+func GetDiskModel(disk string) (string, error) {
+	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/model"))
+	if err == nil {
+		return ret, nil
+	}
+	if errors.Is(err, syscall.ENXIO) || os.IsNotExist(err) {
+		return "", nil
+	}
+	return "", err
+}
+
+func GetDiskSerialNumber(disk string) (string, error) {
+	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/wwid"))
+	if err == nil {
+		return ret, nil
+	}
+	if errors.Is(err, syscall.ENXIO) || os.IsNotExist(err) {
+		// 获取vpd_80序列号
+		vpdret, vpderr := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/vpd_pg80"))
+		if vpderr == nil {
+			return vpdret, nil
+		}
+		return "", nil
+	}
+	return "", err
+}
