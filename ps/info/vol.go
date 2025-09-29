@@ -21,10 +21,10 @@ type Volume struct {
 	// Linux: 使用设备的挂载点"/home"
 	MountPoint string `json:"mountpoint"`
 
-	// UUID 设备唯一标识符
+	// GUID 设备唯一标识符
 	// Windows: 取自卷名（如：\\?\Volume{e3b9397c-0000-0000-0000-100000000000}\）中的GUID
 	// Linux：取自 blkid 输出的UUID
-	UUID string `json:"uuid"`
+	GUID string `json:"guid"`
 
 	// Filesystem 卷的文件系统类型
 	Filesystem string `json:"filesystem"`
@@ -89,6 +89,8 @@ func ContainsOSFileOrBootFile(dir string) bool {
 		if extend.ContainFiles(dir, "boot", "var", "home", "sys", "usr", "root") {
 			return true
 		}
+	default:
+		return false
 	}
 	return false
 }

@@ -6,7 +6,9 @@ import (
 )
 
 type PSInfo struct {
-	Public  PublicInfo  `json:"public"`
+	// Public 主机公共信息
+	Public PublicInfo `json:"public"`
+	// Private 主机私有信息
 	Private PrivateInfo `json:"private"`
 }
 
@@ -31,22 +33,32 @@ type PublicInfo struct {
 }
 
 type PrivateInfo struct {
-	Linux   LinuxPrivateInfo   `json:"linuxPrivateInfo"`
+	// Linux 类Linux系统私有信息
+	Linux LinuxPrivateInfo `json:"linuxPrivateInfo"`
+	// Windows Windows系统私有信息
 	Windows WindowsPrivateInfo `json:"windowsPrivateInfo"`
 }
 
 type LinuxPrivateInfo struct {
-	Effective bool          `json:"effective"`
-	Kernels   []LinuxKernel `json:"kernels"`
-	Release   LinuxRelease  `json:"release"`
-	Swaps     []LinuxSwap   `json:"swaps"`
-	Target    LinuxTarget   `json:"target"`
+	// Effective 是否有效
+	Effective bool `json:"effective"`
+	// Kernels 内核信息集合
+	Kernels []LinuxKernel `json:"kernels"`
+	// Release 版本信息
+	Release LinuxRelease `json:"release"`
+	// Swaps 交换分区信息
+	Swaps []LinuxSwap `json:"swaps"`
+	// Target 目标平台信息
+	Target LinuxTarget `json:"target"`
 }
 
 type WindowsPrivateInfo struct {
-	Effective bool           `json:"effective"`
-	Release   WindowsRelease `json:"release"`
-	Updates   []Hotfix       `json:"updates"`
+	// Effective 是否有效
+	Effective bool `json:"effective"`
+	// Release 版本信息
+	Release WindowsRelease `json:"release"`
+	// Updates 已更新的补丁包
+	Updates []Hotfix `json:"updates"`
 	// FIXME
 }
 

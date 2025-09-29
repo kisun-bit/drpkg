@@ -38,7 +38,7 @@ func QueryDmi() (DmiInfo, error) {
 	if err := wmi_.Query("SELECT Manufacturer, Product, SerialNumber, Version FROM Win32_BaseBoard", &baseboard); err != nil {
 		return DmiInfo{}, err
 	}
-	if err := wmi_.Query("SELECT UUID, IdentifyingNumber, Vendor, Version, SKUNumber, Name FROM Win32_ComputerSystemProduct", &systemProduct); err != nil {
+	if err := wmi_.Query("SELECT GUID, IdentifyingNumber, Vendor, Version, SKUNumber, Name FROM Win32_ComputerSystemProduct", &systemProduct); err != nil {
 		return DmiInfo{}, err
 	}
 

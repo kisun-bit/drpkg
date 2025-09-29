@@ -25,9 +25,13 @@ type Generic struct {
 }
 
 type CpuStat struct {
-	Models        []string `json:"models"`
-	Slots         int      `json:"slots"` // 通过CoresId+PhysicalId联合去重
-	PhysicalCores int      `json:"physicalCores"`
+	// Models 型号
+	Models []string `json:"models"`
+	// Slots 插槽数量
+	// 通过CoresId+PhysicalId联合去重
+	Slots int `json:"slots"`
+	// PhysicalCores 物理核心数
+	PhysicalCores int `json:"physicalCores"`
 }
 
 // QueryGeneric 查询通用信息

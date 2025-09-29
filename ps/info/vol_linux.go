@@ -47,7 +47,7 @@ func QueryVolumes() ([]Volume, error) {
 		}
 
 		v.MountPoint = devMount.Mountpoint
-		v.UUID = DeviceUUID(devMount.Device)
+		v.GUID = DeviceUUID(devMount.Device)
 		v.Filesystem = devMount.Filesystem
 
 		ava, total, used, _, _, _, err := extend.MountpointUsage(devMount.Mountpoint)
