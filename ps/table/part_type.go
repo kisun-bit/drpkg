@@ -179,7 +179,7 @@ const (
 	GPT_SOLARIS_ROOT      PartType = "6A85CF4D-1DD2-11B2-99A6-080020736631" // Root
 	GPT_SOLARIS_SWAP      PartType = "6A87C46F-1DD2-11B2-99A6-080020736631" // Swap
 	GPT_SOLARIS_BACKUP    PartType = "6A8B642B-1DD2-11B2-99A6-080020736631" // Backup
-	GPT_SOLARIS_USR       PartType = "6A898CC3-1DD2-11B2-99A6-080020736631" // /usr
+	GPT_SOLARIS_USR                = GPT_APPLE_ZFS                          // /usr
 	GPT_SOLARIS_VAR       PartType = "6A8EF2E9-1DD2-11B2-99A6-080020736631" // /var
 	GPT_SOLARIS_HOME      PartType = "6A90BA39-1DD2-11B2-99A6-080020736631" // /home
 	GPT_SOLARIS_ALTSECTOR PartType = "6A9283A5-1DD2-11B2-99A6-080020736631" // Alternate sector
@@ -262,7 +262,7 @@ const (
 	GPT_FUCHSIA_FACT_BL             PartType = "10B8DBAA-D2BF-42A9-98C6-A7C5DB3701E7" // Factory-provisioned bootloader data
 	GPT_FUCHSIA_FVM                 PartType = "49FD7CB8-DF15-4E73-B9D9-992070127F0F" // Fuchsia Volume Manager
 	GPT_FUCHSIA_VERIFIED_BOOT       PartType = "421A8BFC-85D9-4D85-ACDA-B64EEC0133E9" // Verified boot metadata
-	GPT_FUCHSIA_LEGACY_ESP          PartType = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B" // fuchsia-esp (same as EFI)
+	GPT_FUCHSIA_LEGACY_ESP                   = GPT_EFI                                // fuchsia-esp (same as EFI)
 	GPT_FUCHSIA_LEGACY_SYSTEM       PartType = "606B000B-B7C7-4653-A7D5-B737332C899D" // fuchsia-system
 	GPT_FUCHSIA_LEGACY_DATA         PartType = "08185F0C-892D-428A-A789-DBEEC8F55E6A" // fuchsia-data
 	GPT_FUCHSIA_LEGACY_INSTALL      PartType = "48435546-4953-2041-494E-5354414C4C52" // fuchsia-install
@@ -272,7 +272,7 @@ const (
 	GPT_FUCHSIA_LEGACY_ZIRCON_BOOT2 PartType = "23CC04DF-C278-4CE7-8471-897D1A4BCDF7" // Zircon boot image
 	GPT_FUCHSIA_LEGACY_ZIRCON_BOOT3 PartType = "A0E5CF57-2DEF-46BE-A80C-A2067C37CD49" // Zircon boot image
 	GPT_FUCHSIA_LEGACY_ZIRCON_BOOT4 PartType = "4E5E989E-4C86-11E8-A15B-480FCF35F8E6" // Zircon boot image
-	GPT_FUCHSIA_LEGACY_SYS_CONFIG   PartType = "23CC04DF-C278-4CE7-8471-897D1A4BCDF7" // sys-config (alternate)
+	GPT_FUCHSIA_LEGACY_SYS_CONFIG            = GPT_FUCHSIA_LEGACY_ZIRCON_BOOT2        // sys-config (alternate)
 	GPT_FUCHSIA_LEGACY_MISC         PartType = "1D75395D-F2C6-476B-A8B7-45CC1C97B476" // misc
 	GPT_FUCHSIA_LEGACY_BOOT1        PartType = "900B0FC5-90CD-4D4F-84F9-9F8ED579DB88" // emmc-boot1
 	GPT_FUCHSIA_LEGACY_BOOT2        PartType = "B2B2E8D1-7C10-4EBC-A2D0-4614568260AD" // emmc-boot2
@@ -302,7 +302,7 @@ const (
 	// (已在上述 SoftRAID_* 常量里定义)
 
 	// freedesktop.org shared boot loader config
-	GPT_FREEDESKTOP_SHARED_BOOT PartType = "BC13C2FF-59E6-4262-A352-B275FD6F7172" // Shared boot loader configuration (Linux etc.)
+	GPT_FREEDESKTOP_SHARED_BOOT PartType = GPT_LINUX_BOOT // Shared boot loader configuration (Linux etc.)
 
 	// Atari TOS
 	GPT_ATARI_BASIC PartType = "734E5AFE-F61A-11E6-BC64-92361F002671" // Atari TOS basic data
