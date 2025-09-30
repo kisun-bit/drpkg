@@ -1,6 +1,7 @@
 package info
 
 import (
+	"github.com/pkg/errors"
 	wmi_ "github.com/yusufpapurcu/wmi"
 )
 
@@ -32,14 +33,19 @@ func QueryDmi() (DmiInfo, error) {
 	var baseboard []Win32_BaseBoard
 	var systemProduct []Win32_ComputerSystemProduct
 
-	if err := wmi_.Query("SELECT Manufacturer, SerialNumber, SMBIOSBIOSVersion, ReleaseDate FROM Win32_BIOS", &bios); err != nil {
-		return DmiInfo{}, err
+	s := "SELECT Manufacturer, SerialNumber, SMBIOSBIOSVersion, ReleaseDate FROM Win32_BIOS"
+	if err := wmi_.Query(s, &bios); err != nil {
+		return DmiInfo{}, errors.Wrapf(err, "wmi.query %s", s)
 	}
-	if err := wmi_.Query("SELECT Manufacturer, Product, SerialNumber, Version FROM Win32_BaseBoard", &baseboard); err != nil {
-		return DmiInfo{}, err
+
+	s = "SELECT Manufacturer, Product, SerialNumber, Version FROM Win32_BaseBoard"
+	if err := wmi_.Query(s, &baseboard); err != nil {
+		return DmiInfo{}, errors.Wrapf(err, "wmi.query %s", s)
 	}
-	if err := wmi_.Query("SELECT GUID, IdentifyingNumber, Vendor, Version, SKUNumber, Name FROM Win32_ComputerSystemProduct", &systemProduct); err != nil {
-		return DmiInfo{}, err
+
+	s = "SELECT UUID, IdentifyingNumber, Vendor, Version, SKUNumber, Name FROM Win32_ComputerSystemProduct"
+	if err := wmi_.Query(s, &systemProduct); err != nil {
+		return DmiInfo{}, errors.Wrapf(err, "wmi.query %s", s)
 	}
 
 	_fixVal := func(_val string) string {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -260,6 +261,7 @@ func ListDisks() (disks []string, err error) {
 		}
 		disks = append(disks, filepath.Join("/dev", filename))
 	}
+	sort.Strings(disks)
 	return disks, nil
 }
 

@@ -49,7 +49,7 @@ type DiskTable struct {
 	// Device 设备路径
 	Device string `json:"device"`
 	// Type 分区表类型
-	Type table.DiskTableType `json:"type"`
+	Type table.TableType `json:"type"`
 	// Identifier 分区表唯一ID
 	Identifier string `json:"identifier"`
 	// Partitions 分区表项集合
@@ -80,9 +80,9 @@ func GetDiskTable(disk string) (dt DiskTable, err error) {
 	dt.Type = t
 
 	switch t {
-	case table.DTypeGPT:
+	case table.TableTypeGPT:
 		return readGPTTable(disk, dt)
-	case table.DTypeMBR:
+	case table.TableTypeMBR:
 		return readMBRTable(disk, dt)
 	default:
 		// 未识别的分区类型

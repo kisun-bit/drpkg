@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -139,7 +140,7 @@ func ListWin32VolumeByWMI() ([]Win32Volume, error) {
 	var vols []Win32Volume
 	query := "SELECT DeviceID, Name, BootVolume, SystemVolume, DriveType, Capacity FROM Win32_Volume"
 	if err := wmi_.Query(query, &vols); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "wmi_.Query %q", query)
 	}
 	return vols, nil
 }
@@ -453,4 +454,22 @@ func parseWMIDateTime(wmiTime string) (time.Time, error) {
 	timeStr := wmiTime[:14]
 	layout := "20060102150405"
 	return time.Parse(layout, timeStr)
+}
+
+type win32DiskDrive struct {
+	DeviceID string
+}
+
+func ListDisks() ([]string, error) {
+	var dst []win32DiskDrive
+	err := wmi_.Query("SELECT DeviceID FROM Win32_DiskDrive", &dst)
+	if err != nil {
+		return nil, err
+	}
+	var disks []string
+	for _, d := range dst {
+		disks = append(disks, d.DeviceID)
+	}
+	sort.Strings(disks)
+	return disks, nil
 }
