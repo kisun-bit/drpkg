@@ -6,12 +6,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-type DiskType string
+type DiskTableType string
 
 const (
-	DTypeGPT DiskType = "GPT"
-	DTypeMBR DiskType = "MBR"
-	DTypeRAW DiskType = "RAW"
+	DTypeGPT DiskTableType = "gpt"
+	DTypeMBR DiskTableType = "mbr"
+	DTypeRAW DiskTableType = "raw"
 )
 
 // GUIDToString 将原始GUID转换为字符串.
@@ -72,8 +72,8 @@ func GUIDToString(byteGuid []byte) string {
 	return string(s)
 }
 
-// GetDiskType 获取磁盘类型.
-func GetDiskType(diskPath string) (DiskType, error) {
+// GetDiskTableType 获取磁盘类型.
+func GetDiskTableType(diskPath string) (DiskTableType, error) {
 	// 如何判定为GPT磁盘？
 	// 有保护性MBR分区, 存在GPT类型的签名
 	mbr_, err := NewMBR(diskPath, 0, false)
@@ -98,7 +98,7 @@ func GetDiskType(diskPath string) (DiskType, error) {
 }
 
 func DetectBootType(diskPath string) (string, error) {
-	dt, err := GetDiskType(diskPath)
+	dt, err := GetDiskTableType(diskPath)
 	if err != nil {
 		return "", err
 	}
@@ -120,7 +120,7 @@ func DetectBootType(diskPath string) (string, error) {
 }
 
 func DetectOSType(diskPath string) (string, error) {
-	dt, err := GetDiskType(diskPath)
+	dt, err := GetDiskTableType(diskPath)
 	if err != nil {
 		return "", err
 	}
@@ -159,7 +159,7 @@ func DetectOSType(diskPath string) (string, error) {
 }
 
 func IsDiskBootable(diskPath string) bool {
-	t, _ := GetDiskType(diskPath)
+	t, _ := GetDiskTableType(diskPath)
 	switch t {
 	case DTypeGPT:
 		gpt, e := NewGPT(diskPath, 0)

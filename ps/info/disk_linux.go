@@ -1,8 +1,6 @@
 package info
 
 import (
-	"fmt"
-
 	"github.com/kisun-bit/drpkg/extend"
 )
 
@@ -12,7 +10,43 @@ func QueryDisks() (disks []Disk, err error) {
 		return nil, err
 	}
 	for _, diskPath := range diskPaths {
-		fmt.Println(diskPath)
+		d := Disk{}
+		d.Name = diskPath
+		d.Device = diskPath
+		d.Sectors, err = extend.GetDiskSectors(diskPath)
+		if err != nil {
+			return nil, err
+		}
+		ss, e := extend.GetDiskSectorSize(diskPath)
+		if e != nil {
+			return nil, e
+		}
+		d.SectorSize = int(ss)
+		d.Size = ss * d.Sectors
+		d.Vendor, err = extend.GetDiskVendor(diskPath)
+		if err != nil {
+			return nil, err
+		}
+		d.Model, err = extend.GetDiskModel(diskPath)
+		if err != nil {
+			return nil, err
+		}
+		d.SerialNumber, err = extend.GetDiskSerialNumber(diskPath)
+		if err != nil {
+			return nil, err
+		}
+		d.IsReadOnly, err = extend.IsDiskReadonly(diskPath)
+		if err != nil {
+			return nil, err
+		}
+		d.Table, err = GetDiskTable(diskPath)
+		if err != nil {
+			return nil, err
+		}
+		extendDiskGUID(&d)
+		d.IsMsDynamic = false
+		d.IsOnline = true
+		disks = append(disks, d)
 	}
 	return disks, nil
 }

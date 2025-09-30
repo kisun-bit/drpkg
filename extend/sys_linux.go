@@ -263,12 +263,14 @@ func ListDisks() (disks []string, err error) {
 	return disks, nil
 }
 
-func GetDiskSectorSize(disk string) (int64, error) {
-	return ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "size"))
+func GetDiskSectors(disk string) (int64, error) {
+	r, e := ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "size"))
+	return r, errors.Wrapf(e, "get disk sectos")
 }
 
-func GetDiskSectors(disk string) (int64, error) {
-	return ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "queue/hw_sector_size"))
+func GetDiskSectorSize(disk string) (int64, error) {
+	r, e := ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "queue/hw_sector_size"))
+	return r, errors.Wrapf(e, "get disk secto-size")
 }
 
 func GetDiskVendor(disk string) (string, error) {
@@ -279,7 +281,7 @@ func GetDiskVendor(disk string) (string, error) {
 	if errors.Is(err, syscall.ENXIO) || os.IsNotExist(err) {
 		return "", nil
 	}
-	return "", err
+	return "", errors.Wrapf(err, "get disk vendor")
 }
 
 func GetDiskModel(disk string) (string, error) {
@@ -290,21 +292,26 @@ func GetDiskModel(disk string) (string, error) {
 	if errors.Is(err, syscall.ENXIO) || os.IsNotExist(err) {
 		return "", nil
 	}
-	return "", err
+	return "", errors.Wrapf(err, "get disk model")
 }
 
 func GetDiskSerialNumber(disk string) (string, error) {
-	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/wwid"))
-	if err == nil {
-		return ret, nil
+	ret, err := os.ReadFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/wwid"))
+	if err == nil && len(ret) > 4 {
+		return strings.TrimSpace(string(ret[4:])), nil
 	}
 	if errors.Is(err, syscall.ENXIO) || os.IsNotExist(err) {
 		// 获取vpd_80序列号
-		vpdret, vpderr := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/vpd_pg80"))
-		if vpderr == nil {
-			return vpdret, nil
+		vpdret, vpderr := os.ReadFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/vpd_pg80"))
+		if vpderr == nil && len(vpdret) > 4 {
+			return strings.TrimSpace(string(vpdret[4:])), nil
 		}
 		return "", nil
 	}
-	return "", err
+	return "", errors.Wrapf(err, "get disk serial number")
+}
+
+func IsDiskReadonly(disk string) (bool, error) {
+	r, e := ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "ro"))
+	return r != 0, errors.Wrapf(e, "get disk read-only attribute")
 }
