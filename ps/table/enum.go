@@ -1,113 +1,115 @@
 package table
 
-type PartType string
+type PartType = string
 
 // MBR磁盘相关分区表项类型的常量定义
 // 参考：https://thestarman.pcministry.com/asm/mbr/PartTypes.htm
 const (
-	MBR_EMPTY_PARTITION                PartType = "00"
-	MBR_FAT12_PARTITION                PartType = "01"
-	MBR_XENIX_ROOT_PARTITION           PartType = "02"
-	MBR_XENIX_USR_PARTITION            PartType = "03"
-	MBR_FAT16_LESS32M_PARTITION        PartType = "04"
-	MBR_DOS_EXTENDED_PARTITION         PartType = "05"
-	MBR_FAT16_PARTITION                PartType = "06" /* DOS 16-bit >=32M */
-	MBR_HPFS_NTFS_PARTITION            PartType = "07" /* OS/2 IFS e.g. HPFS or NTFS or QNX or exFAT */
-	MBR_AIX_PARTITION                  PartType = "08" /* AIX boot (AIX -- PS/2 port) or SplitDrive */
-	MBR_AIX_BOOTABLE_PARTITION         PartType = "09" /* AIX data or Coherent */
-	MBR_OS2_BOOTMNGR_PARTITION         PartType = "0a" /* OS/2 Boot Manager */
-	MBR_W95_FAT32_PARTITION            PartType = "0b"
-	MBR_W95_FAT32_LBA_PARTITION        PartType = "0c" /* LBA really is `Extended Int 13h' */
-	MBR_W95_FAT16_LBA_PARTITION        PartType = "0e"
-	MBR_W95_EXTENDED_PARTITION         PartType = "0f"
-	MBR_OPUS_PARTITION                 PartType = "10"
-	MBR_HIDDEN_FAT12_PARTITION         PartType = "11"
-	MBR_COMPAQ_DIAGNOSTICS_PARTITION   PartType = "12"
-	MBR_HIDDEN_FAT16_L32M_PARTITION    PartType = "14"
-	MBR_HIDDEN_FAT16_PARTITION         PartType = "16"
-	MBR_HIDDEN_HPFS_NTFS_PARTITION     PartType = "17"
-	MBR_AST_SMARTSLEEP_PARTITION       PartType = "18"
-	MBR_HIDDEN_W95_FAT32_PARTITION     PartType = "1b"
-	MBR_HIDDEN_W95_FAT32LBA_PARTITION  PartType = "1c"
-	MBR_HIDDEN_W95_FAT16LBA_PARTITION  PartType = "1e"
-	MBR_NEC_DOS_PARTITION              PartType = "24"
-	MBR_PLAN9_PARTITION                PartType = "39"
-	MBR_PARTITIONMAGIC_PARTITION       PartType = "3c"
-	MBR_VENIX80286_PARTITION           PartType = "40"
-	MBR_PPC_PREP_BOOT_PARTITION        PartType = "41"
-	MBR_SFS_PARTITION                  PartType = "42"
-	MBR_QNX_4X_PARTITION               PartType = "4d"
-	MBR_QNX_4X_2ND_PARTITION           PartType = "4e"
-	MBR_QNX_4X_3RD_PARTITION           PartType = "4f"
-	MBR_DM_PARTITION                   PartType = "50"
-	MBR_DM6_AUX1_PARTITION             PartType = "51" /* (or Novell) */
-	MBR_CPM_PARTITION                  PartType = "52" /* CP/M or Microport SysV/AT */
-	MBR_DM6_AUX3_PARTITION             PartType = "53"
-	MBR_DM6_PARTITION                  PartType = "54"
-	MBR_EZ_DRIVE_PARTITION             PartType = "55"
-	MBR_GOLDEN_BOW_PARTITION           PartType = "56"
-	MBR_PRIAM_EDISK_PARTITION          PartType = "5c"
-	MBR_SPEEDSTOR_PARTITION            PartType = "61"
-	MBR_GNU_HURD_PARTITION             PartType = "63" /* GNU HURD or Mach or Sys V/386 (such as ISC UNIX) */
-	MBR_UNIXWARE_PARTITION                      = MBR_GNU_HURD_PARTITION
-	MBR_NETWARE_286_PARTITION          PartType = "64"
-	MBR_NETWARE_386_PARTITION          PartType = "65"
-	MBR_DISKSECURE_MULTIBOOT_PARTITION PartType = "70"
-	MBR_PC_IX_PARTITION                PartType = "75"
-	MBR_OLD_MINIX_PARTITION            PartType = "80" /* Minix 1.4a and earlier */
-	MBR_MINIX_PARTITION                PartType = "81" /* Minix 1.4b and later */
-	MBR_LINUX_SWAP_PARTITION           PartType = "82"
-	MBR_SOLARIS_X86_PARTITION                   = MBR_LINUX_SWAP_PARTITION
-	MBR_LINUX_DATA_PARTITION           PartType = "83"
-	MBR_OS2_HIDDEN_DRIVE_PARTITION     PartType = "84" /* also hibernation MS APM Intel Rapid Start */
-	MBR_INTEL_HIBERNATION_PARTITION             = MBR_OS2_HIDDEN_DRIVE_PARTITION
-	MBR_LINUX_EXTENDED_PARTITION       PartType = "85"
-	MBR_NTFS_VOL_SET1_PARTITION        PartType = "86"
-	MBR_NTFS_VOL_SET2_PARTITION        PartType = "87"
-	MBR_LINUX_PLAINTEXT_PARTITION      PartType = "88"
-	MBR_LINUX_LVM_PARTITION            PartType = "8e"
-	MBR_AMOEBA_PARTITION               PartType = "93"
-	MBR_AMOEBA_BBT_PARTITION           PartType = "94" /* (bad block table) */
-	MBR_BSD_OS_PARTITION               PartType = "9f" /* BSDI */
-	MBR_THINKPAD_HIBERNATION_PARTITION PartType = "a0"
-	MBR_FREEBSD_PARTITION              PartType = "a5" /* various BSD flavours */
-	MBR_OPENBSD_PARTITION              PartType = "a6"
-	MBR_NEXTSTEP_PARTITION             PartType = "a7"
-	MBR_DARWIN_UFS_PARTITION           PartType = "a8"
-	MBR_NETBSD_PARTITION               PartType = "a9"
-	MBR_DARWIN_BOOT_PARTITION          PartType = "ab"
-	MBR_HFS_HFS_PARTITION              PartType = "af"
-	MBR_BSDI_FS_PARTITION              PartType = "b7"
-	MBR_BSDI_SWAP_PARTITION            PartType = "b8"
-	MBR_BOOTWIZARD_HIDDEN_PARTITION    PartType = "bb"
-	MBR_ACRONIS_FAT32LBA_PARTITION     PartType = "bc" /* Acronis Secure Zone with ipl for loader F11.SYS */
-	MBR_SOLARIS_BOOT_PARTITION         PartType = "be"
-	MBR_SOLARIS_PARTITION              PartType = "bf"
-	MBR_DRDOS_FAT12_PARTITION          PartType = "c1"
-	MBR_DRDOS_FAT16_L32M_PARTITION     PartType = "c4"
-	MBR_DRDOS_FAT16_PARTITION          PartType = "c6"
-	MBR_SYRINX_PARTITION               PartType = "c7"
-	MBR_NONFS_DATA_PARTITION           PartType = "da"
-	MBR_CPM_CTOS_PARTITION             PartType = "db" /* CP/M or Concurrent CP/M or Concurrent DOS or CTOS */
-	MBR_DELL_UTILITY_PARTITION         PartType = "de" /* Dell PowerEdge Server utilities */
-	MBR_BOOTIT_PARTITION               PartType = "df" /* BootIt EMBRM */
-	MBR_DOS_ACCESS_PARTITION           PartType = "e1" /* DOS access or SpeedStor 12-bit FAT extended partition */
-	MBR_DOS_RO_PARTITION               PartType = "e3" /* DOS R/O or SpeedStor */
-	MBR_SPEEDSTOR_EXTENDED_PARTITION   PartType = "e4" /* SpeedStor 16-bit FAT extended partition < 1024 cyl. */
-	MBR_RUFUS_EXTRA_PARTITION          PartType = "ea" /* Rufus extra partition for alignment */
-	MBR_BEOS_FS_PARTITION              PartType = "eb"
-	MBR_GPT_PARTITION                  PartType = "ee" /* Intel EFI GUID Partition Table */
-	MBR_EFI_SYSTEM_PARTITION           PartType = "ef" /* Intel EFI System Partition */
-	MBR_LINUX_PARISC_BOOT_PARTITION    PartType = "f0" /* Linux/PA-RISC boot loader */
-	MBR_SPEEDSTOR1_PARTITION           PartType = "f1"
-	MBR_SPEEDSTOR2_PARTITION           PartType = "f4" /* SpeedStor large partition */
-	MBR_DOS_SECONDARY_PARTITION        PartType = "f2" /* DOS 3.3+ secondary */
-	MBR_EBBR_PROTECTIVE_PARTITION      PartType = "f8" /* Arm EBBR firmware protective partition */
-	MBR_VMWARE_VMFS_PARTITION          PartType = "fb"
-	MBR_VMWARE_VMKCORE_PARTITION       PartType = "fc" /* VMware kernel dump partition */
-	MBR_LINUX_RAID_PARTITION           PartType = "fd" /* Linux raid partition with autodetect using persistent superblock */
-	MBR_LANSTEP_PARTITION              PartType = "fe" /* SpeedStor >1024 cyl. or LANstep */
-	MBR_XENIX_BBT_PARTITION            PartType = "ff" /* Xenix Bad Block Table */
+	MBR_EMPTY_PARTITION                      PartType = "00"
+	MBR_FAT12_PARTITION                      PartType = "01"
+	MBR_XENIX_ROOT_PARTITION                 PartType = "02"
+	MBR_XENIX_USR_PARTITION                  PartType = "03"
+	MBR_FAT16_LESS32M_PARTITION              PartType = "04"
+	MBR_DOS_EXTENDED_PARTITION               PartType = "05"
+	MBR_FAT16_PARTITION                      PartType = "06" /* DOS 16-bit >=32M */
+	MBR_HPFS_NTFS_PARTITION                  PartType = "07" /* OS/2 IFS e.g. HPFS or NTFS or QNX or exFAT */
+	MBR_AIX_PARTITION                        PartType = "08" /* AIX boot (AIX -- PS/2 port) or SplitDrive */
+	MBR_AIX_BOOTABLE_PARTITION               PartType = "09" /* AIX data or Coherent */
+	MBR_OS2_BOOTMNGR_PARTITION               PartType = "0a" /* OS/2 Boot Manager */
+	MBR_W95_FAT32_PARTITION                  PartType = "0b"
+	MBR_W95_FAT32_LBA_PARTITION              PartType = "0c" /* LBA really is `Extended Int 13h' */
+	MBR_W95_FAT16_LBA_PARTITION              PartType = "0e"
+	MBR_W95_EXTENDED_PARTITION               PartType = "0f"
+	MBR_OPUS_PARTITION                       PartType = "10"
+	MBR_HIDDEN_FAT12_PARTITION               PartType = "11"
+	MBR_COMPAQ_DIAGNOSTICS_PARTITION         PartType = "12"
+	MBR_HIDDEN_FAT16_L32M_PARTITION          PartType = "14"
+	MBR_HIDDEN_FAT16_EXTEND_PARTITION        PartType = "15"
+	MBR_HIDDEN_FAT16_PARTITION               PartType = "16"
+	MBR_HIDDEN_HPFS_NTFS_PARTITION           PartType = "17"
+	MBR_AST_SMARTSLEEP_PARTITION             PartType = "18"
+	MBR_HIDDEN_W95_FAT32_PARTITION           PartType = "1b"
+	MBR_HIDDEN_W95_FAT32LBA_PARTITION        PartType = "1c"
+	MBR_HIDDEN_W95_FAT16LBA_PARTITION        PartType = "1e"
+	MBR_HIDDEN_W95_FAT16LBA_EXTEND_PARTITION PartType = "1f"
+	MBR_NEC_DOS_PARTITION                    PartType = "24"
+	MBR_PLAN9_PARTITION                      PartType = "39"
+	MBR_PARTITIONMAGIC_PARTITION             PartType = "3c"
+	MBR_VENIX80286_PARTITION                 PartType = "40"
+	MBR_PPC_PREP_BOOT_PARTITION              PartType = "41"
+	MBR_SFS_PARTITION                        PartType = "42"
+	MBR_QNX_4X_PARTITION                     PartType = "4d"
+	MBR_QNX_4X_2ND_PARTITION                 PartType = "4e"
+	MBR_QNX_4X_3RD_PARTITION                 PartType = "4f"
+	MBR_DM_PARTITION                         PartType = "50"
+	MBR_DM6_AUX1_PARTITION                   PartType = "51" /* (or Novell) */
+	MBR_CPM_PARTITION                        PartType = "52" /* CP/M or Microport SysV/AT */
+	MBR_DM6_AUX3_PARTITION                   PartType = "53"
+	MBR_DM6_PARTITION                        PartType = "54"
+	MBR_EZ_DRIVE_PARTITION                   PartType = "55"
+	MBR_GOLDEN_BOW_PARTITION                 PartType = "56"
+	MBR_PRIAM_EDISK_PARTITION                PartType = "5c"
+	MBR_SPEEDSTOR_PARTITION                  PartType = "61"
+	MBR_GNU_HURD_PARTITION                   PartType = "63" /* GNU HURD or Mach or Sys V/386 (such as ISC UNIX) */
+	MBR_UNIXWARE_PARTITION                            = MBR_GNU_HURD_PARTITION
+	MBR_NETWARE_286_PARTITION                PartType = "64"
+	MBR_NETWARE_386_PARTITION                PartType = "65"
+	MBR_DISKSECURE_MULTIBOOT_PARTITION       PartType = "70"
+	MBR_PC_IX_PARTITION                      PartType = "75"
+	MBR_OLD_MINIX_PARTITION                  PartType = "80" /* Minix 1.4a and earlier */
+	MBR_MINIX_PARTITION                      PartType = "81" /* Minix 1.4b and later */
+	MBR_LINUX_SWAP_PARTITION                 PartType = "82"
+	MBR_SOLARIS_X86_PARTITION                         = MBR_LINUX_SWAP_PARTITION
+	MBR_LINUX_DATA_PARTITION                 PartType = "83"
+	MBR_OS2_HIDDEN_DRIVE_PARTITION           PartType = "84" /* also hibernation MS APM Intel Rapid Start */
+	MBR_INTEL_HIBERNATION_PARTITION                   = MBR_OS2_HIDDEN_DRIVE_PARTITION
+	MBR_LINUX_EXTENDED_PARTITION             PartType = "85"
+	MBR_NTFS_VOL_SET1_PARTITION              PartType = "86"
+	MBR_NTFS_VOL_SET2_PARTITION              PartType = "87"
+	MBR_LINUX_PLAINTEXT_PARTITION            PartType = "88"
+	MBR_LINUX_LVM_PARTITION                  PartType = "8e"
+	MBR_AMOEBA_PARTITION                     PartType = "93"
+	MBR_AMOEBA_BBT_PARTITION                 PartType = "94" /* (bad block table) */
+	MBR_BSD_OS_PARTITION                     PartType = "9f" /* BSDI */
+	MBR_THINKPAD_HIBERNATION_PARTITION       PartType = "a0"
+	MBR_FREEBSD_PARTITION                    PartType = "a5" /* various BSD flavours */
+	MBR_OPENBSD_PARTITION                    PartType = "a6"
+	MBR_NEXTSTEP_PARTITION                   PartType = "a7"
+	MBR_DARWIN_UFS_PARTITION                 PartType = "a8"
+	MBR_NETBSD_PARTITION                     PartType = "a9"
+	MBR_DARWIN_BOOT_PARTITION                PartType = "ab"
+	MBR_HFS_HFS_PARTITION                    PartType = "af"
+	MBR_BSDI_FS_PARTITION                    PartType = "b7"
+	MBR_BSDI_SWAP_PARTITION                  PartType = "b8"
+	MBR_BOOTWIZARD_HIDDEN_PARTITION          PartType = "bb"
+	MBR_ACRONIS_FAT32LBA_PARTITION           PartType = "bc" /* Acronis Secure Zone with ipl for loader F11.SYS */
+	MBR_SOLARIS_BOOT_PARTITION               PartType = "be"
+	MBR_SOLARIS_PARTITION                    PartType = "bf"
+	MBR_DRDOS_FAT12_PARTITION                PartType = "c1"
+	MBR_DRDOS_FAT16_L32M_PARTITION           PartType = "c4"
+	MBR_DRDOS_FAT16_PARTITION                PartType = "c6"
+	MBR_SYRINX_PARTITION                     PartType = "c7"
+	MBR_NONFS_DATA_PARTITION                 PartType = "da"
+	MBR_CPM_CTOS_PARTITION                   PartType = "db" /* CP/M or Concurrent CP/M or Concurrent DOS or CTOS */
+	MBR_DELL_UTILITY_PARTITION               PartType = "de" /* Dell PowerEdge Server utilities */
+	MBR_BOOTIT_PARTITION                     PartType = "df" /* BootIt EMBRM */
+	MBR_DOS_ACCESS_PARTITION                 PartType = "e1" /* DOS access or SpeedStor 12-bit FAT extended partition */
+	MBR_DOS_RO_PARTITION                     PartType = "e3" /* DOS R/O or SpeedStor */
+	MBR_SPEEDSTOR_EXTENDED_PARTITION         PartType = "e4" /* SpeedStor 16-bit FAT extended partition < 1024 cyl. */
+	MBR_RUFUS_EXTRA_PARTITION                PartType = "ea" /* Rufus extra partition for alignment */
+	MBR_BEOS_FS_PARTITION                    PartType = "eb"
+	MBR_GPT_PARTITION                        PartType = "ee" /* Intel EFI GUID Partition Table */
+	MBR_EFI_SYSTEM_PARTITION                 PartType = "ef" /* Intel EFI System Partition */
+	MBR_LINUX_PARISC_BOOT_PARTITION          PartType = "f0" /* Linux/PA-RISC boot loader */
+	MBR_SPEEDSTOR1_PARTITION                 PartType = "f1"
+	MBR_SPEEDSTOR2_PARTITION                 PartType = "f4" /* SpeedStor large partition */
+	MBR_DOS_SECONDARY_PARTITION              PartType = "f2" /* DOS 3.3+ secondary */
+	MBR_EBBR_PROTECTIVE_PARTITION            PartType = "f8" /* Arm EBBR firmware protective partition */
+	MBR_VMWARE_VMFS_PARTITION                PartType = "fb"
+	MBR_VMWARE_VMKCORE_PARTITION             PartType = "fc" /* VMware kernel dump partition */
+	MBR_LINUX_RAID_PARTITION                 PartType = "fd" /* Linux raid partition with autodetect using persistent superblock */
+	MBR_LANSTEP_PARTITION                    PartType = "fe" /* SpeedStor >1024 cyl. or LANstep */
+	MBR_XENIX_BBT_PARTITION                  PartType = "ff" /* Xenix Bad Block Table */
 )
 
 // GPT磁盘相关分区表项类型的常量定义
@@ -313,50 +315,52 @@ var TypeDescMapping = map[PartType]string{
 	// -------------------- MBR磁盘 --------------------
 	//
 
-	MBR_EMPTY_PARTITION:               "Empty",
-	MBR_FAT12_PARTITION:               "FAT12",
-	MBR_XENIX_ROOT_PARTITION:          "XENIX root",
-	MBR_XENIX_USR_PARTITION:           "XENIX usr",
-	MBR_FAT16_LESS32M_PARTITION:       "FAT16 <32M",
-	MBR_DOS_EXTENDED_PARTITION:        "DOS Extended",
-	MBR_FAT16_PARTITION:               "FAT16 >=32M",
-	MBR_HPFS_NTFS_PARTITION:           "HPFS/NTFS/QNX/exFAT",
-	MBR_AIX_PARTITION:                 "AIX boot or SplitDrive",
-	MBR_AIX_BOOTABLE_PARTITION:        "AIX data or Coherent",
-	MBR_OS2_BOOTMNGR_PARTITION:        "OS/2 Boot Manager",
-	MBR_W95_FAT32_PARTITION:           "W95 FAT32",
-	MBR_W95_FAT32_LBA_PARTITION:       "W95 FAT32 LBA",
-	MBR_W95_FAT16_LBA_PARTITION:       "W95 FAT16 LBA",
-	MBR_W95_EXTENDED_PARTITION:        "W95 Extended",
-	MBR_OPUS_PARTITION:                "OPUS",
-	MBR_HIDDEN_FAT12_PARTITION:        "Hidden FAT12",
-	MBR_COMPAQ_DIAGNOSTICS_PARTITION:  "Compaq Diagnostics",
-	MBR_HIDDEN_FAT16_L32M_PARTITION:   "Hidden FAT16 <32M",
-	MBR_HIDDEN_FAT16_PARTITION:        "Hidden FAT16 >=32M",
-	MBR_HIDDEN_HPFS_NTFS_PARTITION:    "Hidden HPFS/NTFS",
-	MBR_AST_SMARTSLEEP_PARTITION:      "AST SmartSleep",
-	MBR_HIDDEN_W95_FAT32_PARTITION:    "Hidden W95 FAT32",
-	MBR_HIDDEN_W95_FAT32LBA_PARTITION: "Hidden W95 FAT32 LBA",
-	MBR_HIDDEN_W95_FAT16LBA_PARTITION: "Hidden W95 FAT16 LBA",
-	MBR_NEC_DOS_PARTITION:             "NEC DOS",
-	MBR_PLAN9_PARTITION:               "Plan 9",
-	MBR_PARTITIONMAGIC_PARTITION:      "PartitionMagic",
-	MBR_VENIX80286_PARTITION:          "Venix 80286",
-	MBR_PPC_PREP_BOOT_PARTITION:       "PPC PReP Boot",
-	MBR_SFS_PARTITION:                 "SFS",
-	MBR_QNX_4X_PARTITION:              "QNX 4.x primary",
-	MBR_QNX_4X_2ND_PARTITION:          "QNX 4.x secondary",
-	MBR_QNX_4X_3RD_PARTITION:          "QNX 4.x third",
-	MBR_DM_PARTITION:                  "DM",
-	MBR_DM6_AUX1_PARTITION:            "DM6 Aux1 or Novell",
-	MBR_CPM_PARTITION:                 "CP/M or Microport SysV/AT",
-	MBR_DM6_AUX3_PARTITION:            "DM6 Aux3",
-	MBR_DM6_PARTITION:                 "DM6",
-	MBR_EZ_DRIVE_PARTITION:            "EZ-Drive",
-	MBR_GOLDEN_BOW_PARTITION:          "Golden Bow",
-	MBR_PRIAM_EDISK_PARTITION:         "Priam Edisk",
-	MBR_SPEEDSTOR_PARTITION:           "SpeedStor",
-	MBR_GNU_HURD_PARTITION:            "GNU HURD/Mach/Sys V/386",
+	MBR_EMPTY_PARTITION:                      "Empty",
+	MBR_FAT12_PARTITION:                      "FAT12",
+	MBR_XENIX_ROOT_PARTITION:                 "XENIX root",
+	MBR_XENIX_USR_PARTITION:                  "XENIX usr",
+	MBR_FAT16_LESS32M_PARTITION:              "FAT16 <32M",
+	MBR_DOS_EXTENDED_PARTITION:               "DOS Extended",
+	MBR_FAT16_PARTITION:                      "FAT16 >=32M",
+	MBR_HPFS_NTFS_PARTITION:                  "HPFS/NTFS/QNX/exFAT",
+	MBR_AIX_PARTITION:                        "AIX boot or SplitDrive",
+	MBR_AIX_BOOTABLE_PARTITION:               "AIX data or Coherent",
+	MBR_OS2_BOOTMNGR_PARTITION:               "OS/2 Boot Manager",
+	MBR_W95_FAT32_PARTITION:                  "W95 FAT32",
+	MBR_W95_FAT32_LBA_PARTITION:              "W95 FAT32 LBA",
+	MBR_W95_FAT16_LBA_PARTITION:              "W95 FAT16 LBA",
+	MBR_W95_EXTENDED_PARTITION:               "W95 Extended",
+	MBR_OPUS_PARTITION:                       "OPUS",
+	MBR_HIDDEN_FAT12_PARTITION:               "Hidden FAT12",
+	MBR_COMPAQ_DIAGNOSTICS_PARTITION:         "Compaq Diagnostics",
+	MBR_HIDDEN_FAT16_L32M_PARTITION:          "Hidden FAT16 <32M",
+	MBR_HIDDEN_FAT16_EXTEND_PARTITION:        "Extend FAT16",
+	MBR_HIDDEN_FAT16_PARTITION:               "Hidden FAT16 >=32M",
+	MBR_HIDDEN_HPFS_NTFS_PARTITION:           "Hidden HPFS/NTFS",
+	MBR_AST_SMARTSLEEP_PARTITION:             "AST SmartSleep",
+	MBR_HIDDEN_W95_FAT32_PARTITION:           "Hidden W95 FAT32",
+	MBR_HIDDEN_W95_FAT32LBA_PARTITION:        "Hidden W95 FAT32 LBA",
+	MBR_HIDDEN_W95_FAT16LBA_PARTITION:        "Hidden W95 FAT16 LBA",
+	MBR_HIDDEN_W95_FAT16LBA_EXTEND_PARTITION: "Hidden W95 FAT16 Extend LBA",
+	MBR_NEC_DOS_PARTITION:                    "NEC DOS",
+	MBR_PLAN9_PARTITION:                      "Plan 9",
+	MBR_PARTITIONMAGIC_PARTITION:             "PartitionMagic",
+	MBR_VENIX80286_PARTITION:                 "Venix 80286",
+	MBR_PPC_PREP_BOOT_PARTITION:              "PPC PReP Boot",
+	MBR_SFS_PARTITION:                        "SFS",
+	MBR_QNX_4X_PARTITION:                     "QNX 4.x primary",
+	MBR_QNX_4X_2ND_PARTITION:                 "QNX 4.x secondary",
+	MBR_QNX_4X_3RD_PARTITION:                 "QNX 4.x third",
+	MBR_DM_PARTITION:                         "DM",
+	MBR_DM6_AUX1_PARTITION:                   "DM6 Aux1 or Novell",
+	MBR_CPM_PARTITION:                        "CP/M or Microport SysV/AT",
+	MBR_DM6_AUX3_PARTITION:                   "DM6 Aux3",
+	MBR_DM6_PARTITION:                        "DM6",
+	MBR_EZ_DRIVE_PARTITION:                   "EZ-Drive",
+	MBR_GOLDEN_BOW_PARTITION:                 "Golden Bow",
+	MBR_PRIAM_EDISK_PARTITION:                "Priam Edisk",
+	MBR_SPEEDSTOR_PARTITION:                  "SpeedStor",
+	MBR_GNU_HURD_PARTITION:                   "GNU HURD/Mach/Sys V/386",
 	//MBR_UNIXWARE_PARTITION:             "UNIXWARE (alias GNU HURD)",
 	MBR_NETWARE_286_PARTITION:          "NetWare 286",
 	MBR_NETWARE_386_PARTITION:          "NetWare 386",
@@ -612,3 +616,10 @@ var TypeDescMapping = map[PartType]string{
 	// Atari TOS
 	GPT_ATARI_BASIC: "Atari TOS Basic",
 }
+
+var MBRExtendPartTypes = []PartType{
+	MBR_DOS_EXTENDED_PARTITION,
+	MBR_W95_EXTENDED_PARTITION,
+	MBR_HIDDEN_FAT16_EXTEND_PARTITION,
+	MBR_HIDDEN_W95_FAT16LBA_EXTEND_PARTITION,
+	MBR_LINUX_EXTENDED_PARTITION}

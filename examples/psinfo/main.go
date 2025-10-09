@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/kisun-bit/drpkg/ps/info"
@@ -12,6 +13,6 @@ func main() {
 		log.Fatal(err)
 		return
 	}
-	_ = psi
-	//fmt.Println(psi.PrettyString())
+	//_ = psi
+	fmt.Println(psi.PrettyString())
 }

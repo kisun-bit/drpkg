@@ -71,7 +71,7 @@ type DiskPartitionTable struct {
 }
 
 func GetDiskTable(disk string) (dt DiskTable, err error) {
-	t, err := table.GetDiskTableType(disk)
+	t, err := table.GetDiskType(disk)
 	if err != nil {
 		return dt, err
 	}
@@ -97,17 +97,17 @@ func readGPTTable(disk string, dt DiskTable) (DiskTable, error) {
 	}
 	defer gpt.Close()
 
-	dt.Identifier = gpt.Header.GUIDInMixedEndian()
-	for i, p := range gpt.PartitionEntries {
-		if p.IsEmpty() {
+	dt.Identifier = gpt.Identifier()
+	for i, gp := range gpt.PartitionEntries {
+		if gp.Type() == table.GPT_UNUSED_ENTRY {
 			continue
 		}
 		dt.Partitions = append(dt.Partitions, DiskPartitionTable{
 			Device:    getPartitionDevice(disk, i+1),
-			Type:      p.PartTypeGUIDInMixedEndian(),
-			TypeBrief: p.PartTypeDesc(),
-			Start:     p.FirstLBAIndex * table.GPTDefaultLBASize,
-			Size:      (p.LastLBAIndex - p.FirstLBAIndex + 1) * table.GPTDefaultLBASize,
+			Type:      gp.Type(),
+			TypeBrief: gp.Description(),
+			Start:     gp.FirstLBAIndex * int64(gpt.SectorSize),
+			Size:      (gp.LastLBAIndex - gp.FirstLBAIndex + 1) * int64(gpt.SectorSize),
 		})
 	}
 	return dt, nil
@@ -124,21 +124,21 @@ func readMBRTable(disk string, dt DiskTable) (DiskTable, error) {
 
 	appendMBRPartitions := func(entries []table.MBRPartition, startIndex int) {
 		for i, mp := range entries {
-			if mp.IsEmpty() {
+			if mp.Type() == table.MBR_EMPTY_PARTITION {
 				continue
 			}
 			dt.Partitions = append(dt.Partitions, DiskPartitionTable{
 				Device:    getPartitionDevice(disk, startIndex+i),
-				Type:      fmt.Sprintf("%02x", mp.PartitionType),
-				TypeBrief: table.MBRPartitionTypeDesc[mp.PartitionType],
-				Start:     mp.StartingLBA * table.MBRDefaultLBASize,
-				Size:      mp.TotalSectors * table.MBRDefaultLBASize,
+				Type:      mp.Type(),
+				TypeBrief: mp.Description(),
+				Start:     mp.StartingLBA * int64(mbr.SectorSize),
+				Size:      mp.TotalSectors * int64(mbr.SectorSize),
 			})
 		}
 	}
 
 	// 主分区
-	appendMBRPartitions(mbr.FullMainPartitionEntries[:], 1)
+	appendMBRPartitions(mbr.MainPartitionEntries[:], 1)
 
 	// 逻辑分区
 	lps, err := mbr.LogicalPartitionEntries()

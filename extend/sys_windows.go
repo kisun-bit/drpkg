@@ -511,7 +511,7 @@ func GetDiskGeometry(disk string) (DISK_GEOMETRY, error) {
 	return diskGeometryBase.Geometry, nil
 }
 
-func GetLogicalBlockSize(dev string) (int, error) {
+func BytesPerSector(dev string) (int, error) {
 	geo, err := GetDiskGeometry(dev)
 	if err != nil {
 		return 0, err

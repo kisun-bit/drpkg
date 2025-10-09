@@ -318,7 +318,7 @@ func IsDiskReadonly(disk string) (bool, error) {
 	return r != 0, errors.Wrapf(e, "get disk read-only attribute")
 }
 
-func GetLogicalBlockSize(dev string) (int, error) {
+func BytesPerSector(dev string) (int, error) {
 	base := filepath.Base(dev)
 	p := fmt.Sprintf("/sys/class/block/%s/queue/logical_block_size", base)
 	data, err := os.ReadFile(p)
