@@ -3,8 +3,7 @@ module github.com/kisun-bit/drpkg
 go 1.20
 
 require (
-	github.com/davecgh/go-spew v1.1.1
-	github.com/dustin/go-humanize v1.0.1
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/lunixbochs/struc v0.0.0-20241101090106-8d528fa2c543
 	github.com/pkg/errors v0.9.1
 	github.com/shirou/gopsutil/v3 v3.24.5

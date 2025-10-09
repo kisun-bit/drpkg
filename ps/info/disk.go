@@ -1,11 +1,13 @@
 package info
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"runtime"
+	"strconv"
+	"strings"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/ps/table"
 )
@@ -165,10 +167,24 @@ func getPartitionDevice(disk string, partEntryIndex int) string {
 }
 
 func extendDiskGUID(d *Disk) {
-	if d.Table.Identifier == "" || d.SerialNumber == "" {
+	if d == nil {
 		return
 	}
-	d.LogicalGUID = fmt.Sprintf("%v@@%v@@%v", d.SerialNumber, d.Table.Identifier, d.Size)
-	checksum := sha256.Sum256([]byte(d.LogicalGUID))
-	d.GUID = hex.EncodeToString(checksum[:])
+
+	var parts []string
+	if d.SerialNumber != "" {
+		parts = append(parts, "SN"+d.SerialNumber)
+	}
+	if d.Table.Identifier != "" {
+		parts = append(parts, "IDENT"+d.Table.Identifier)
+	}
+	if d.Name != "" && len(parts) == 0 { // 只有在前两个都为空时才用Name
+		parts = append(parts, "NAME"+d.Name)
+	}
+
+	if len(parts) == 0 {
+		return
+	}
+	d.LogicalGUID = fmt.Sprintf("%s_SZ%v", strings.Join(parts, "_"), d.Size)
+	d.GUID = strconv.FormatUint(xxhash.Sum64String(d.LogicalGUID), 10)
 }
