@@ -473,3 +473,48 @@ func ListDisks() ([]string, error) {
 	sort.Strings(disks)
 	return disks, nil
 }
+
+type DISK_GEOMETRY struct {
+	Cylinders         uint64
+	MediaType         uint32
+	TracksPerCylinder uint32
+	SectorsPerTrack   uint32
+	BytesPerSector    uint32
+}
+
+type DISK_GEOMETRY_EX_RAW struct {
+	Geometry DISK_GEOMETRY
+	DiskSize uint64
+}
+
+func GetDiskGeometry(disk string) (DISK_GEOMETRY, error) {
+	reader, err := os.Open(disk)
+	if err != nil {
+		return DISK_GEOMETRY{}, err
+	}
+	defer reader.Close()
+
+	buf := make([]uint8, 0x80)
+	var n uint32
+
+	if err = windows.DeviceIoControl(windows.Handle(reader.Fd()), 0x700A0, nil, 0, &buf[0], uint32(len(buf)), &n, nil); err != nil {
+		return DISK_GEOMETRY{}, err
+	}
+
+	diskGeometryBase := (*DISK_GEOMETRY_EX_RAW)(unsafe.Pointer(&buf[0]))
+	blockSize := int64(diskGeometryBase.Geometry.BytesPerSector)
+	blockCount := int64(diskGeometryBase.DiskSize) / blockSize
+	if int64(diskGeometryBase.DiskSize)%blockSize != 0 {
+		return DISK_GEOMETRY{}, errors.Errorf("block device size is not an integer multiple of its block size (%d %% %d = %d)", diskGeometryBase.DiskSize, blockSize, diskGeometryBase.DiskSize%uint64(blockSize))
+	}
+	_ = blockCount
+	return diskGeometryBase.Geometry, nil
+}
+
+func GetLogicalBlockSize(dev string) (int, error) {
+	geo, err := GetDiskGeometry(dev)
+	if err != nil {
+		return 0, err
+	}
+	return int(geo.BytesPerSector), nil
+}
