@@ -51,7 +51,7 @@ func GetDiskType(disk string) (TableType, error) {
 			return TableTypeRaw, nil
 		}
 
-		return TableTypeUnknown, err
+		return TableTypeUnknown, nil
 	}
 
 	defer mbr_.Close()

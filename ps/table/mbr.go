@@ -260,7 +260,7 @@ func (mbr *MBR) indexExtendMainPartition() int {
 }
 
 func (part *MBRPartition) Type() PartType {
-	return fmt.Sprintf("%x", part.PartitionType)
+	return fmt.Sprintf("%02x", part.PartitionType)
 }
 
 func (part *MBRPartition) Description() string {

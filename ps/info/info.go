@@ -92,7 +92,7 @@ func (p *PSInfo) String() string {
 }
 
 func (p *PSInfo) PrettyString() string {
-	j, _ := json.MarshalIndent(*p, "", "  ")
+	j, _ := json.MarshalIndent(*p, "", "        ")
 	return string(j)
 }
 
