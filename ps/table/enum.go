@@ -348,7 +348,7 @@ var TypeDescMapping = map[PartType]string{
 	MBR_PARTITIONMAGIC_PARTITION:             "PartitionMagic",
 	MBR_VENIX80286_PARTITION:                 "Venix 80286",
 	MBR_PPC_PREP_BOOT_PARTITION:              "PPC PReP Boot",
-	MBR_SFS_PARTITION:                        "SFS",
+	MBR_SFS_PARTITION:                        "SFS / Windows Dynamic",
 	MBR_QNX_4X_PARTITION:                     "QNX 4.x primary",
 	MBR_QNX_4X_2ND_PARTITION:                 "QNX 4.x secondary",
 	MBR_QNX_4X_3RD_PARTITION:                 "QNX 4.x third",
