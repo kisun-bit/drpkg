@@ -518,3 +518,46 @@ func BytesPerSector(dev string) (int, error) {
 	}
 	return int(geo.BytesPerSector), nil
 }
+
+type GET_DISK_ATTRIBUTES struct {
+	Version    uint32
+	Reserved1  uint32
+	Attributes uint64
+}
+
+const (
+	DISK_ATTRIBUTE_OFFLINE   = 0x000000001
+	DISK_ATTRIBUTE_READ_ONLY = 0x000000002
+)
+
+// GetDiskAttr 获取磁盘属性
+func GetDiskAttr(hardDiskPath string) (offline, readonly bool, err error) {
+	handle, err := OpenDevice(hardDiskPath)
+	if err != nil {
+		return false, false, err
+	}
+	defer func() {
+		_ = windows.CloseHandle(handle)
+	}()
+	var dgSize uint32
+	tmpLen := 16 << 10
+	ioctlBuf := make([]byte, tmpLen)
+	err = windows.DeviceIoControl(
+		handle,
+		IOCTL_DISK_GET_DISK_ATTRIBUTES,
+		nil,
+		0,
+		&ioctlBuf[0],
+		uint32(tmpLen),
+		&dgSize,
+		nil)
+	if err != nil {
+		return false, false, err
+	}
+	attr := GET_DISK_ATTRIBUTES{}
+	err = struc.UnpackWithOptions(bytes.NewReader(ioctlBuf), &attr, &struc.Options{Order: binary.LittleEndian})
+	if err != nil {
+		return false, false, err
+	}
+	return attr.Attributes&DISK_ATTRIBUTE_OFFLINE > 0, attr.Attributes&DISK_ATTRIBUTE_READ_ONLY > 0, nil
+}

@@ -38,6 +38,7 @@ const (
 	MBR_VENIX80286_PARTITION                 PartType = "40"
 	MBR_PPC_PREP_BOOT_PARTITION              PartType = "41"
 	MBR_SFS_PARTITION                        PartType = "42"
+	MBR_DYNAMIC_PARTITION                    PartType = "42"
 	MBR_QNX_4X_PARTITION                     PartType = "4d"
 	MBR_QNX_4X_2ND_PARTITION                 PartType = "4e"
 	MBR_QNX_4X_3RD_PARTITION                 PartType = "4f"

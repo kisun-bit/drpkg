@@ -41,7 +41,12 @@ func ExecuteWithContext(ctx context.Context, cmdline string, options ...CmdOptio
 		defer cancel()
 	}
 
-	cmdProc := exec.CommandContext(cmdCtx, opt.caller, argList...)
+	callerPath, err := exec.LookPath(opt.caller)
+	if err != nil {
+		return 1, "", err
+	}
+
+	cmdProc := exec.CommandContext(cmdCtx, callerPath, argList...)
 	cmdProc.Dir = opt.dir
 	cmdProc.Env = opt.env
 

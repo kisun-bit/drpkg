@@ -22,7 +22,7 @@ type PSInfo struct {
 
 type PublicInfo struct {
 	Generic
-	DmiInfo
+	Dmi DmiInfo `json:"dmi"`
 
 	// IsMemoryOS 是否是内存操作系统
 	IsMemoryOS bool `json:"isMemoryOS"`
@@ -100,11 +100,11 @@ func (p *PSInfo) fillPublicInfo() (err error) {
 	if p.Public.Generic, err = QueryGeneric(); err != nil {
 		return err
 	}
-	if p.Public.DmiInfo, err = QueryDmi(); err != nil {
+	if p.Public.Dmi, err = QueryDmi(); err != nil {
 		return err
 	}
 	p.Public.IsMemoryOS = IsMemoryOS()
-	p.Public.IsVirtualHost = IsVirtualHost(p.Public.DmiInfo.SystemName)
+	p.Public.IsVirtualHost = IsVirtualHost(p.Public.Dmi.SystemName)
 	p.Public.BootType = QueryBootType()
 	if p.Public.BootType == "uefi" {
 		if p.Public.EFIInfo, err = QueryEFIInfo(); err != nil {
