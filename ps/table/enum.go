@@ -19,7 +19,7 @@ const (
 	MBR_W95_FAT32_PARTITION                  PartType = "0b"
 	MBR_W95_FAT32_LBA_PARTITION              PartType = "0c" /* LBA really is `Extended Int 13h' */
 	MBR_W95_FAT16_LBA_PARTITION              PartType = "0e"
-	MBR_W95_EXTENDED_PARTITION               PartType = "0f"
+	MBR_W95_EXTENDED_LBA_PARTITION           PartType = "0f"
 	MBR_OPUS_PARTITION                       PartType = "10"
 	MBR_HIDDEN_FAT12_PARTITION               PartType = "11"
 	MBR_COMPAQ_DIAGNOSTICS_PARTITION         PartType = "12"
@@ -33,6 +33,7 @@ const (
 	MBR_HIDDEN_W95_FAT16LBA_PARTITION        PartType = "1e"
 	MBR_HIDDEN_W95_FAT16LBA_EXTEND_PARTITION PartType = "1f"
 	MBR_NEC_DOS_PARTITION                    PartType = "24"
+	MBR_HIDDEN_W95_NTFS_PARTITION            PartType = "27"
 	MBR_PLAN9_PARTITION                      PartType = "39"
 	MBR_PARTITIONMAGIC_PARTITION             PartType = "3c"
 	MBR_VENIX80286_PARTITION                 PartType = "40"
@@ -330,7 +331,7 @@ var TypeDescMapping = map[PartType]string{
 	MBR_W95_FAT32_PARTITION:                  "W95 FAT32",
 	MBR_W95_FAT32_LBA_PARTITION:              "W95 FAT32 LBA",
 	MBR_W95_FAT16_LBA_PARTITION:              "W95 FAT16 LBA",
-	MBR_W95_EXTENDED_PARTITION:               "W95 Extended",
+	MBR_W95_EXTENDED_LBA_PARTITION:           "W95 Extended",
 	MBR_OPUS_PARTITION:                       "OPUS",
 	MBR_HIDDEN_FAT12_PARTITION:               "Hidden FAT12",
 	MBR_COMPAQ_DIAGNOSTICS_PARTITION:         "Compaq Diagnostics",
@@ -344,6 +345,7 @@ var TypeDescMapping = map[PartType]string{
 	MBR_HIDDEN_W95_FAT16LBA_PARTITION:        "Hidden W95 FAT16 LBA",
 	MBR_HIDDEN_W95_FAT16LBA_EXTEND_PARTITION: "Hidden W95 FAT16 Extend LBA",
 	MBR_NEC_DOS_PARTITION:                    "NEC DOS",
+	MBR_HIDDEN_W95_NTFS_PARTITION:            "Hidden W95 NTFS",
 	MBR_PLAN9_PARTITION:                      "Plan 9",
 	MBR_PARTITIONMAGIC_PARTITION:             "PartitionMagic",
 	MBR_VENIX80286_PARTITION:                 "Venix 80286",
@@ -620,7 +622,7 @@ var TypeDescMapping = map[PartType]string{
 
 var MBRExtendPartTypes = []PartType{
 	MBR_DOS_EXTENDED_PARTITION,
-	MBR_W95_EXTENDED_PARTITION,
+	MBR_W95_EXTENDED_LBA_PARTITION,
 	MBR_HIDDEN_FAT16_EXTEND_PARTITION,
 	MBR_HIDDEN_W95_FAT16LBA_EXTEND_PARTITION,
 	MBR_LINUX_EXTENDED_PARTITION}
