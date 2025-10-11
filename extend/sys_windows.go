@@ -497,7 +497,7 @@ func GetDiskGeometry(disk string) (DISK_GEOMETRY, error) {
 	buf := make([]uint8, 0x80)
 	var n uint32
 
-	if err = windows.DeviceIoControl(windows.Handle(reader.Fd()), 0x700A0, nil, 0, &buf[0], uint32(len(buf)), &n, nil); err != nil {
+	if err = windows.DeviceIoControl(windows.Handle(reader.Fd()), IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, nil, 0, &buf[0], uint32(len(buf)), &n, nil); err != nil {
 		return DISK_GEOMETRY{}, err
 	}
 

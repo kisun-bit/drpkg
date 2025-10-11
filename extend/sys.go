@@ -13,6 +13,7 @@ const (
 	IOCTL_STORAGE_QUERY_PROPERTY         = 0x002d1400
 	IOCTL_DISK_GET_PARTITION_INFO_EX     = 0x70048
 	IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS = 0x00560000
+	IOCTL_DISK_GET_DRIVE_GEOMETRY_EX     = 0x700A0
 )
 
 // 关于存储总线类型的枚举值, 请参考: https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ne-winioctl-storage_bus_type
