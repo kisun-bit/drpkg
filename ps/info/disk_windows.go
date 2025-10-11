@@ -6,6 +6,7 @@ import (
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/ps/table"
 	"github.com/pkg/errors"
+	"golang.org/x/sys/windows"
 )
 
 func QueryDisks() (disks []Disk, err error) {
@@ -23,11 +24,20 @@ func QueryDisks() (disks []Disk, err error) {
 		}
 		d.SectorSize = int(geo.BytesPerSector)
 		sad, err := extend.DiskAlignmentStorage(diskPath)
-		if err != nil {
-			return nil, errors.Wrapf(err, "DiskAlignmentStorage for %s", diskPath)
+		if err == nil {
+			d.LogicalSectorSize = int(sad.BytesPerLogicalSector)
+			d.PhysicalSectorSize = int(sad.BytesPerPhysicalSector)
+		} else {
+			// 经测试，在win2k8r2上，IOCTL_STORAGE_QUERY_PROPERTY不受支持，
+			// 因此我们以DISK_GEOMETRY数据为准即可
+			if errors.Is(err, windows.ERROR_NOT_SUPPORTED) {
+				d.LogicalSectorSize = d.SectorSize
+				d.PhysicalSectorSize = d.SectorSize
+			} else {
+				return nil, errors.Wrapf(err, "DiskAlignmentStorage for %s", diskPath)
+			}
 		}
-		d.LogicalSectorSize = int(sad.BytesPerLogicalSector)
-		d.PhysicalSectorSize = int(sad.BytesPerPhysicalSector)
+
 		size, err := extend.FileSize(diskPath)
 		if err != nil {
 			return nil, errors.Wrapf(err, "FileSize for %s", diskPath)
