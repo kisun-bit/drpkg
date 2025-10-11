@@ -4,12 +4,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"runtime"
-	"strconv"
-	"strings"
 
-	"github.com/cespare/xxhash/v2"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/ps/table"
+	"github.com/pkg/errors"
 )
 
 // Disk 磁盘信息
@@ -18,11 +16,7 @@ type Disk struct {
 	Name string `json:"name"`
 	// Device 设备路径
 	Device string `json:"device"`
-	// LogicalGUID 逻辑ID
-	// 拼接规则: Size + SerialNumber + Table.Identifier
-	LogicalGUID string `json:"logicalGuid"`
 	// GUID 全局唯一ID
-	// GUID 等于 LogicalGUID 的sha256值
 	GUID string `json:"guid"`
 	// Sectors 物理扇区个数（单位：扇区）
 	Sectors int64 `json:"sectors"`
@@ -170,25 +164,27 @@ func getPartitionDevice(disk string, partEntryIndex int) string {
 	}
 }
 
-func extendDiskGUID(d *Disk) {
+func extendDiskGUID(d *Disk) error {
 	if d == nil {
-		return
+		return errors.New("nil Disk")
 	}
 
-	var parts []string
-	if d.SerialNumber != "" {
-		parts = append(parts, "SN"+d.SerialNumber)
-	}
-	if d.Table.Identifier != "" {
-		parts = append(parts, "IDENT"+d.Table.Identifier)
-	}
-	if d.Name != "" && len(parts) == 0 { // 只有在前两个都为空时才用Name
-		parts = append(parts, "NAME"+d.Name)
+	switch runtime.GOOS {
+	case "windows":
+		d.GUID = d.Table.Identifier
+	case "linux":
+		d.GUID = d.Table.Identifier
+		if d.GUID == "" {
+			// 尝试以PV UUID作为磁盘ID
+			pl, existed, err := extend.ScanPVLabelFromDisk(d.Device)
+			if err != nil {
+				return errors.Wrapf(err, "ScanPVLabelFromDisk for %s", d.Device)
+			}
+			if existed {
+				d.GUID = string(pl.UUID[:])
+			}
+		}
 	}
 
-	if len(parts) == 0 {
-		return
-	}
-	d.LogicalGUID = fmt.Sprintf("%s_SZ%v", strings.Join(parts, "_"), d.Size)
-	d.GUID = strconv.FormatUint(xxhash.Sum64String(d.LogicalGUID), 10)
+	return nil
 }

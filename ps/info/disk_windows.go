@@ -64,7 +64,9 @@ func QueryDisks() (disks []Disk, err error) {
 				continue
 			}
 		}
-		extendDiskGUID(&d)
+		if err = extendDiskGUID(&d); err != nil {
+			return nil, err
+		}
 		disks = append(disks, d)
 	}
 	return disks, nil

@@ -51,7 +51,9 @@ func QueryDisks() (disks []Disk, err error) {
 		if err != nil {
 			return nil, err
 		}
-		extendDiskGUID(&d)
+		if err = extendDiskGUID(&d); err != nil {
+			return nil, err
+		}
 		d.IsMsDynamic = false
 		d.IsOnline = true
 		disks = append(disks, d)
