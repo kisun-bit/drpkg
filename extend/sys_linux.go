@@ -319,6 +319,10 @@ func IsDiskReadonly(disk string) (bool, error) {
 }
 
 func BytesPerSector(dev string) (int, error) {
+	return DiskLogicalSectorSize(dev)
+}
+
+func DiskLogicalSectorSize(dev string) (int, error) {
 	base := filepath.Base(dev)
 	p := fmt.Sprintf("/sys/class/block/%s/queue/logical_block_size", base)
 	data, err := os.ReadFile(p)
@@ -334,7 +338,28 @@ func BytesPerSector(dev string) (int, error) {
 		return 0, errors.Wrapf(err, "failed to parse %s", p)
 	}
 	if size == 0 {
-		return 0, errors.Errorf("failed to get sector-size of %v", dev)
+		return 0, errors.Errorf("failed to get logical-sector-size of %v", dev)
+	}
+	return size, nil
+}
+
+func DiskPhysicalSectorSize(dev string) (int, error) {
+	base := filepath.Base(dev)
+	p := fmt.Sprintf("/sys/class/block/%s/queue/physical_block_size", base)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 512, nil
+		}
+		return 0, errors.Wrapf(err, "failed to read %s", p)
+	}
+	sizeStr := strings.TrimSpace(string(data))
+	size, err := strconv.Atoi(sizeStr)
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to parse %s", p)
+	}
+	if size == 0 {
+		return 0, errors.Errorf("failed to get physical-sector-size of %v", dev)
 	}
 	return size, nil
 }

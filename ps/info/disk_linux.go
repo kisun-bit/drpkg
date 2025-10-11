@@ -22,6 +22,14 @@ func QueryDisks() (disks []Disk, err error) {
 			return nil, e
 		}
 		d.SectorSize = int(ss)
+		d.LogicalSectorSize, err = extend.DiskLogicalSectorSize(diskPath)
+		if err != nil {
+			return nil, err
+		}
+		d.PhysicalSectorSize, err = extend.DiskPhysicalSectorSize(diskPath)
+		if err != nil {
+			return nil, err
+		}
 		d.Size = ss * d.Sectors
 		d.Vendor, err = extend.GetDiskVendor(diskPath)
 		if err != nil {

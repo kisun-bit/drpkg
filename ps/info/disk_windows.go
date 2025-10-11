@@ -25,6 +25,12 @@ func QueryDisks() (disks []Disk, err error) {
 		// 因此，通过CHS计算出来的实际容量会比真实硬盘容量更小，实际场景中请使用 IOCTL_DISK_GET_LENGTH_INFO 获取真实硬盘容量
 		d.Sectors = int64(geo.Cylinders) * int64(geo.TracksPerCylinder) * int64(geo.SectorsPerTrack)
 		d.SectorSize = int(geo.BytesPerSector)
+		sad, err := extend.DiskAlignmentStorage(diskPath)
+		if err != nil {
+			return nil, errors.Wrapf(err, "DiskAlignmentStorage for %s", diskPath)
+		}
+		d.LogicalSectorSize = int(sad.BytesPerLogicalSector)
+		d.PhysicalSectorSize = int(sad.BytesPerPhysicalSector)
 		size, err := extend.FileSize(diskPath)
 		if err != nil {
 			return nil, errors.Wrapf(err, "FileSize for %s", diskPath)

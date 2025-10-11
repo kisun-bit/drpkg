@@ -561,3 +561,50 @@ func GetDiskAttr(hardDiskPath string) (offline, readonly bool, err error) {
 	}
 	return attr.Attributes&DISK_ATTRIBUTE_OFFLINE > 0, attr.Attributes&DISK_ATTRIBUTE_READ_ONLY > 0, nil
 }
+
+type STORAGE_PROPERTY_QUERY struct {
+	PropertyId           uint32
+	QueryType            uint32
+	AdditionalParameters [1]byte
+}
+
+type STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR struct {
+	Version                       uint32
+	Size                          uint32
+	BytesPerCacheLine             uint32
+	BytesOffsetForCacheAlignment  uint32
+	BytesPerLogicalSector         uint32
+	BytesPerPhysicalSector        uint32
+	BytesOffsetForSectorAlignment uint32
+}
+
+func DiskAlignmentStorage(hardDiskPath string) (sad STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR, err error) {
+	handle, err := OpenDevice(hardDiskPath)
+	if err != nil {
+		return sad, err
+	}
+	defer func() {
+		_ = windows.CloseHandle(handle)
+	}()
+
+	query := STORAGE_PROPERTY_QUERY{
+		PropertyId: 6, // StorageAccessAlignmentProperty
+		QueryType:  0, // PropertyStandardQuery
+	}
+	var returned uint32
+
+	err = windows.DeviceIoControl(
+		handle,
+		IOCTL_STORAGE_QUERY_PROPERTY,
+		(*byte)(unsafe.Pointer(&query)),
+		uint32(unsafe.Sizeof(query)),
+		(*byte)(unsafe.Pointer(&sad)),
+		uint32(unsafe.Sizeof(sad)),
+		&returned,
+		nil)
+	if err != nil {
+		return sad, err
+	}
+
+	return sad, nil
+}

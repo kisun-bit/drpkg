@@ -26,8 +26,12 @@ type Disk struct {
 	GUID string `json:"guid"`
 	// Sectors 物理扇区个数（单位：扇区）
 	Sectors int64 `json:"sectors"`
-	// SectorSize 物理扇区大小（单位：字节）
+	// SectorSize 扇区大小（单位：字节），等于 LogicalSectorSize
 	SectorSize int `json:"sectorSize"`
+	// LogicalSectorSize 逻辑扇区大小（单位：字节）
+	LogicalSectorSize int `json:"logicalSectorSize"`
+	// PhysicalSectorSize 物理扇区大小（单位：字节）
+	PhysicalSectorSize int `json:"physicalSectorSize"`
 	// Size 磁盘大小（单位：字节）
 	Size int64 `json:"size"`
 	// Vendor 制造商
