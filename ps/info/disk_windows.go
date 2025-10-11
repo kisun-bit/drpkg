@@ -21,9 +21,6 @@ func QueryDisks() (disks []Disk, err error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "GetDiskGeometry for %s", diskPath)
 		}
-		// 注意：现代硬盘的真实容量不再与 CHS 信息匹配
-		// 因此，通过CHS计算出来的实际容量会比真实硬盘容量更小，实际场景中请使用 IOCTL_DISK_GET_LENGTH_INFO 获取真实硬盘容量
-		d.Sectors = int64(geo.Cylinders) * int64(geo.TracksPerCylinder) * int64(geo.SectorsPerTrack)
 		d.SectorSize = int(geo.BytesPerSector)
 		sad, err := extend.DiskAlignmentStorage(diskPath)
 		if err != nil {
@@ -36,6 +33,10 @@ func QueryDisks() (disks []Disk, err error) {
 			return nil, errors.Wrapf(err, "FileSize for %s", diskPath)
 		}
 		d.Size = int64(size)
+		// 注意：现代硬盘的真实容量不再与 CHS 信息匹配
+		// 因此，通过CHS计算出来的实际容量会比真实硬盘容量更小，实际场景中请使用 IOCTL_DISK_GET_LENGTH_INFO 获取真实硬盘容量
+		// d.Sectors = int64(geo.Cylinders) * int64(geo.TracksPerCylinder) * int64(geo.SectorsPerTrack)
+		d.Sectors = d.Size / int64(d.SectorSize)
 		diskProperty, err := extend.DiskProperty(diskPath)
 		if err != nil {
 			return nil, errors.Wrapf(err, "GetDiskProperty for %s", diskPath)
