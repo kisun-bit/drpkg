@@ -102,6 +102,7 @@ func DiskOrPartitionSegment(device string) (Segment, error) {
 		if err != nil {
 			return seg, err
 		}
+		// /sys/class/block/sda1/start的单位始终是512字节扇区（"kernel sector"）
 		seg.Start = start * 512
 	} else {
 		seg.Disk = realDev
@@ -115,6 +116,7 @@ func DiskOrPartitionSegment(device string) (Segment, error) {
 	if err != nil {
 		return seg, err
 	}
+	// /sys/class/block/sda/size的单位始终是512字节扇区（"kernel sector"）
 	seg.Size = sectors * 512
 	return seg, nil
 }
