@@ -56,10 +56,12 @@ type LinuxPrivateInfo struct {
 	Kernels []LinuxKernel `json:"kernels"`
 	// Release 版本信息
 	Release LinuxRelease `json:"release"`
-	// Swaps 交换分区信息
-	Swaps []LinuxSwap `json:"swaps"`
 	// Target 目标平台信息
 	Target LinuxTarget `json:"target"`
+	// Swaps 交换分区信息
+	Swaps []LinuxSwap `json:"swaps"`
+	// LVM 逻辑卷信息
+	LVM LVM `json:"lvm"`
 }
 
 type WindowsPrivateInfo struct {
@@ -136,6 +138,9 @@ func (p *PSInfo) fillPrivateInfo() (err error) {
 			return err
 		}
 		p.Private.Linux.Target = QueryLinuxTarget()
+		if p.Private.Linux.LVM, err = QueryLVMInfo(); err != nil {
+			return err
+		}
 	case "windows":
 		p.Private.Windows.Effective = true
 		if p.Private.Windows.Release, err = QueryWindowsRelease(""); err != nil {
