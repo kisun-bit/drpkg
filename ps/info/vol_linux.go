@@ -196,6 +196,13 @@ func LVSegments(lvPath string) (segments []Segment, err error) {
 			if err != nil {
 				return nil, err
 			}
+			// LVM的扇区大小固定为512，见https://wiki.gentoo.org/wiki/Device-mapper
+			// 原文如下：
+			// """
+			// The device mapper, like the rest of the Linux block layer deals with things at the sector level.
+			// A sector defined as 512 bytes, regardless of the actual physical geometry the the block device.
+			// All formulas and values to the device mapper will be in sectors unless otherwise stated
+			// """
 			lvPartialSegment.Start += lvPartialStartSector * 512
 			lvPartialSegment.Size = lvPartialSectors * 512
 			segments = append(segments, lvPartialSegment)
