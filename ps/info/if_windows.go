@@ -86,17 +86,6 @@ func IsPhysicalIF(name string) bool {
 		return false
 	}
 
-	// 弃用此处不严谨的逻辑
-	//for _, adapter := range adapters {
-	//	if strings.EqualFold(adapter.NetConnectionID, name) && adapter.PhysicalAdapter {
-	//		// 排除虚拟网卡
-	//		if strings.Contains(adapter.Description, "vEthernet") || strings.Contains(adapter.Description, "Virtual") {
-	//			return false
-	//		}
-	//		return true
-	//	}
-	//}
-
 	// 实际环境中发现，启用调试模式后，会基于物理网卡生成一个虚拟适配器，如下：
 	// PS C:\WINDOWS\system32> Get-NetAdapter | Select Name, PnPDeviceID, PermanentAddress
 	//
@@ -107,7 +96,12 @@ func IsPhysicalIF(name string) bool {
 	// 以太网(内核调试器)           ROOT\KDNIC\0000                                                18C04D43AEB8
 	// 可以看出，Mac地址一模一样的，且`以太网 2`并不会出现在资源管理器的`网络`中，那么我们将`以太网(内核调试器)`视为物理网卡即可
 
-	if strings.HasPrefix(adapters[0].PNPDeviceID, "PCI") || strings.HasPrefix(adapters[0].PNPDeviceID, "ROOT\\KDNIC") {
+	// 通用PCI物理网卡
+	if strings.Contains(adapters[0].PNPDeviceID, "PCI") {
+		return true
+	}
+	// Hyper-V虚拟机适配器
+	if strings.HasPrefix(adapters[0].PNPDeviceID, "VMBUS") {
 		return true
 	}
 
