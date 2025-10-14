@@ -7,8 +7,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/kisun-bit/drpkg/disk/table"
 	"github.com/kisun-bit/drpkg/extend"
-	"github.com/kisun-bit/drpkg/ps/table"
 )
 
 func QueryVolumes() ([]Volume, error) {

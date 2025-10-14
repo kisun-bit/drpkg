@@ -3,8 +3,8 @@ package info
 import (
 	"strings"
 
+	"github.com/kisun-bit/drpkg/disk/table"
 	"github.com/kisun-bit/drpkg/extend"
-	"github.com/kisun-bit/drpkg/ps/table"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"runtime"
 
+	table2 "github.com/kisun-bit/drpkg/disk/table"
 	"github.com/kisun-bit/drpkg/extend"
-	"github.com/kisun-bit/drpkg/ps/table"
 	"github.com/pkg/errors"
 )
 
@@ -49,7 +49,7 @@ type DiskTable struct {
 	// Device 设备路径
 	Device string `json:"device"`
 	// Type 分区表类型
-	Type table.TableType `json:"type"`
+	Type table2.TableType `json:"type"`
 	// Identifier 分区表唯一ID
 	Identifier string `json:"identifier"`
 	// Partitions 分区表项集合
@@ -71,7 +71,7 @@ type DiskPartitionTable struct {
 }
 
 func GetDiskTable(disk string) (dt DiskTable, err error) {
-	t, err := table.GetDiskType(disk)
+	t, err := table2.GetDiskType(disk)
 	if err != nil {
 		return dt, err
 	}
@@ -80,9 +80,9 @@ func GetDiskTable(disk string) (dt DiskTable, err error) {
 	dt.Type = t
 
 	switch t {
-	case table.TableTypeGPT:
+	case table2.TableTypeGPT:
 		return readGPTTable(disk, dt)
-	case table.TableTypeMBR:
+	case table2.TableTypeMBR:
 		return readMBRTable(disk, dt)
 	default:
 		// 未识别的分区类型
@@ -91,7 +91,7 @@ func GetDiskTable(disk string) (dt DiskTable, err error) {
 }
 
 func readGPTTable(disk string, dt DiskTable) (DiskTable, error) {
-	gpt, err := table.NewGPT(disk, 0)
+	gpt, err := table2.NewGPT(disk, 0)
 	if err != nil {
 		return dt, err
 	}
@@ -99,7 +99,7 @@ func readGPTTable(disk string, dt DiskTable) (DiskTable, error) {
 
 	dt.Identifier = gpt.Identifier()
 	for i, gp := range gpt.PartitionEntries {
-		if gp.Type() == table.GPT_UNUSED_ENTRY {
+		if gp.Type() == table2.GPT_UNUSED_ENTRY {
 			continue
 		}
 		dt.Partitions = append(dt.Partitions, DiskPartitionTable{
@@ -114,7 +114,7 @@ func readGPTTable(disk string, dt DiskTable) (DiskTable, error) {
 }
 
 func readMBRTable(disk string, dt DiskTable) (DiskTable, error) {
-	mbr, err := table.NewMBR(disk, 0, false)
+	mbr, err := table2.NewMBR(disk, 0, false)
 	if err != nil {
 		return dt, err
 	}
@@ -122,9 +122,9 @@ func readMBRTable(disk string, dt DiskTable) (DiskTable, error) {
 
 	dt.Identifier = hex.EncodeToString(mbr.Signature)
 
-	appendMBRPartitions := func(entries []table.MBRPartition, startIndex int) {
+	appendMBRPartitions := func(entries []table2.MBRPartition, startIndex int) {
 		for i, mp := range entries {
-			if mp.Type() == table.MBR_EMPTY_PARTITION {
+			if mp.Type() == table2.MBR_EMPTY_PARTITION {
 				continue
 			}
 			dt.Partitions = append(dt.Partitions, DiskPartitionTable{
