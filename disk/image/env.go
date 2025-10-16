@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	ioToolName  = "imgrw"
+	ioToolName  = "imgio"
 	imgToolName = "img"
 
 	ioToolPath  = ioToolName
@@ -17,12 +17,10 @@ var (
 )
 
 func init() {
-	if extend.IsWindowsPlatform() {
-		ioToolName += ".exe"
-		imgToolName += ".exe"
-	}
+	fixQemuToolName()
 }
 
+// QemuToolDirSetup 配置Qemu工具目录
 func QemuToolDirSetup(dir string) error {
 	if !extend.IsExisted(dir) {
 		return errors.Errorf("qemu tool directory (%s) does not exist", dir)
@@ -32,6 +30,15 @@ func QemuToolDirSetup(dir string) error {
 	imgToolPath = filepath.Join(dir, imgToolName)
 
 	return checkQemuTool()
+}
+
+func fixQemuToolName() {
+	if !extend.IsWindowsPlatform() {
+		return
+	}
+	for _, name := range []*string{&ioToolName, &imgToolName} {
+		*name += ".exe"
+	}
 }
 
 func checkQemuTool() error {

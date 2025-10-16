@@ -1,6 +1,7 @@
 package extend
 
 import (
+	"os/exec"
 	"runtime"
 )
 
@@ -104,4 +105,8 @@ const (
 
 func IsWindowsPlatform() bool {
 	return runtime.GOOS == "windows"
+}
+
+func IsProcessRunning(c *exec.Cmd) bool {
+	return c != nil && c.Process != nil && c.ProcessState != nil && !c.ProcessState.Exited()
 }
