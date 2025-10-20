@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
 	"github.com/kisun-bit/drpkg/disk/image"
 	"github.com/kisun-bit/drpkg/logger"
@@ -110,10 +112,19 @@ func DemoRead() {
 	logger.Debugf("Read: %d, md5: %v", off, hex.EncodeToString(hash.Sum(nil)))
 }
 
+func DemoImageMap() {
+	imi, err := image.Map(context.Background(), os.Args[2])
+	if err != nil {
+		logger.Fatal(err)
+	}
+	spew.Dump(imi)
+}
+
 func main() {
 	if err := image.QemuToolDirSetup(os.Args[1]); err != nil {
 		logger.Fatal("QemuToolDirSetup: ", err)
 	}
 	//DemoRead()
-	DemoWrite()
+	//DemoWrite()
+	DemoImageMap()
 }

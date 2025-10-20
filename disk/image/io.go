@@ -472,7 +472,7 @@ func (img *Image) checkQemuProcessAlive() error {
 }
 
 func getImageSizeAndFormat(path string) (size int64, format string, err error) {
-	imgInfo, err := ImageJsonInfo(context.Background(), path)
+	imgInfo, err := JsonInfo(context.Background(), path)
 	if err != nil {
 		return 0, "", err
 	}
