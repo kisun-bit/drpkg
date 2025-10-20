@@ -55,7 +55,8 @@ type Image struct {
 }
 
 type openopt struct {
-	debug bool
+	debug      bool
+	checkAlive bool
 }
 
 type OpenOption func(*openopt)
@@ -64,6 +65,13 @@ type OpenOption func(*openopt)
 func EnableDebug() OpenOption {
 	return func(i *openopt) {
 		i.debug = true
+	}
+}
+
+// EnablePreCheckAlive 启用QEMU进程探活检测（每次请求调用前）
+func EnablePreCheckAlive() OpenOption {
+	return func(i *openopt) {
+		i.checkAlive = true
 	}
 }
 
@@ -179,8 +187,15 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 	img.rwLock.Lock()
 	defer img.rwLock.Unlock()
 
+	defer func() {
+		if err == io.EOF {
+			return
+		}
+		err = errors.Wrapf(err, "ReadAt")
+	}()
+
 	if err = img.checkQemuProcessAlive(); err != nil {
-		return 0, errors.Wrapf(err, "ReadAt")
+		return 0, err
 	}
 
 	remain := img.virtualSize - off
@@ -193,10 +208,12 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 	if remain < readLen {
 		readLen = remain
 	}
-
 	img.debugf("%s.ReadAt() len(b)=%d, remain=%d, readLen=%d", img.String(), len(b), remain, readLen)
 
+	//
 	// 发送读指令，每次最多读1MiB，若readLen的长度超过1MiB，则分多次读
+	//
+
 	var totalRead int
 	for totalRead < int(readLen) {
 		chunkSize := int(readLen) - totalRead
@@ -206,7 +223,6 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 
 		img.shmMutex.Lock()
 
-		// 准备读请求
 		req := readRequest{
 			shmBaseRequest: shmBaseRequest{
 				Type:     _READ,
@@ -215,73 +231,27 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 			Offset: off + int64(totalRead),
 			Length: int32(chunkSize),
 		}
-
-		// 手动将请求写入共享内存（使用小端序）
-		// 结构：type(4) + sequence(8) + offset(8) + length(4) = 24字节
-		binary.LittleEndian.PutUint32(img.shmData[requestOffset+0:], uint32(req.Type))
-		binary.LittleEndian.PutUint64(img.shmData[requestOffset+4:], req.Sequence)
-		binary.LittleEndian.PutUint64(img.shmData[requestOffset+12:], uint64(req.Offset))
-		binary.LittleEndian.PutUint32(img.shmData[requestOffset+20:], uint32(req.Length))
-
-		// 调试：读回验证
-		verifyType := binary.LittleEndian.Uint32(img.shmData[requestOffset+0:])
-		verifySeq := binary.LittleEndian.Uint64(img.shmData[requestOffset+4:])
-		verifyOff := int64(binary.LittleEndian.Uint64(img.shmData[requestOffset+12:]))
-		verifyLen := int32(binary.LittleEndian.Uint32(img.shmData[requestOffset+20:]))
-		img.debugf("%s.ReadAt() verify written: Type=%d, Seq=%d, Offset=%d, Length=%d",
-			img.String(), verifyType, verifySeq, verifyOff, verifyLen)
-
-		// 打印原始字节
-		rawBytes := img.shmData[requestOffset : requestOffset+24]
-		img.debugf("%s.ReadAt() raw bytes: % x", img.String(), rawBytes)
-
+		req.buildRequest(img.shmData)
 		img.debugf("%s.ReadAt() sending request: offset=%d, length=%d", img.String(), req.Offset, req.Length)
 
-		// 通知QEMU进程处理请求
-		if _, err = unix.Write(img.efdr, []byte{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
-			img.shmMutex.Unlock()
-			return totalRead, errors.Wrapf(err, "failed to notify QEMU process")
+		if err = img.notifyEx(img.efdr); err != nil {
+			return 0, err
+		}
+		if err = img.waitEx(img.efdp); err != nil {
+			return 0, err
 		}
 
-		img.debugf("%s.ReadAt() waiting for response...", img.String())
-
-		// 等待QEMU进程处理完成
-		var buf [8]byte
-		if _, err = unix.Read(img.efdp, buf[:]); err != nil {
+		resp, err := loadReadResponse(img.shmData)
+		if err != nil {
 			img.shmMutex.Unlock()
-			return totalRead, errors.Wrapf(err, "failed to wait for QEMU process")
+			return 0, err
 		}
-
-		img.debugf("%s.ReadAt() received response", img.String())
-
-		// 从共享内存中读取响应
-		respData := img.shmData[responseOffset:]
-
-		// 手动解析响应（使用小端序，与 C 端一致）
-		// C端结构： type(4) + sequence(8) + errorCode(4) + length(4)
-		respType := binary.LittleEndian.Uint32(respData[0:4])
-		respSequence := binary.LittleEndian.Uint64(respData[4:12])
-		respErrorCode := int32(binary.LittleEndian.Uint32(respData[12:16]))
-		respLength := int32(binary.LittleEndian.Uint32(respData[16:20]))
-
-		img.debugf("%s.ReadAt() response parsed: Type=%d, Sequence=%d, ErrorCode=%d, Length=%d",
-			img.String(), respType, respSequence, respErrorCode, respLength)
-
-		if respErrorCode != 0 {
-			img.shmMutex.Unlock()
-			return totalRead, errors.Errorf("QEMU read error: %d", respErrorCode)
-		}
-
-		// 复制数据到用户缓冲区
-		readSize := int(respLength)
-		// C端数据紧跟在基础响应结构后：type(4) + sequence(8) + errorCode(4) + length(4) = 20字节
-		dataOffset := uintptr(20)
-		copy(b[totalRead:totalRead+readSize], respData[dataOffset:dataOffset+uintptr(readSize)])
+		copy(b[totalRead:totalRead+int(resp.Length)], resp.ResponseBody[resp.DataRelStart:resp.DataRelStart+int(resp.Length)])
 
 		img.shmMutex.Unlock()
 
-		totalRead += readSize
-		if readSize < chunkSize {
+		totalRead += int(resp.Length)
+		if int(resp.Length) < chunkSize {
 			break // 读取到EOF
 		}
 	}
@@ -290,14 +260,24 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 }
 
 func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
+	img.debugf("%s.WriteAt() ++ off=%v, len=%v", img.String(), off, len(b))
+	defer img.debugf("%s.WriteAt() --", img.String())
+
 	img.rwLock.Lock()
 	defer img.rwLock.Unlock()
 
+	defer func() {
+		err = errors.Wrapf(err, "WriteAt")
+	}()
+
 	if err = img.checkQemuProcessAlive(); err != nil {
-		return 0, errors.Wrapf(err, "WriteAt")
+		return 0, err
 	}
 
+	//
 	// 发送写指令，每次最多写1MiB，若b的长度超过1MiB，则分多次写
+	//
+
 	var totalWritten int
 	for totalWritten < len(b) {
 		chunkSize := len(b) - totalWritten
@@ -307,7 +287,6 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 
 		img.shmMutex.Lock()
 
-		// 准备写请求
 		req := writeRequest{
 			shmBaseRequest: shmBaseRequest{
 				Type:     _WRITE,
@@ -317,42 +296,22 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 			Length: int32(chunkSize),
 			Data:   b[totalWritten : totalWritten+chunkSize],
 		}
+		req.buildRequest(img.shmData)
 
-		// 手动将请求写入共享内存（使用小端序）
-		// 结构：type(4) + sequence(8) + offset(8) + length(4) + data
-		binary.LittleEndian.PutUint32(img.shmData[requestOffset+0:], uint32(req.Type))
-		binary.LittleEndian.PutUint64(img.shmData[requestOffset+4:], req.Sequence)
-		binary.LittleEndian.PutUint64(img.shmData[requestOffset+12:], uint64(req.Offset))
-		binary.LittleEndian.PutUint32(img.shmData[requestOffset+20:], uint32(req.Length))
-		copy(img.shmData[requestOffset+24:], req.Data)
-
-		// 通知QEMU进程处理请求
-		if _, err = unix.Write(img.efdr, []byte{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
-			img.shmMutex.Unlock()
-			return totalWritten, errors.Wrapf(err, "failed to notify QEMU process")
+		if err = img.notifyEx(img.efdr); err != nil {
+			return 0, err
+		}
+		if err = img.waitEx(img.efdp); err != nil {
+			return 0, err
 		}
 
-		// 等待QEMU进程处理完成
-		var buf [8]byte
-		if _, err = unix.Read(img.efdp, buf[:]); err != nil {
+		resp, err := loadWriteResponse(img.shmData)
+		if err != nil {
 			img.shmMutex.Unlock()
-			return totalWritten, errors.Wrapf(err, "failed to wait for QEMU process")
+			return 0, err
 		}
 
-		// 从共享内存中读取响应
-		respData := img.shmData[responseOffset:]
-		// 手动解析响应（使用小端序）
-		// C端结构： type(4) + sequence(8) + errorCode(4) + length(4)
-		respErrorCode := int32(binary.LittleEndian.Uint32(respData[12:16]))
-		respLength := int32(binary.LittleEndian.Uint32(respData[16:20]))
-
-		if respErrorCode != 0 {
-			img.shmMutex.Unlock()
-			return totalWritten, errors.Errorf("QEMU write error: %d", respErrorCode)
-		}
-
-		// 更新已写入的字节数
-		writtenSize := int(respLength)
+		writtenSize := int(resp.Length)
 		totalWritten += writtenSize
 
 		img.shmMutex.Unlock()
@@ -365,93 +324,57 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 	return totalWritten, nil
 }
 
-func (img *Image) Sync() error {
+func (img *Image) Sync() (err error) {
 	img.debugf("%s.Sync() ++", img.String())
 	defer img.debugf("%s.Sync() --", img.String())
 
-	img.shmMutex.Lock()
-	defer img.shmMutex.Unlock()
+	img.rwLock.Lock()
+	defer img.rwLock.Unlock()
 
-	if err := img.checkQemuProcessAlive(); err != nil {
-		return errors.Wrapf(err, "Sync")
-	}
+	defer func() {
+		err = errors.Wrapf(err, "Sync")
+	}()
 
-	// 准备刷盘请求
-	req := flushRequest{
-		shmBaseRequest: shmBaseRequest{
-			Type:     _FLUSH,
-			Sequence: uint64(time.Now().UnixNano()),
-		},
-	}
-
-	// 手动将请求写入共享内存（使用小端序）
-	// 结构：type(4) + sequence(8) = 12字节
-	binary.LittleEndian.PutUint32(img.shmData[requestOffset+0:], uint32(req.Type))
-	binary.LittleEndian.PutUint64(img.shmData[requestOffset+4:], req.Sequence)
-
-	// 通知QEMU进程处理请求
-	if _, err := unix.Write(img.efdr, []byte{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
-		return errors.Wrapf(err, "failed to notify QEMU process")
-	}
-
-	// 等待QEMU进程处理完成
-	var buf [8]byte
-	if _, err := unix.Read(img.efdp, buf[:]); err != nil {
-		return errors.Wrapf(err, "failed to wait for QEMU process")
-	}
-
-	// 从共享内存中读取响应
-	respData := img.shmData[responseOffset:]
-	// 手动解析响应（使用小端序）
-	// C端结构： type(4) + sequence(8) + errorCode(4)
-	respErrorCode := int32(binary.LittleEndian.Uint32(respData[12:16]))
-
-	if respErrorCode != 0 {
-		return errors.Errorf("QEMU flush error: %d", respErrorCode)
-	}
-
-	return nil
+	return img.sync()
 }
 
-func (img *Image) Close() error {
+func (img *Image) Close() (err error) {
 	img.debugf("%s.Close() ++", img.String())
 	defer img.debugf("%s.Close() --", img.String())
 
 	img.rwLock.Lock()
 	defer img.rwLock.Unlock()
 
+	defer func() {
+		err = errors.Wrapf(err, "Close")
+	}()
+
 	if extend.IsProcessRunning(img.proc) {
-		if eSync := img.Sync(); eSync != nil {
-			logger.Warnf("%s.Close() Sync: %v", img.String(), eSync)
+		if eSync := img.sync(); eSync != nil {
+			return eSync
 		}
 
-		// 发送Close指令
 		img.shmMutex.Lock()
+
 		req := closeRequest{
 			shmBaseRequest: shmBaseRequest{
 				Type:     _Close,
 				Sequence: uint64(time.Now().UnixNano()),
 			},
 		}
+		req.buildRequest(img.shmData)
 
-		// 手动将请求写入共享内存（使用小端序）
-		// 结构：type(4) + sequence(8) = 12字节
-		binary.LittleEndian.PutUint32(img.shmData[requestOffset+0:], uint32(req.Type))
-		binary.LittleEndian.PutUint64(img.shmData[requestOffset+4:], req.Sequence)
-
-		// 通知QEMU进程处理请求
-		if _, err := unix.Write(img.efdr, []byte{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
-			img.shmMutex.Unlock()
-			logger.Warnf("%s.Close() notify QEMU: %v", img.String(), err)
-		} else {
-			// 等待QEMU进程处理完成
-			var buf [8]byte
-			if _, err = unix.Read(img.efdp, buf[:]); err != nil {
-				logger.Warnf("%s.Close() wait for QEMU: %v", img.String(), err)
-			}
+		if err := img.notifyEx(img.efdr); err != nil {
+			return err
 		}
+		// FIXME: 后续请基于事件等待，去确认QEME进程已经获取请求并已处理
+		//if err := img.waitEx(img.efdp); err != nil {
+		//	return err
+		//}
+
 		img.shmMutex.Unlock()
 
+		// 等待QEMU进程退出
 		_ = img.proc.Wait()
 	}
 
@@ -477,27 +400,75 @@ func (img *Image) debugf(format string, args ...interface{}) {
 	logger.Debugf(format, args...)
 }
 
+func (img *Image) sync() (err error) {
+	if err = img.checkQemuProcessAlive(); err != nil {
+		return err
+	}
+
+	img.shmMutex.Lock()
+
+	req := flushRequest{
+		shmBaseRequest: shmBaseRequest{
+			Type:     _FLUSH,
+			Sequence: uint64(time.Now().UnixNano()),
+		},
+	}
+	req.buildRequest(img.shmData)
+
+	if err = img.notifyEx(img.efdr); err != nil {
+		return err
+	}
+
+	if err = img.waitEx(img.efdp); err != nil {
+		return err
+	}
+
+	if _, err = loadFlushResponse(img.shmData); err != nil {
+		img.shmMutex.Unlock()
+		return err
+	}
+
+	img.shmMutex.Unlock()
+	return nil
+}
+
+// notifyEx 通知QEMU进程处理请求
+// 注意：调用此函数时，请保证调用代码处于img.shmMutex的锁空间内
+func (img *Image) notifyEx(eventfd int) error {
+	img.debugf("%s.notifyEx() ++ event(%d)", img.String(), eventfd)
+	defer img.debugf("%s.notifyEx() -- event(%d)", img.String(), eventfd)
+
+	if _, err := unix.Write(eventfd, eventSignalBytes); err != nil {
+		img.shmMutex.Unlock()
+		return errors.Wrapf(err, "failed to notify qemu process")
+	}
+
+	return nil
+}
+
+// waitEx 等待QEMU进程处理完毕
+// 注意：调用此函数时，请保证调用代码处于img.shmMutex的锁空间内
+func (img *Image) waitEx(eventfd int) error {
+	img.debugf("%s.waitEx() ++ event(%d)", img.String(), eventfd)
+	defer img.debugf("%s.waitEx() -- event(%d)", img.String(), eventfd)
+
+	var buf [8]byte
+	if _, err := unix.Read(eventfd, buf[:]); err != nil {
+		img.shmMutex.Unlock()
+		return errors.Wrapf(err, "failed to wait for qemu process")
+	}
+
+	return nil
+}
+
 func (img *Image) checkQemuProcessAlive() error {
+	if !img.opt.checkAlive {
+		return nil
+	}
 	if !extend.IsProcessRunning(img.proc) {
 		return errors.New("qemu process is not running")
 	}
 	return nil
-}
-
-func (img *Image) monitorQemuProcess() {
-	t := time.NewTicker(time.Second)
-	defer t.Stop()
-
-	for range t.C {
-		if extend.IsProcessRunning(img.proc) {
-			continue
-		}
-		if ec := img.proc.ProcessState.ExitCode(); ec != 0 {
-			logger.Warnf("%s.monitorQemuProcess() qemu process exit code: %d", img.String(), ec)
-		}
-		_ = img.Close()
-		return
-	}
 }
 
 func getImageSizeAndFormat(path string) (size int64, format string, err error) {
@@ -508,19 +479,15 @@ func getImageSizeAndFormat(path string) (size int64, format string, err error) {
 
 	format = gjson.Get(imgInfo, "format").String()
 	size = gjson.Get(imgInfo, "virtual-size").Int()
-	if size <= 0 {
-		return 0, "", errors.New("virtual size is 0")
-	}
-
 	return
 }
 
 func getRequestAndResponseEvent() (req, resp int, err error) {
-	efdr, err := mustEventfd("req")
+	efdr, err := mustEventfd("request")
 	if err != nil {
 		return 0, 0, err
 	}
-	efdp, err := mustEventfd("resp")
+	efdp, err := mustEventfd("response")
 	if err != nil {
 		_ = unix.Close(efdr)
 		return 0, 0, err

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -11,12 +13,16 @@ import (
 	"github.com/kisun-bit/drpkg/logger"
 )
 
-func main() {
-	if err := image.QemuToolDirSetup(os.Args[1]); err != nil {
-		logger.Fatal("QemuToolDirSetup: ", err)
-	}
+func DemoWrite() {
+	hash := md5.New()
 
-	img, err := image.Open(os.Args[2])
+	logger.Debugf("origin file: %s", os.Args[2])
+	logger.Debugf("target file: %s", os.Args[3])
+
+	origin, _ := os.Open(os.Args[2])
+	defer origin.Close()
+
+	img, err := image.Open(os.Args[3])
 	if err != nil {
 		logger.Fatal("Open: ", err)
 	}
@@ -40,15 +46,74 @@ func main() {
 		}
 	}()
 	for {
+		nr, er := origin.ReadAt(buf, off)
+		if er != nil && er != io.EOF {
+			logger.Fatal("ReadAt: ", er)
+		}
+		if nr > 0 {
+			if _, ew := img.WriteAt(buf[:nr], off); ew != nil {
+				logger.Fatal("WriteAt: ", ew)
+			}
+			_, _ = hash.Write(buf[:nr])
+			off += int64(nr)
+		}
+		if er == io.EOF {
+			break
+		}
+	}
+
+	logger.Debugf("Written: %d, md5: %v", off, hex.EncodeToString(hash.Sum(nil)))
+}
+
+func DemoRead() {
+	hash := md5.New()
+
+	logger.Debugf("origin file: %s", os.Args[2])
+
+	img, err := image.Open(os.Args[2])
+	if err != nil {
+		logger.Fatal("Open: ", err)
+	}
+	defer img.Close()
+
+	bufLen := 4 << 10
+	buf := make([]byte, bufLen)
+	off := int64(0)
+	go func() {
+		du := 5 * time.Second
+		tik := time.NewTicker(du)
+		lastBytes := int64(0)
+		defer tik.Stop()
+		for range tik.C {
+			curBytes := off
+			duRBytes := curBytes - lastBytes
+			curSpeed := uint64(float64(duRBytes) * 1000 / float64(du.Milliseconds()))
+			lastBytes = curBytes
+			fmt.Printf("%vB (%s), read %vB (%s) in %s, speed: %v/s\n", curBytes, humanize.IBytes(uint64(curBytes)),
+				duRBytes, humanize.IBytes(uint64(duRBytes)), du.String(), humanize.IBytes(curSpeed))
+		}
+	}()
+	for {
 		nr, er := img.ReadAt(buf, off)
 		if er != nil && er != io.EOF {
 			logger.Fatal("ReadAt: ", er)
 		}
-		if er == io.EOF || nr == 0 {
+		if nr > 0 {
+			_, _ = hash.Write(buf[:nr])
+			off += int64(nr)
+		}
+		if er == io.EOF {
 			break
 		}
-		off += int64(nr)
 	}
 
-	logger.Debugf("Read: %d", off)
+	logger.Debugf("Read: %d, md5: %v", off, hex.EncodeToString(hash.Sum(nil)))
+}
+
+func main() {
+	if err := image.QemuToolDirSetup(os.Args[1]); err != nil {
+		logger.Fatal("QemuToolDirSetup: ", err)
+	}
+	//DemoRead()
+	DemoWrite()
 }
