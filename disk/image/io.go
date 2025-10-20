@@ -22,8 +22,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-//var shmIdRegex = regexp.MustCompile(`ShmID:\s*(\d+)`)
-
 type Image struct {
 	Path string
 	// virtualSize 虚拟磁盘大小
@@ -35,14 +33,17 @@ type Image struct {
 	// rwLock 读写锁
 	rwLock sync.Mutex
 
+	opt openopt
+
 	//
 	// IPC
 	//
 
-	shmMutex sync.Mutex
-	shmId    int
-	shmSize  int64
-	shmData  []byte
+	shmMutex    sync.Mutex
+	shmId       int
+	shmSize     int64
+	shmAttached bool
+	shmData     []byte
 
 	//
 	// 事件
@@ -53,79 +54,23 @@ type Image struct {
 	efdp     int
 }
 
+type openopt struct {
+	debug bool
+}
+
+type OpenOption func(*openopt)
+
+// EnableDebug 启用调试模式
+func EnableDebug() OpenOption {
+	return func(i *openopt) {
+		i.debug = true
+	}
+}
+
 // Open 打开虚拟磁盘文件
-func Open(path string) (img *Image, err error) {
-	logger.Debugf("start opening image: %s", path)
+func Open(path string, opts ...OpenOption) (_ *Image, err error) {
+	logger.Debugf("Start opening image: %s", path)
 
-	if err = checkQemuTool(); err != nil {
-		return nil, err
-	}
-
-	imgInfo, err := ImageJsonInfo(context.Background(), path)
-	if err != nil {
-		return nil, err
-	}
-
-	format := gjson.Get(imgInfo, "format").String()
-	size := gjson.Get(imgInfo, "virtual-size").Int()
-	if size <= 0 {
-		return nil, errors.New("virtual size is 0")
-	}
-
-	logger.Debugf("virtual size is %d, format is %s, pid is %d", size, format, os.Getpid())
-
-	// 使用 EFD_SEMAPHORE 标志，这样每次 read() 只会递减 1，避免重复处理
-	efdr, err := unix.Eventfd(0, unix.EFD_SEMAPHORE)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to open eventfd(req)")
-	}
-	defer func() {
-		if err != nil {
-			_ = unix.Close(efdr)
-		}
-	}()
-
-	// 使用 EFD_SEMAPHORE 标志，这样每次 read() 只会递减 1，避免重复处理
-	efdp, err := unix.Eventfd(0, unix.EFD_SEMAPHORE)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to open eventfd(resp)")
-	}
-	defer func() {
-		if err != nil {
-			_ = unix.Close(efdp)
-		}
-	}()
-
-	shmId, err := unix.SysvShmGet(os.Getpid(), shmSize, unix.IPC_CREAT|0o660)
-	if err != nil {
-		return nil, errors.Wrapf(err, "SysvShmGet")
-	}
-	defer func() {
-		if err != nil {
-			_, _ = unix.SysvShmCtl(shmId, unix.IPC_RMID, nil)
-		}
-	}()
-
-	shmData, err := unix.SysvShmAttach(shmId, 0, 0)
-	if err != nil {
-		return nil, errors.Wrapf(err, "SysvShmAttach(fd:%d)", shmId)
-	}
-	defer func() {
-		if err != nil {
-			_ = unix.SysvShmDetach(shmData)
-		}
-	}()
-
-	efdrFile := os.NewFile(uintptr(efdr), "eventfd_r")
-	if efdrFile == nil {
-		return nil, errors.New("failed to create os.File for eventfd(req)")
-	}
-	efdpFile := os.NewFile(uintptr(efdp), "eventfd_p")
-	if efdpFile == nil {
-		return nil, errors.New("failed to create os.File for eventfd(resp)")
-	}
-
-	// 确保使用绝对路径
 	absPath := path
 	if !filepath.IsAbs(path) {
 		absPath, err = filepath.Abs(path)
@@ -133,61 +78,91 @@ func Open(path string) (img *Image, err error) {
 			return nil, errors.Wrapf(err, "failed to get absolute path for %s", path)
 		}
 	}
+	path = absPath
 
-	proc := exec.Command(ioToolPath,
-		"-f", absPath,
-		"-r", strconv.Itoa(3),
-		"-p", strconv.Itoa(4),
-		"-s", strconv.Itoa(shmId))
-	proc.ExtraFiles = []*os.File{efdrFile, efdpFile}
-	logger.Debugf("qemu cmdline: %s", proc.String())
-
-	procStdout, _ := proc.StdoutPipe()
-	procStderr, _ := proc.StderrPipe()
-	if err = proc.Start(); err != nil {
-		return nil, errors.Wrapf(err, "start %s", ioToolPath)
+	img := &Image{Path: path}
+	for _, opt := range opts {
+		opt(&img.opt)
 	}
 	defer func() {
-		if err != nil && extend.IsProcessRunning(proc) {
-			_ = proc.Process.Kill()
+		if err == nil {
+			return
+		}
+		if e := releaseImage(img); e != nil {
+			logger.Warnf("failed to release image: %s", e)
 		}
 	}()
 
-	logger.Debugf("pid of %s: %d", ioToolPath, proc.Process.Pid)
+	if err = checkQemuTool(); err != nil {
+		return nil, err
+	}
+
+	if img.virtualSize, img.format, err = getImageSizeAndFormat(img.Path); err != nil {
+		return nil, err
+	}
+	logger.Debugf("Virtual size is %d, format is %s, pid is %d", img.virtualSize, img.format, os.Getpid())
+
+	img.efdr, img.efdp, err = getRequestAndResponseEvent()
+	if err != nil {
+		return nil, err
+	}
+
+	img.shmId, err = unix.SysvShmGet(os.Getpid(), shmSize, unix.IPC_CREAT|0o660)
+	if err != nil {
+		return nil, errors.Wrapf(err, "SysvShmGet")
+	}
+
+	img.shmData, err = unix.SysvShmAttach(img.shmId, 0, 0)
+	if err != nil {
+		return nil, errors.Wrapf(err, "SysvShmAttach(fd:%d)", img.shmId)
+	}
+	img.shmAttached = true
+	img.shmSize = shmSize
+
+	efdrFile := os.NewFile(uintptr(img.efdr), "eventfd_r")
+	if efdrFile == nil {
+		return nil, errors.New("failed to create os.File for eventfd(req)")
+	}
+	efdpFile := os.NewFile(uintptr(img.efdp), "eventfd_p")
+	if efdpFile == nil {
+		return nil, errors.New("failed to create os.File for eventfd(resp)")
+	}
+
+	procArgs := []string{"-f", absPath, "-r", strconv.Itoa(3), "-p", strconv.Itoa(4), "-s", strconv.Itoa(img.shmId)}
+	if img.opt.debug {
+		procArgs = append(procArgs, "-d")
+	}
+
+	img.proc = exec.Command(ioToolPath, procArgs...)
+	img.proc.ExtraFiles = []*os.File{efdrFile, efdpFile}
+	logger.Debugf("QEMU cmdline: `%s`", img.proc.String())
+
+	procStdout, _ := img.proc.StdoutPipe()
+	procStderr, _ := img.proc.StderrPipe()
+	if err = img.proc.Start(); err != nil {
+		return nil, errors.Wrapf(err, "start %s", ioToolPath)
+	}
+	logger.Debugf("Pid of %s: %d", ioToolPath, img.proc.Process.Pid)
 
 	logPipe := func(tag string, rc io.ReadCloser) {
 		scanner := bufio.NewScanner(rc)
 		for scanner.Scan() {
 			line := scanner.Text()
-			logger.Debugf("<PROCESS(%d)>(%s): %s", proc.Process.Pid, tag, line)
+			logger.Debugf("<PROCESS(%d)>(%s): %s", img.proc.Process.Pid, tag, line)
 		}
 	}
 	go logPipe("stdout", procStdout)
 	go logPipe("stderr", procStderr)
 
 	// 等待 C 端初始化完成并发送就绪信号
-	logger.Debugf("waiting for C process to be ready...")
+	logger.Debugf("Waiting for C process to be ready...")
 	var readyBuf [8]byte
-	n, err := unix.Read(efdp, readyBuf[:])
+	n, err := unix.Read(img.efdp, readyBuf[:])
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to receive ready signal from C process")
 	}
 	readyValue := binary.LittleEndian.Uint64(readyBuf[:])
 	logger.Debugf("C process is ready (read %d bytes, value=%d)", n, readyValue)
-
-	img = &Image{
-		Path:        path,
-		virtualSize: size,
-		format:      format,
-		proc:        proc,
-		shmId:       shmId,
-		shmSize:     shmSize,
-		shmData:     shmData,
-		efdr:        efdr,
-		efdp:        efdp,
-	}
-
-	go img.monitorQemuProcess()
 
 	logger.Debugf("%s is opened", img.String())
 	return img, nil
@@ -198,8 +173,8 @@ func (img *Image) String() string {
 }
 
 func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
-	logger.Debugf("%s.ReadAt() ++ off=%v", img.String(), off)
-	defer logger.Debugf("%s.ReadAt() --", img.String())
+	img.debugf("%s.ReadAt() ++ off=%v", img.String(), off)
+	defer img.debugf("%s.ReadAt() --", img.String())
 
 	img.rwLock.Lock()
 	defer img.rwLock.Unlock()
@@ -209,7 +184,7 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 	}
 
 	remain := img.virtualSize - off
-	logger.Debugf("%s.ReadAt() virtualSize=%d, off=%d, remain=%d", img.String(), img.virtualSize, off, remain)
+	img.debugf("%s.ReadAt() virtualSize=%d, off=%d, remain=%d", img.String(), img.virtualSize, off, remain)
 	if remain <= 0 {
 		return 0, io.EOF
 	}
@@ -219,7 +194,7 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 		readLen = remain
 	}
 
-	logger.Debugf("%s.ReadAt() len(b)=%d, remain=%d, readLen=%d", img.String(), len(b), remain, readLen)
+	img.debugf("%s.ReadAt() len(b)=%d, remain=%d, readLen=%d", img.String(), len(b), remain, readLen)
 
 	// 发送读指令，每次最多读1MiB，若readLen的长度超过1MiB，则分多次读
 	var totalRead int
@@ -253,14 +228,14 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 		verifySeq := binary.LittleEndian.Uint64(img.shmData[requestOffset+4:])
 		verifyOff := int64(binary.LittleEndian.Uint64(img.shmData[requestOffset+12:]))
 		verifyLen := int32(binary.LittleEndian.Uint32(img.shmData[requestOffset+20:]))
-		logger.Debugf("%s.ReadAt() verify written: Type=%d, Seq=%d, Offset=%d, Length=%d",
+		img.debugf("%s.ReadAt() verify written: Type=%d, Seq=%d, Offset=%d, Length=%d",
 			img.String(), verifyType, verifySeq, verifyOff, verifyLen)
 
 		// 打印原始字节
 		rawBytes := img.shmData[requestOffset : requestOffset+24]
-		logger.Debugf("%s.ReadAt() raw bytes: % x", img.String(), rawBytes)
+		img.debugf("%s.ReadAt() raw bytes: % x", img.String(), rawBytes)
 
-		logger.Debugf("%s.ReadAt() sending request: offset=%d, length=%d", img.String(), req.Offset, req.Length)
+		img.debugf("%s.ReadAt() sending request: offset=%d, length=%d", img.String(), req.Offset, req.Length)
 
 		// 通知QEMU进程处理请求
 		if _, err = unix.Write(img.efdr, []byte{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
@@ -268,7 +243,7 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 			return totalRead, errors.Wrapf(err, "failed to notify QEMU process")
 		}
 
-		logger.Debugf("%s.ReadAt() waiting for response...", img.String())
+		img.debugf("%s.ReadAt() waiting for response...", img.String())
 
 		// 等待QEMU进程处理完成
 		var buf [8]byte
@@ -277,7 +252,7 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 			return totalRead, errors.Wrapf(err, "failed to wait for QEMU process")
 		}
 
-		logger.Debugf("%s.ReadAt() received response", img.String())
+		img.debugf("%s.ReadAt() received response", img.String())
 
 		// 从共享内存中读取响应
 		respData := img.shmData[responseOffset:]
@@ -289,7 +264,7 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 		respErrorCode := int32(binary.LittleEndian.Uint32(respData[12:16]))
 		respLength := int32(binary.LittleEndian.Uint32(respData[16:20]))
 
-		logger.Debugf("%s.ReadAt() response parsed: Type=%d, Sequence=%d, ErrorCode=%d, Length=%d",
+		img.debugf("%s.ReadAt() response parsed: Type=%d, Sequence=%d, ErrorCode=%d, Length=%d",
 			img.String(), respType, respSequence, respErrorCode, respLength)
 
 		if respErrorCode != 0 {
@@ -391,8 +366,8 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 }
 
 func (img *Image) Sync() error {
-	logger.Debugf("%s.Sync() ++", img.String())
-	defer logger.Debugf("%s.Sync() --", img.String())
+	img.debugf("%s.Sync() ++", img.String())
+	defer img.debugf("%s.Sync() --", img.String())
 
 	img.shmMutex.Lock()
 	defer img.shmMutex.Unlock()
@@ -439,8 +414,8 @@ func (img *Image) Sync() error {
 }
 
 func (img *Image) Close() error {
-	logger.Debugf("%s.Close() ++", img.String())
-	defer logger.Debugf("%s.Close() --", img.String())
+	img.debugf("%s.Close() ++", img.String())
+	defer img.debugf("%s.Close() --", img.String())
 
 	img.rwLock.Lock()
 	defer img.rwLock.Unlock()
@@ -471,7 +446,7 @@ func (img *Image) Close() error {
 		} else {
 			// 等待QEMU进程处理完成
 			var buf [8]byte
-			if _, err := unix.Read(img.efdp, buf[:]); err != nil {
+			if _, err = unix.Read(img.efdp, buf[:]); err != nil {
 				logger.Warnf("%s.Close() wait for QEMU: %v", img.String(), err)
 			}
 		}
@@ -480,13 +455,7 @@ func (img *Image) Close() error {
 		_ = img.proc.Wait()
 	}
 
-	if err := img.closeEventfd2(); err != nil {
-		return err
-	}
-	if err := img.destroyShm(); err != nil {
-		return err
-	}
-	return nil
+	return releaseImage(img)
 }
 
 func (img *Image) VirtualSize() int64 {
@@ -499,6 +468,13 @@ func (img *Image) Size() int64 {
 		return 0
 	}
 	return stat.Size()
+}
+
+func (img *Image) debugf(format string, args ...interface{}) {
+	if !img.opt.debug {
+		return
+	}
+	logger.Debugf(format, args...)
 }
 
 func (img *Image) checkQemuProcessAlive() error {
@@ -524,46 +500,70 @@ func (img *Image) monitorQemuProcess() {
 	}
 }
 
-func (img *Image) closeEventfd2() error {
-	img.efdMutex.Lock()
-	defer img.efdMutex.Unlock()
+func getImageSizeAndFormat(path string) (size int64, format string, err error) {
+	imgInfo, err := ImageJsonInfo(context.Background(), path)
+	if err != nil {
+		return 0, "", err
+	}
 
-	if img.efdr != 0 {
-		if eClose := unix.Close(img.efdr); eClose != nil {
-			return errors.Wrapf(eClose, "CloseEventfd2")
+	format = gjson.Get(imgInfo, "format").String()
+	size = gjson.Get(imgInfo, "virtual-size").Int()
+	if size <= 0 {
+		return 0, "", errors.New("virtual size is 0")
+	}
+
+	return
+}
+
+func getRequestAndResponseEvent() (req, resp int, err error) {
+	efdr, err := mustEventfd("req")
+	if err != nil {
+		return 0, 0, err
+	}
+	efdp, err := mustEventfd("resp")
+	if err != nil {
+		_ = unix.Close(efdr)
+		return 0, 0, err
+	}
+	return efdr, efdp, nil
+}
+
+func mustEventfd(name string) (int, error) {
+	fd, err := unix.Eventfd(0, unix.EFD_SEMAPHORE)
+	if err != nil {
+		return -1, errors.Wrapf(err, "failed to open eventfd(%s)", name)
+	}
+	return fd, nil
+}
+
+func releaseImage(img *Image) error {
+	if img == nil {
+		return nil
+	}
+	if img.efdr > 0 {
+		if err := unix.Close(img.efdr); err != nil {
+			return errors.Wrapf(err, "failed to close efdr(%d)", img.efdr)
 		}
 		img.efdr = 0
 	}
-
-	if img.efdp != 0 {
-		if eClose := unix.Close(img.efdp); eClose != nil {
-			return errors.Wrapf(eClose, "CloseEventfd2")
+	if img.efdp > 0 {
+		if err := unix.Close(img.efdp); err != nil {
+			return errors.Wrapf(err, "failed to close efdp(%d)", img.efdp)
 		}
 		img.efdp = 0
 	}
-
-	return nil
-}
-
-func (img *Image) destroyShm() error {
-	img.shmMutex.Lock()
-	defer img.shmMutex.Unlock()
-
-	if img.shmData == nil {
-		return nil
+	if img.shmAttached {
+		if err := unix.SysvShmDetach(img.shmData); err != nil {
+			return errors.Wrapf(err, "failed to attach shm(%d)", img.shmId)
+		}
+		img.shmData = nil
+		img.shmAttached = false
 	}
-
-	ed := unix.SysvShmDetach(img.shmData)
-	if ed != nil {
-		return ed
+	if img.shmId > 0 {
+		if _, err := unix.SysvShmCtl(img.shmId, unix.IPC_RMID, nil); err != nil {
+			return errors.Wrapf(err, "failed to remove shm(%d)", img.shmId)
+		}
+		img.shmId = 0
 	}
-
-	_, err := unix.SysvShmCtl(img.shmId, unix.IPC_RMID, nil)
-	if err != nil {
-		return errors.Wrapf(err, "SysvShmCtl[IPC_RMID]")
-	}
-
-	img.shmId = 0
-	img.shmData = nil
 	return nil
 }

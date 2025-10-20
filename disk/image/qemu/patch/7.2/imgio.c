@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -90,12 +91,14 @@ static int g_file_fd = -1;             // 文件描述符
 static int g_event_fd_request = -1;    // 请求事件描述符（Go写入，C读取）
 static int g_event_fd_response = -1;   // 响应事件描述符（C写入，Go读取）
 static int g_shm_id = -1;              // 共享内存ID
+static bool g_enable_debug = false;    // 调试标志
 static void *g_shm_addr = NULL;        // 共享内存地址
 static char *g_request_area = NULL;    // 请求区域
 static char *g_response_area = NULL;   // 响应区域
 static bool g_running = true;          // 运行标志
 
 // 函数声明
+static void debugf(const char *fmt, ...);
 static void cleanup(void);
 static int init_shared_memory(void);
 static int handle_read_request(ReadRequest *req);
@@ -103,6 +106,18 @@ static int handle_write_request(WriteRequest *req);
 static int handle_flush_request(FlushRequest *req);
 static int handle_close_request(CloseRequest *req);
 static void process_requests(void);
+
+void debugf(const char *fmt, ...)
+{
+    if (!g_enable_debug) {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    va_end(args);
+    fflush(stdout);
+}
 
 // 清理资源
 static void cleanup(void) {
@@ -135,7 +150,6 @@ static void cleanup(void) {
 // 初始化共享内存
 static int init_shared_memory(void) {
     printf("[C] Initializing shared memory with ID: %d\n", g_shm_id);
-    fflush(stdout);
 
     // 映射共享内存
     g_shm_addr = shmat(g_shm_id, NULL, 0);
@@ -148,14 +162,12 @@ static int init_shared_memory(void) {
     }
 
     printf("[C] Shared memory attached at address: %p\n", g_shm_addr);
-    fflush(stdout);
 
     // 设置请求和响应区域指针
     g_request_area = (char *)g_shm_addr + REQUEST_OFFSET;
     g_response_area = (char *)g_shm_addr + RESPONSE_OFFSET;
 
     printf("[C] Request area: %p, Response area: %p\n", g_request_area, g_response_area);
-    fflush(stdout);
 
     return 0;
 }
@@ -166,7 +178,7 @@ static int handle_read_request(ReadRequest *req) {
     char *data = (char *)(resp + 1);  // 数据紧跟在响应结构体后面
     ssize_t bytes_read;
 
-    printf("[C] handle_read_request: offset=%ld, length=%d\n", req->offset, req->length);
+    debugf("[C] handle_read_request: offset=%ld, length=%d\n", req->offset, req->length);
 
     // 初始化响应
     resp->base.type = req->base.type;
@@ -177,14 +189,14 @@ static int handle_read_request(ReadRequest *req) {
     // 检查请求长度是否合法
     if (req->length <= 0 || req->length > RW_MAX_LEN) {
         resp->base.errorCode = -EINVAL;
-        printf("[C] Invalid length: %d\n", req->length);
+        debugf("[C] Invalid length: %d\n", req->length);
         return -1;
     }
 
     // 定位文件偏移
     if (lseek(g_file_fd, req->offset, SEEK_SET) == -1) {
         resp->base.errorCode = -errno;
-        printf("[C] lseek failed: %s\n", strerror(errno));
+        debugf("[C] lseek failed: %s\n", strerror(errno));
         return -1;
     }
 
@@ -192,12 +204,12 @@ static int handle_read_request(ReadRequest *req) {
     bytes_read = read(g_file_fd, data, req->length);
     if (bytes_read == -1) {
         resp->base.errorCode = -errno;
-        printf("[C] read failed: %s\n", strerror(errno));
+        debugf("[C] read failed: %s\n", strerror(errno));
         return -1;
     }
 
     resp->length = bytes_read;
-    printf("[C] Read success: bytes_read=%ld, resp->base.type=%u, resp->base.sequence=%lu, resp->base.errorCode=%d, resp->length=%d\n",
+    debugf("[C] Read success: bytes_read=%ld, resp->base.type=%u, resp->base.sequence=%lu, resp->base.errorCode=%d, resp->length=%d\n",
            bytes_read, resp->base.type, resp->base.sequence, resp->base.errorCode, resp->length);
     return 0;
 }
@@ -281,8 +293,7 @@ static void process_requests(void) {
     while (g_running) {
         // 等待事件通知（从 request eventfd 读取）
         // Go 端使用 EFD_SEMAPHORE 标志，每次 read() 返回 1
-        printf("[C] Blocking on read(event_fd_request=%d)...\n", g_event_fd_request);
-        fflush(stdout);
+        debugf("[C] Blocking on read(event_fd_request=%d)...\n", g_event_fd_request);
         
         if (read(g_event_fd_request, &value, sizeof(value)) != sizeof(value)) {
             if (errno == EINTR) {
@@ -295,20 +306,17 @@ static void process_requests(void) {
         // 使用 EFD_SEMAPHORE 时，每次读取返回 1
         // 如果读取到的值不是 1，说明有问题
         if (value != 1) {
-            printf("[C] Warning: eventfd returned unexpected value: %lu\n", value);
-            fflush(stdout);
+            debugf("[C] Warning: eventfd returned unexpected value: %lu\n", value);
         }
 
-        printf("[C] Received request: type=%u, sequence=%lu\n", base_req->type, base_req->sequence);
-        fflush(stdout);
+        debugf("[C] Received request: type=%u, sequence=%lu\n", base_req->type, base_req->sequence);
         
         // 调试：打印共享内存的原始字节
-        printf("[C] Raw bytes from shared memory (first 24 bytes):\n    ");
+        debugf("[C] Raw bytes from shared memory (first 24 bytes):\n    ");
         for (int i = 0; i < 24; i++) {
-            printf("%02x ", (unsigned char)g_request_area[i]);
+            debugf("%02x ", (unsigned char)g_request_area[i]);
         }
-        printf("\n");
-        fflush(stdout);
+        debugf("\n");
 
         // 根据请求类型处理
         switch (base_req->type) {
@@ -344,7 +352,7 @@ static void process_requests(void) {
             break;
         }
 
-        printf("[C] Response sent\n");
+        debugf("[C] Response sent\n");
 
         // 处理关闭请求后，直接退出
         if (base_req->type==REQUEST_CLOSE) {
@@ -361,6 +369,7 @@ static void show_usage(const char *prog_name) {
     fprintf(stderr, "  -r, --request-efd  Request event file descriptor (Go->C)\n");
     fprintf(stderr, "  -p, --response-efd Response event file descriptor (C->Go)\n");
     fprintf(stderr, "  -s, --shmid        Shared memory ID\n");
+    fprintf(stderr, "  -d, --debug        Enable debug output\n");
     fprintf(stderr, "  -h, --help         Show this help message\n");
 }
 
@@ -372,19 +381,19 @@ int main(int argc, char *argv[]) {
     int shmid_value = -1;
 
     printf("++++++++++ imgio ++++++++++\n");
-    fflush(stdout);  // 立即刷新输出
 
     struct option long_options[] = {
         {"file",         required_argument, 0, 'f'},
         {"request-efd",  required_argument, 0, 'r'},
         {"response-efd", required_argument, 0, 'p'},
         {"shmid",        required_argument, 0, 's'},
+        {"debug",        no_argument,       0, 'd'},
         {"help",         no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
 
     // 解析命令行参数
-    while ((opt = getopt_long(argc, argv, "f:r:p:s:h", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "f:r:p:s:dh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'f':
                 file_path = optarg;
@@ -400,6 +409,10 @@ int main(int argc, char *argv[]) {
 
             case 's':
                 shmid_value = atoi(optarg);
+                break;
+
+            case 'd':
+                g_enable_debug = true;
                 break;
 
             case 'h':
@@ -441,9 +454,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    printf("File: %s, RequestEFD: %d, ResponseEFD: %d, ShmID: %d, PID: %d\n",
+    printf("[C] File: %s, RequestEFD: %d, ResponseEFD: %d, ShmID: %d, PID: %d\n",
            file_path, g_event_fd_request, g_event_fd_response, g_shm_id, getpid());
-    fflush(stdout);  // 立即刷新输出
 
     // 发送就绪信号给 Go 端
     uint64_t ready_signal = 1;
