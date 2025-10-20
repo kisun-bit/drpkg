@@ -3,6 +3,8 @@ package extend
 import (
 	"os/exec"
 	"runtime"
+
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 // ########################################## Windows平台相关 ##########################################
@@ -108,5 +110,9 @@ func IsWindowsPlatform() bool {
 }
 
 func IsProcessRunning(c *exec.Cmd) bool {
-	return c != nil && c.Process != nil && c.ProcessState != nil && !c.ProcessState.Exited()
+	if c == nil || c.Process == nil {
+		return true
+	}
+	existed, _ := process.PidExists(int32(c.Process.Pid))
+	return existed
 }

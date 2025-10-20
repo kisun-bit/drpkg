@@ -30,6 +30,14 @@ func NewLogger(name string, level zapcore.Level, writers ...io.Writer) *zap.Suga
 		writers = append(writers, os.Stdout)
 	}
 	cfg := zapcore.EncoderConfig{
+		TimeKey:       "ts",
+		LevelKey:      "level",
+		NameKey:       "logger",
+		CallerKey:     "caller",
+		FunctionKey:   zapcore.OmitKey,
+		MessageKey:    "msg",
+		StacktraceKey: "stacktrace",
+
 		LineEnding: zapcore.DefaultLineEnding,
 		EncodeLevel: func(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
 			enc.AppendString(fmt.Sprintf("%-7s", "["+level.CapitalString()+"]"))

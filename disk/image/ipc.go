@@ -1,3 +1,5 @@
+//go:build linux
+
 package image
 
 import (
@@ -119,7 +121,7 @@ func loadFlushResponse(data []byte) (r flushResponse, err error) {
 //
 
 type closeRequest struct {
-	shmBaseResponse
+	shmBaseRequest
 }
 
 func (req *closeRequest) Bytes() []byte {

@@ -608,3 +608,30 @@ func DiskAlignmentStorage(hardDiskPath string) (sad STORAGE_ACCESS_ALIGNMENT_DES
 
 	return sad, nil
 }
+
+// TryToGrantSeSystemEnvironmentPrivilege 尝试获取 SeSystemEnvironmentPrivilege 的权限
+// 参考：https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4672
+func TryToGrantSeSystemEnvironmentPrivilege() error {
+	p := windows.CurrentProcess()
+	var token windows.Token
+	err := windows.OpenProcessToken(p, windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &token)
+	if err != nil {
+		return err
+	}
+
+	defer token.Close()
+
+	var luid windows.LUID
+	err = windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr("SeSystemEnvironmentPrivilege"), &luid)
+	if err != nil {
+		return err
+	}
+
+	ap := windows.Tokenprivileges{
+		PrivilegeCount: 1,
+	}
+	ap.Privileges[0].Luid = luid
+	ap.Privileges[0].Attributes = windows.SE_PRIVILEGE_ENABLED
+
+	return windows.AdjustTokenPrivileges(token, false, &ap, 0, nil, nil)
+}
