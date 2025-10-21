@@ -2,6 +2,7 @@ package info
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/kisun-bit/drpkg/ps/lvm/lvm2cmd"
 )
@@ -30,10 +31,12 @@ func QueryLVMInfo() (li LVM, err error) {
 		}
 		for _, lv := range vg.Lvs {
 			lvi := LV{
-				Name:   lv.Name,
-				Device: fmt.Sprintf("/dev/mapper/%s-%s", lv.VgName, lv.Name),
-				Attr:   lv.AttrStr,
-				Size:   lv.Size,
+				Name: lv.Name,
+				Device: fmt.Sprintf("/dev/mapper/%s-%s",
+					strings.ReplaceAll(lv.VgName, "-", "--"),
+					strings.ReplaceAll(lv.Name, "-", "--")),
+				Attr: lv.AttrStr,
+				Size: lv.Size,
 			}
 			segs, err := LVSegments(lvi.Device)
 			if err != nil {
