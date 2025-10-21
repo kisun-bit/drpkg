@@ -425,7 +425,7 @@ func (img *Image) waitQemu(eventfd int) error {
 	}
 
 	if exited, _ := img.getQemuExitStat(); exited {
-		return errors.New("waitQemu: qemu process already exited")
+		return errors.New("waitQemu: qemu process exited unexpectedly")
 	}
 	return nil
 }
@@ -449,7 +449,7 @@ func (img *Image) onQemuExit() {
 
 func (img *Image) checkQemuAlive() error {
 	if exited, _ := img.getQemuExitStat(); exited {
-		return errors.New("checkQemuAlive: qemu process already exited")
+		return errors.New("checkQemuAlive: qemu process exited unexpectedly")
 	}
 	return nil
 }
