@@ -78,7 +78,7 @@ func DemoRead() {
 	}
 	defer img.Close()
 
-	bufLen := 4 << 10
+	bufLen := 4 << 20
 	buf := make([]byte, bufLen)
 	off := int64(0)
 	go func() {
@@ -124,7 +124,7 @@ func main() {
 	if err := image.QemuToolDirSetup(os.Args[1]); err != nil {
 		logger.Fatal("QemuToolDirSetup: ", err)
 	}
-	//DemoRead()
+	DemoRead()
 	//DemoWrite()
-	DemoImageMap()
+	//DemoImageMap()
 }

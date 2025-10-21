@@ -1,3 +1,4 @@
+#include <signal.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -11,6 +12,7 @@
 #include <sys/eventfd.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/prctl.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <getopt.h>
@@ -98,6 +100,7 @@ static char *g_response_area = NULL;   // 响应区域
 static bool g_running = true;          // 运行标志
 
 // 函数声明
+void on_parent_exit(int sig);
 static void debugf(const char *fmt, ...);
 static void cleanup(void);
 static int init_shared_memory(void);
@@ -106,6 +109,11 @@ static int handle_write_request(WriteRequest *req);
 static int handle_flush_request(FlushRequest *req);
 static int handle_close_request(CloseRequest *req);
 static void process_requests(void);
+
+void on_parent_exit(int sig) {
+    printf("Received SIGTERM (parent exited), exiting child.\n");
+    exit(0);
+}
 
 void debugf(const char *fmt, ...)
 {
@@ -381,6 +389,9 @@ int main(int argc, char *argv[]) {
     int shmid_value = -1;
 
     printf("++++++++++ imgio ++++++++++\n");
+
+    signal(SIGTERM, on_parent_exit);
+    prctl(PR_SET_PDEATHSIG, SIGTERM);
 
     struct option long_options[] = {
         {"file",         required_argument, 0, 'f'},
