@@ -172,19 +172,19 @@ func Map(ctx context.Context, image string) (imi MapInfo, err error) {
 				return
 			}
 			_filepath := strings.TrimSpace(_fields[3])
-			_diskOff, _e := addrStrToInt64(_fields[0])
+			_diskOff, _e := qemuAddrStrToInt64(_fields[0])
 			if _e != nil {
 				*_errMsg = fmt.Sprintf("parse disk offset: %v", _line)
 				cancel()
 				return
 			}
-			_length, _e := addrStrToInt64(_fields[1])
+			_length, _e := qemuAddrStrToInt64(_fields[1])
 			if _e != nil {
 				*_errMsg = fmt.Sprintf("parse length: %v", _line)
 				cancel()
 				return
 			}
-			_fileOff, _e := addrStrToInt64(_fields[2])
+			_fileOff, _e := qemuAddrStrToInt64(_fields[2])
 			if _e != nil {
 				*_errMsg = fmt.Sprintf("parse file offset: %v", _line)
 				cancel()
@@ -206,7 +206,7 @@ func Map(ctx context.Context, image string) (imi MapInfo, err error) {
 	return imi, nil
 }
 
-func addrStrToInt64(number string) (int64, error) {
+func qemuAddrStrToInt64(number string) (int64, error) {
 	number = strings.TrimPrefix(number, "0x")
 	return strconv.ParseInt(number, 16, 64)
 }
