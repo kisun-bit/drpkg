@@ -31,6 +31,10 @@ const (
 	_Close
 )
 
+type shmRequest interface {
+	buildRequest(shmData []byte) error
+}
+
 type shmBaseRequest struct {
 	Type     requestType
 	Sequence uint64

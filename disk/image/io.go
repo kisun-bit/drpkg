@@ -219,11 +219,7 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 			Offset: off + int64(totalRead),
 			Length: int32(chunkSize),
 		}
-		if err = req.buildRequest(img.shmData); err != nil {
-			img.shmMutex.Unlock()
-			return 0, errors.Wrapf(err, "%v", img.checkQemuAlive())
-		}
-		if err = img.waitRequestComplete(); err != nil {
+		if err = img.sendRequest(&req); err != nil {
 			img.shmMutex.Unlock()
 			return 0, err
 		}
@@ -278,11 +274,7 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 			Length: int32(chunkSize),
 			Data:   b[totalWritten : totalWritten+chunkSize],
 		}
-		if err = req.buildRequest(img.shmData); err != nil {
-			img.shmMutex.Unlock()
-			return 0, errors.Wrapf(err, "%v", img.checkQemuAlive())
-		}
-		if err = img.waitRequestComplete(); err != nil {
+		if err = img.sendRequest(&req); err != nil {
 			img.shmMutex.Unlock()
 			return 0, err
 		}
@@ -322,6 +314,7 @@ func (img *Image) Sync() (err error) {
 func (img *Image) Close() (err error) {
 	img.debugf("%s.Close() ++", img.String())
 	defer img.debugf("%s.Close() --", img.String())
+	defer logger.Debugf("%s is closed", img.String())
 
 	img.rwLock.Lock()
 	defer img.rwLock.Unlock()
@@ -347,6 +340,7 @@ func (img *Image) Close() (err error) {
 			img.shmMutex.Unlock()
 			return errors.Wrapf(err, "%v", img.checkQemuAlive())
 		}
+		// 只用通知事件，不用等待事件
 		if err = img.notifyQemu(img.efdr); err != nil {
 			img.shmMutex.Unlock()
 			return err
@@ -386,10 +380,7 @@ func (img *Image) flush() (err error) {
 			Sequence: uint64(time.Now().UnixNano()),
 		},
 	}
-	if err = req.buildRequest(img.shmData); err != nil {
-		return errors.Wrapf(err, "%v", img.checkQemuAlive())
-	}
-	if err = img.waitRequestComplete(); err != nil {
+	if err = img.sendRequest(&req); err != nil {
 		return err
 	}
 	if _, err = loadFlushResponse(img.shmData); err != nil {
@@ -398,7 +389,10 @@ func (img *Image) flush() (err error) {
 	return nil
 }
 
-func (img *Image) waitRequestComplete() (err error) {
+func (img *Image) sendRequest(req shmRequest) (err error) {
+	if err = req.buildRequest(img.shmData); err != nil {
+		return errors.Wrapf(err, "%v", img.checkQemuAlive())
+	}
 	if err = img.notifyQemu(img.efdr); err != nil {
 		return err
 	}
