@@ -102,10 +102,10 @@ func DemoRead() {
 			return
 		}
 		if nr > 0 {
-			_, _ = hash.Write(buf[:nr])
+			//_, _ = hash.Write(buf[:nr])
 			off += int64(nr)
 		}
-		if er == io.EOF {
+		if er == io.EOF || nr == 0 {
 			break
 		}
 	}
