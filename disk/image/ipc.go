@@ -51,12 +51,16 @@ type readRequest struct {
 	Length int32
 }
 
-func (req *readRequest) buildRequest(shmData []byte) {
+func (req *readRequest) buildRequest(shmData []byte) error {
+	if err := checkShm(shmData); err != nil {
+		return err
+	}
 	// 结构：type(4) + sequence(8) + offset(8) + length(4) = 24字节
 	binary.LittleEndian.PutUint32(shmData[requestOffset+0:], uint32(req.Type))
 	binary.LittleEndian.PutUint64(shmData[requestOffset+4:], req.Sequence)
 	binary.LittleEndian.PutUint64(shmData[requestOffset+12:], uint64(req.Offset))
 	binary.LittleEndian.PutUint32(shmData[requestOffset+20:], uint32(req.Length))
+	return nil
 }
 
 type readResponse struct {
@@ -69,6 +73,9 @@ type readResponse struct {
 }
 
 func loadReadResponse(shmData []byte) (r readResponse, err error) {
+	if err = checkShm(shmData); err != nil {
+		return r, err
+	}
 	respData := shmData[responseOffset:]
 	// C端结构： type(4) + sequence(8) + errorCode(4) + length(4)
 	r.Type = requestType(binary.LittleEndian.Uint32(respData[0:4]))
@@ -95,13 +102,17 @@ type writeRequest struct {
 	Data   []byte
 }
 
-func (req *writeRequest) buildRequest(shmData []byte) {
+func (req *writeRequest) buildRequest(shmData []byte) error {
+	if err := checkShm(shmData); err != nil {
+		return err
+	}
 	// 结构：type(4) + sequence(8) + offset(8) + length(4) + data
 	binary.LittleEndian.PutUint32(shmData[requestOffset+0:], uint32(req.Type))
 	binary.LittleEndian.PutUint64(shmData[requestOffset+4:], req.Sequence)
 	binary.LittleEndian.PutUint64(shmData[requestOffset+12:], uint64(req.Offset))
 	binary.LittleEndian.PutUint32(shmData[requestOffset+20:], uint32(req.Length))
 	copy(shmData[requestOffset+24:], req.Data)
+	return nil
 }
 
 type writeResponse struct {
@@ -110,6 +121,9 @@ type writeResponse struct {
 }
 
 func loadWriteResponse(shmData []byte) (r writeResponse, err error) {
+	if err = checkShm(shmData); err != nil {
+		return r, err
+	}
 	respData := shmData[responseOffset:]
 	// C端结构： type(4) + sequence(8) + errorCode(4) + length(4)
 	r.Type = requestType(binary.LittleEndian.Uint32(respData[0:4]))
@@ -131,10 +145,14 @@ type flushRequest struct {
 	shmBaseRequest
 }
 
-func (req *flushRequest) buildRequest(shmData []byte) {
+func (req *flushRequest) buildRequest(shmData []byte) error {
+	if err := checkShm(shmData); err != nil {
+		return err
+	}
 	// 结构：type(4) + sequence(8) = 12字节
 	binary.LittleEndian.PutUint32(shmData[requestOffset+0:], uint32(req.Type))
 	binary.LittleEndian.PutUint64(shmData[requestOffset+4:], req.Sequence)
+	return nil
 }
 
 type flushResponse struct {
@@ -142,6 +160,9 @@ type flushResponse struct {
 }
 
 func loadFlushResponse(shmData []byte) (r flushResponse, err error) {
+	if err = checkShm(shmData); err != nil {
+		return r, err
+	}
 	respData := shmData[responseOffset:]
 	// C端结构： type(4) + sequence(8) + errorCode(4)
 	respErrorCode := int32(binary.LittleEndian.Uint32(respData[12:16]))
@@ -160,8 +181,19 @@ type closeRequest struct {
 	shmBaseRequest
 }
 
-func (req *closeRequest) buildRequest(shmData []byte) {
+func (req *closeRequest) buildRequest(shmData []byte) error {
+	if err := checkShm(shmData); err != nil {
+		return err
+	}
 	// 结构：type(4) + sequence(8) = 12字节
 	binary.LittleEndian.PutUint32(shmData[requestOffset+0:], uint32(req.Type))
 	binary.LittleEndian.PutUint64(shmData[requestOffset+4:], req.Sequence)
+	return nil
+}
+
+func checkShm(shmData []byte) error {
+	if len(shmData) == 0 {
+		return errors.New("shm has already been destroyed")
+	}
+	return nil
 }

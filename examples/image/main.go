@@ -98,7 +98,8 @@ func DemoRead() {
 	for {
 		nr, er := img.ReadAt(buf, off)
 		if er != nil && er != io.EOF {
-			logger.Fatal("ReadAt: ", er)
+			logger.Error("ReadAt: ", er)
+			return
 		}
 		if nr > 0 {
 			_, _ = hash.Write(buf[:nr])
@@ -121,8 +122,9 @@ func DemoImageMap() {
 }
 
 func main() {
+	//defer time.Sleep(time.Hour)
 	if err := image.QemuToolDirSetup(os.Args[1]); err != nil {
-		logger.Fatal("QemuToolDirSetup: ", err)
+		logger.Error("QemuToolDirSetup: ", err)
 	}
 	DemoRead()
 	//DemoWrite()

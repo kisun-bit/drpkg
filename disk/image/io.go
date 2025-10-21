@@ -55,8 +55,7 @@ type Image struct {
 }
 
 type openopt struct {
-	debug      bool
-	checkAlive bool
+	debug bool
 }
 
 type OpenOption func(*openopt)
@@ -65,13 +64,6 @@ type OpenOption func(*openopt)
 func EnableDebug() OpenOption {
 	return func(i *openopt) {
 		i.debug = true
-	}
-}
-
-// EnablePreCheckAlive 启用QEMU进程探活检测（每次请求调用前）
-func EnablePreCheckAlive() OpenOption {
-	return func(i *openopt) {
-		i.checkAlive = true
 	}
 }
 
@@ -152,12 +144,15 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 	}
 	logger.Debugf("Pid of %s: %d", ioToolPath, img.proc.Process.Pid)
 
+	go img.onQemuProcessExit()
+
 	logPipe := func(tag string, rc io.ReadCloser) {
 		scanner := bufio.NewScanner(rc)
 		for scanner.Scan() {
 			line := scanner.Text()
 			logger.Debugf("<PROCESS(%d)>(%s): %s", img.proc.Process.Pid, tag, line)
 		}
+		_ = rc.Close()
 	}
 	go logPipe("stdout", procStdout)
 	go logPipe("stderr", procStderr)
@@ -194,12 +189,7 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 		err = errors.Wrapf(err, "ReadAt")
 	}()
 
-	if err = img.checkQemuProcessAlive(); err != nil {
-		return 0, err
-	}
-
 	remain := img.virtualSize - off
-	img.debugf("%s.ReadAt() virtualSize=%d, off=%d, remain=%d", img.String(), img.virtualSize, off, remain)
 	if remain <= 0 {
 		return 0, io.EOF
 	}
@@ -208,7 +198,6 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 	if remain < readLen {
 		readLen = remain
 	}
-	img.debugf("%s.ReadAt() len(b)=%d, remain=%d, readLen=%d", img.String(), len(b), remain, readLen)
 
 	//
 	// 发送读指令，每次最多读1MiB，若readLen的长度超过1MiB，则分多次读
@@ -231,8 +220,9 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 			Offset: off + int64(totalRead),
 			Length: int32(chunkSize),
 		}
-		req.buildRequest(img.shmData)
-		img.debugf("%s.ReadAt() sending request: offset=%d, length=%d", img.String(), req.Offset, req.Length)
+		if err = req.buildRequest(img.shmData); err != nil {
+			return 0, errors.Wrapf(err, "%v", img.checkQemuProcessAlive())
+		}
 
 		if err = img.notifyEx(img.efdr); err != nil {
 			return 0, err
@@ -270,10 +260,6 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 		err = errors.Wrapf(err, "WriteAt")
 	}()
 
-	if err = img.checkQemuProcessAlive(); err != nil {
-		return 0, err
-	}
-
 	//
 	// 发送写指令，每次最多写1MiB，若b的长度超过1MiB，则分多次写
 	//
@@ -296,7 +282,9 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 			Length: int32(chunkSize),
 			Data:   b[totalWritten : totalWritten+chunkSize],
 		}
-		req.buildRequest(img.shmData)
+		if err = req.buildRequest(img.shmData); err != nil {
+			return 0, errors.Wrapf(err, "%v", img.checkQemuProcessAlive())
+		}
 
 		if err = img.notifyEx(img.efdr); err != nil {
 			return 0, err
@@ -362,11 +350,14 @@ func (img *Image) Close() (err error) {
 				Sequence: uint64(time.Now().UnixNano()),
 			},
 		}
-		req.buildRequest(img.shmData)
+		if err = req.buildRequest(img.shmData); err != nil {
+			return errors.Wrapf(err, "%v", img.checkQemuProcessAlive())
+		}
 
-		if err := img.notifyEx(img.efdr); err != nil {
+		if err = img.notifyEx(img.efdr); err != nil {
 			return err
 		}
+
 		// FIXME: 后续请基于事件等待，去确认QEME进程已经获取请求并已处理
 		//if err := img.waitEx(img.efdp); err != nil {
 		//	return err
@@ -401,10 +392,6 @@ func (img *Image) debugf(format string, args ...interface{}) {
 }
 
 func (img *Image) sync() (err error) {
-	if err = img.checkQemuProcessAlive(); err != nil {
-		return err
-	}
-
 	img.shmMutex.Lock()
 
 	req := flushRequest{
@@ -413,7 +400,9 @@ func (img *Image) sync() (err error) {
 			Sequence: uint64(time.Now().UnixNano()),
 		},
 	}
-	req.buildRequest(img.shmData)
+	if err = req.buildRequest(img.shmData); err != nil {
+		return errors.Wrapf(err, "%v", img.checkQemuProcessAlive())
+	}
 
 	if err = img.notifyEx(img.efdr); err != nil {
 		return err
@@ -455,18 +444,36 @@ func (img *Image) waitEx(eventfd int) error {
 	var buf [8]byte
 	if _, err := unix.Read(eventfd, buf[:]); err != nil {
 		img.shmMutex.Unlock()
-		return errors.Wrapf(err, "failed to wait for qemu process")
+		return errors.Wrapf(err, "waitEx")
 	}
 
+	if exited, _ := img.qemuProcessExited(); exited {
+		return errors.New("waitEx: qemu process already exited")
+	}
 	return nil
 }
 
-func (img *Image) checkQemuProcessAlive() error {
-	if !img.opt.checkAlive {
-		return nil
+func (img *Image) qemuProcessExited() (exited bool, code int) {
+	if img.proc.ProcessState != nil {
+		return true, img.proc.ProcessState.ExitCode()
 	}
-	if !extend.IsProcessRunning(img.proc) {
-		return errors.New("qemu process is not running")
+	return false, -1
+}
+
+func (img *Image) onQemuProcessExit() {
+	_ = img.proc.Wait()
+
+	if _, code := img.qemuProcessExited(); code != 0 {
+		// 预写一个，避免 waitEx 因时序性调用问题发生阻塞
+		_ = img.notifyEx(img.efdp)
+		//_ = img.notifyEx(img.efdr)
+		_ = releaseImage(img)
+	}
+}
+
+func (img *Image) checkQemuProcessAlive() error {
+	if exited, _ := img.qemuProcessExited(); exited {
+		return errors.New("checkQemuProcessAlive: qemu process already exited")
 	}
 	return nil
 }
@@ -519,8 +526,11 @@ func releaseImage(img *Image) error {
 		}
 		img.efdp = 0
 	}
+
+	img.shmMutex.Lock()
 	if img.shmAttached {
 		if err := unix.SysvShmDetach(img.shmData); err != nil {
+			img.shmMutex.Unlock()
 			return errors.Wrapf(err, "failed to attach shm(%d)", img.shmId)
 		}
 		img.shmData = nil
@@ -528,9 +538,12 @@ func releaseImage(img *Image) error {
 	}
 	if img.shmId > 0 {
 		if _, err := unix.SysvShmCtl(img.shmId, unix.IPC_RMID, nil); err != nil {
+			img.shmMutex.Unlock()
 			return errors.Wrapf(err, "failed to remove shm(%d)", img.shmId)
 		}
 		img.shmId = 0
 	}
+	img.shmMutex.Unlock()
+
 	return nil
 }
