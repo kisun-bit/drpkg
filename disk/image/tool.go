@@ -36,7 +36,7 @@ func GetSizeAndFormat(path string) (size int64, format string, err error) {
 		return 0, "", err
 	}
 
-	format = gjson.Get(imgInfo, "Format").String()
+	format = gjson.Get(imgInfo, "format").String()
 	size = gjson.Get(imgInfo, "virtual-size").Int()
 	return
 }
