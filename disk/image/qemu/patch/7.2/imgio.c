@@ -157,25 +157,25 @@ static void cleanup(void) {
 
 // 初始化共享内存
 static int init_shared_memory(void) {
-    printf("[C] Initializing shared memory with ID: %d\n", g_shm_id);
+    printf("Initializing shared memory with ID: %d\n", g_shm_id);
 
     // 映射共享内存
     g_shm_addr = shmat(g_shm_id, NULL, 0);
     if (g_shm_addr == (void *)-1) {
         perror("Failed to attach shared memory");
-        printf("[C] shmat failed for shm_id=%d: %s\n", g_shm_id, strerror(errno));
+        printf("shmat failed for shm_id=%d: %s\n", g_shm_id, strerror(errno));
         fflush(stdout);
         g_shm_addr = NULL;
         return -1;
     }
 
-    printf("[C] Shared memory attached at address: %p\n", g_shm_addr);
+    printf("Shared memory attached at address: %p\n", g_shm_addr);
 
     // 设置请求和响应区域指针
     g_request_area = (char *)g_shm_addr + REQUEST_OFFSET;
     g_response_area = (char *)g_shm_addr + RESPONSE_OFFSET;
 
-    printf("[C] Request area: %p, Response area: %p\n", g_request_area, g_response_area);
+    printf("Request area: %p, Response area: %p\n", g_request_area, g_response_area);
 
     return 0;
 }
@@ -186,7 +186,7 @@ static int handle_read_request(ReadRequest *req) {
     char *data = (char *)(resp + 1);  // 数据紧跟在响应结构体后面
     ssize_t bytes_read;
 
-    debugf("[C] handle_read_request: offset=%ld, length=%d\n", req->offset, req->length);
+    debugf("handle_read_request: offset=%ld, length=%d\n", req->offset, req->length);
 
     // 初始化响应
     resp->base.type = req->base.type;
@@ -197,14 +197,14 @@ static int handle_read_request(ReadRequest *req) {
     // 检查请求长度是否合法
     if (req->length <= 0 || req->length > RW_MAX_LEN) {
         resp->base.errorCode = -EINVAL;
-        debugf("[C] Invalid length: %d\n", req->length);
+        debugf("Invalid length: %d\n", req->length);
         return -1;
     }
 
     // 定位文件偏移
     if (lseek(g_file_fd, req->offset, SEEK_SET) == -1) {
         resp->base.errorCode = -errno;
-        debugf("[C] lseek failed: %s\n", strerror(errno));
+        debugf("lseek failed: %s\n", strerror(errno));
         return -1;
     }
 
@@ -212,12 +212,12 @@ static int handle_read_request(ReadRequest *req) {
     bytes_read = read(g_file_fd, data, req->length);
     if (bytes_read == -1) {
         resp->base.errorCode = -errno;
-        debugf("[C] read failed: %s\n", strerror(errno));
+        debugf("read failed: %s\n", strerror(errno));
         return -1;
     }
 
     resp->length = bytes_read;
-    debugf("[C] Read success: bytes_read=%ld, resp->base.type=%u, resp->base.sequence=%lu, resp->base.errorCode=%d, resp->length=%d\n",
+    debugf("Read success: bytes_read=%ld, resp->base.type=%u, resp->base.sequence=%lu, resp->base.errorCode=%d, resp->length=%d\n",
            bytes_read, resp->base.type, resp->base.sequence, resp->base.errorCode, resp->length);
     return 0;
 }
@@ -295,13 +295,13 @@ static void process_requests(void) {
     ShmBaseRequest *base_req = (ShmBaseRequest *)g_request_area;
     uint64_t value;
 
-    printf("[C] Entering request processing loop, waiting on fd=%d\n", g_event_fd_request);
+    printf("Entering request processing loop, waiting on fd=%d\n", g_event_fd_request);
     fflush(stdout);
 
     while (g_running) {
         // 等待事件通知（从 request eventfd 读取）
         // Go 端使用 EFD_SEMAPHORE 标志，每次 read() 返回 1
-        debugf("[C] Blocking on read(event_fd_request=%d)...\n", g_event_fd_request);
+        debugf("Blocking on read(event_fd_request=%d)...\n", g_event_fd_request);
         
         if (read(g_event_fd_request, &value, sizeof(value)) != sizeof(value)) {
             if (errno == EINTR) {
@@ -314,13 +314,13 @@ static void process_requests(void) {
         // 使用 EFD_SEMAPHORE 时，每次读取返回 1
         // 如果读取到的值不是 1，说明有问题
         if (value != 1) {
-            debugf("[C] Warning: eventfd returned unexpected value: %lu\n", value);
+            debugf("Warning: eventfd returned unexpected value: %lu\n", value);
         }
 
-        debugf("[C] Received request: type=%u, sequence=%lu\n", base_req->type, base_req->sequence);
+        debugf("Received request: type=%u, sequence=%lu\n", base_req->type, base_req->sequence);
         
         // 调试：打印共享内存的原始字节
-        debugf("[C] Raw bytes from shared memory (first 24 bytes):\n    ");
+        debugf("Raw bytes from shared memory (first 24 bytes):\n    ");
         for (int i = 0; i < 24; i++) {
             debugf("%02x ", (unsigned char)g_request_area[i]);
         }
@@ -346,7 +346,7 @@ static void process_requests(void) {
 
             default:
                 // 未知请求类型
-                printf("[C] Unknown request type: %u\n", base_req->type);
+                printf("Unknown request type: %u\n", base_req->type);
                 ((ShmBaseResponse *)g_response_area)->type = base_req->type;
                 ((ShmBaseResponse *)g_response_area)->sequence = base_req->sequence;
                 ((ShmBaseResponse *)g_response_area)->errorCode = -EINVAL;
@@ -360,7 +360,7 @@ static void process_requests(void) {
             break;
         }
 
-        debugf("[C] Response sent\n");
+        debugf("Response sent\n");
 
         // 处理关闭请求后，直接退出
         if (base_req->type==REQUEST_CLOSE) {
@@ -465,7 +465,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    printf("[C] File: %s, RequestEFD: %d, ResponseEFD: %d, ShmID: %d, PID: %d\n",
+    printf("File: %s, RequestEFD: %d, ResponseEFD: %d, ShmID: %d, PID: %d\n",
            file_path, g_event_fd_request, g_event_fd_response, g_shm_id, getpid());
 
     // 发送就绪信号给 Go 端
@@ -474,7 +474,7 @@ int main(int argc, char *argv[]) {
         perror("Failed to send ready signal");
         return 1;
     }
-    printf("[C] Ready signal sent to Go\n");
+    printf("Ready signal sent to parent process\n");
     fflush(stdout);
 
     // 处理请求

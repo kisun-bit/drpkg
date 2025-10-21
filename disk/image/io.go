@@ -135,7 +135,7 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 
 	img.proc = exec.Command(ioToolPath, procArgs...)
 	img.proc.ExtraFiles = []*os.File{efdrFile, efdpFile}
-	logger.Debugf("QEMU cmdline: `%s`", img.proc.String())
+	logger.Debugf("Qemu cmdline: `%s`", img.proc.String())
 
 	procStdout, _ := img.proc.StdoutPipe()
 	procStderr, _ := img.proc.StderrPipe()
@@ -150,7 +150,7 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 		scanner := bufio.NewScanner(rc)
 		for scanner.Scan() {
 			line := scanner.Text()
-			logger.Debugf("<PROCESS(%d)>(%s): %s", img.proc.Process.Pid, tag, line)
+			logger.Debugf("[QEMU] | %s: %s", tag, line)
 		}
 		_ = rc.Close()
 	}
@@ -158,14 +158,14 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 	go logPipe("stderr", procStderr)
 
 	// 等待 C 端初始化完成并发送就绪信号
-	logger.Debugf("Waiting for C process to be ready...")
+	logger.Debugf("Waiting for qemu process to be ready...")
 	var readyBuf [8]byte
 	n, err := unix.Read(img.efdp, readyBuf[:])
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to receive ready signal from C process")
 	}
 	readyValue := binary.LittleEndian.Uint64(readyBuf[:])
-	logger.Debugf("C process is ready (read %d bytes, value=%d)", n, readyValue)
+	logger.Debugf("Qemu process is ready (read %d bytes, value=%d)", n, readyValue)
 
 	logger.Debugf("%s is opened", img.String())
 	return img, nil
