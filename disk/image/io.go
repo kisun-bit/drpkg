@@ -99,7 +99,7 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 	if img.VirtualSize, img.Format, err = GetSizeAndFormat(img.Path); err != nil {
 		return nil, err
 	}
-	logger.Debugf("Virtual size is %d, Format is %s, pid is %d", img.VirtualSize, img.Format, os.Getpid())
+	logger.Debugf("Virtual size is %d, format is %s, pid is %d", img.VirtualSize, img.Format, os.Getpid())
 
 	img.efdr, img.efdp, err = createEventfdPair()
 	if err != nil {
@@ -127,7 +127,12 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 		return nil, errors.New("failed to create os.File for eventfd(resp)")
 	}
 
-	procArgs := []string{"-f", absPath, "-r", strconv.Itoa(3), "-p", strconv.Itoa(4), "-s", strconv.Itoa(img.shmId)}
+	procArgs := []string{
+		"-f", absPath,
+		"-r", strconv.Itoa(3),
+		"-p", strconv.Itoa(4),
+		"-s", strconv.Itoa(img.shmId),
+	}
 	if img.opt.debug {
 		procArgs = append(procArgs, "-d")
 	}
@@ -156,7 +161,7 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 	go logPipe("stdout", procStdout)
 	go logPipe("stderr", procStderr)
 
-	// 等待 C 端初始化完成并发送就绪信号
+	// 等待Qemu进程始化完成并发送就绪信号
 	logger.Debugf("Waiting for qemu process to be ready...")
 	var readyBuf [8]byte
 	n, err := unix.Read(img.efdp, readyBuf[:])
