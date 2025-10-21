@@ -343,7 +343,7 @@ func (img *Image) Close() (err error) {
 		}
 		if err = req.buildRequest(img.shmData); err != nil {
 			img.shmMutex.Unlock()
-			return errors.Wrapf(err, "%v", img.checkQemuAlive())
+			return err
 		}
 		// 只用通知事件，不用等待事件
 		if err = img.notifyQemu(img.efdr); err != nil {
@@ -396,7 +396,7 @@ func (img *Image) flush() (err error) {
 
 func (img *Image) sendRequest(req shmRequest) (err error) {
 	if err = req.buildRequest(img.shmData); err != nil {
-		return errors.Wrapf(err, "%v", img.checkQemuAlive())
+		return err
 	}
 	if err = img.notifyQemu(img.efdr); err != nil {
 		return err
