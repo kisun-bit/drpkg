@@ -4,7 +4,6 @@ package image
 
 import (
 	"bufio"
-	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -18,16 +17,16 @@ import (
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
-	"github.com/tidwall/gjson"
 	"golang.org/x/sys/unix"
 )
 
 type Image struct {
 	Path string
-	// virtualSize 虚拟磁盘大小
-	virtualSize int64
-	// format 虚拟磁盘格式
-	format string
+	// VirtualSize 虚拟磁盘大小
+	VirtualSize int64
+	// Format 虚拟磁盘格式
+	Format string
+
 	// proc 托管的Qemu进程
 	proc *exec.Cmd
 	// rwLock 读写锁
@@ -88,7 +87,7 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 		if err == nil {
 			return
 		}
-		if e := releaseImage(img); e != nil {
+		if e := releaseImageObject(img); e != nil {
 			logger.Warnf("failed to release image: %s", e)
 		}
 	}()
@@ -97,12 +96,12 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 		return nil, err
 	}
 
-	if img.virtualSize, img.format, err = getImageSizeAndFormat(img.Path); err != nil {
+	if img.VirtualSize, img.Format, err = GetSizeAndFormat(img.Path); err != nil {
 		return nil, err
 	}
-	logger.Debugf("Virtual size is %d, format is %s, pid is %d", img.virtualSize, img.format, os.Getpid())
+	logger.Debugf("Virtual size is %d, Format is %s, pid is %d", img.VirtualSize, img.Format, os.Getpid())
 
-	img.efdr, img.efdp, err = getRequestAndResponseEvent()
+	img.efdr, img.efdp, err = createEventfdPair()
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +143,7 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 	}
 	logger.Debugf("Pid of %s: %d", ioToolPath, img.proc.Process.Pid)
 
-	go img.onQemuProcessExit()
+	go img.onQemuExit()
 
 	logPipe := func(tag string, rc io.ReadCloser) {
 		scanner := bufio.NewScanner(rc)
@@ -172,7 +171,7 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 }
 
 func (img *Image) String() string {
-	return fmt.Sprintf("<IMAGE(name=%s,vsize=%v,fmt=%s)>", filepath.Base(img.Path), img.virtualSize, img.format)
+	return fmt.Sprintf("<IMAGE(name=%s,vsize=%v,fmt=%s)>", filepath.Base(img.Path), img.VirtualSize, img.Format)
 }
 
 func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
@@ -189,7 +188,7 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 		err = errors.Wrapf(err, "ReadAt")
 	}()
 
-	remain := img.virtualSize - off
+	remain := img.VirtualSize - off
 	if remain <= 0 {
 		return 0, io.EOF
 	}
@@ -221,13 +220,13 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 			Length: int32(chunkSize),
 		}
 		if err = req.buildRequest(img.shmData); err != nil {
-			return 0, errors.Wrapf(err, "%v", img.checkQemuProcessAlive())
+			return 0, errors.Wrapf(err, "%v", img.checkQemuAlive())
 		}
 
-		if err = img.notifyEx(img.efdr); err != nil {
+		if err = img.notifyQemuEx(img.efdr); err != nil {
 			return 0, err
 		}
-		if err = img.waitEx(img.efdp); err != nil {
+		if err = img.waitQemuEx(img.efdp); err != nil {
 			return 0, err
 		}
 
@@ -283,13 +282,13 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 			Data:   b[totalWritten : totalWritten+chunkSize],
 		}
 		if err = req.buildRequest(img.shmData); err != nil {
-			return 0, errors.Wrapf(err, "%v", img.checkQemuProcessAlive())
+			return 0, errors.Wrapf(err, "%v", img.checkQemuAlive())
 		}
 
-		if err = img.notifyEx(img.efdr); err != nil {
+		if err = img.notifyQemuEx(img.efdr); err != nil {
 			return 0, err
 		}
-		if err = img.waitEx(img.efdp); err != nil {
+		if err = img.waitQemuEx(img.efdp); err != nil {
 			return 0, err
 		}
 
@@ -323,7 +322,7 @@ func (img *Image) Sync() (err error) {
 		err = errors.Wrapf(err, "Sync")
 	}()
 
-	return img.sync()
+	return img.flush()
 }
 
 func (img *Image) Close() (err error) {
@@ -338,7 +337,7 @@ func (img *Image) Close() (err error) {
 	}()
 
 	if extend.IsProcessRunning(img.proc) {
-		if eSync := img.sync(); eSync != nil {
+		if eSync := img.flush(); eSync != nil {
 			return eSync
 		}
 
@@ -351,15 +350,15 @@ func (img *Image) Close() (err error) {
 			},
 		}
 		if err = req.buildRequest(img.shmData); err != nil {
-			return errors.Wrapf(err, "%v", img.checkQemuProcessAlive())
+			return errors.Wrapf(err, "%v", img.checkQemuAlive())
 		}
 
-		if err = img.notifyEx(img.efdr); err != nil {
+		if err = img.notifyQemuEx(img.efdr); err != nil {
 			return err
 		}
 
 		// FIXME: 后续请基于事件等待，去确认QEME进程已经获取请求并已处理
-		//if err := img.waitEx(img.efdp); err != nil {
+		//if err := img.waitQemuEx(img.efdp); err != nil {
 		//	return err
 		//}
 
@@ -369,11 +368,7 @@ func (img *Image) Close() (err error) {
 		_ = img.proc.Wait()
 	}
 
-	return releaseImage(img)
-}
-
-func (img *Image) VirtualSize() int64 {
-	return img.virtualSize
+	return releaseImageObject(img)
 }
 
 func (img *Image) Size() int64 {
@@ -391,7 +386,7 @@ func (img *Image) debugf(format string, args ...interface{}) {
 	logger.Debugf(format, args...)
 }
 
-func (img *Image) sync() (err error) {
+func (img *Image) flush() (err error) {
 	img.shmMutex.Lock()
 
 	req := flushRequest{
@@ -401,14 +396,14 @@ func (img *Image) sync() (err error) {
 		},
 	}
 	if err = req.buildRequest(img.shmData); err != nil {
-		return errors.Wrapf(err, "%v", img.checkQemuProcessAlive())
+		return errors.Wrapf(err, "%v", img.checkQemuAlive())
 	}
 
-	if err = img.notifyEx(img.efdr); err != nil {
+	if err = img.notifyQemuEx(img.efdr); err != nil {
 		return err
 	}
 
-	if err = img.waitEx(img.efdp); err != nil {
+	if err = img.waitQemuEx(img.efdp); err != nil {
 		return err
 	}
 
@@ -421,11 +416,11 @@ func (img *Image) sync() (err error) {
 	return nil
 }
 
-// notifyEx 通知QEMU进程处理请求
+// notifyQemuEx 通知QEMU进程处理请求
 // 注意：调用此函数时，请保证调用代码处于img.shmMutex的锁空间内
-func (img *Image) notifyEx(eventfd int) error {
-	img.debugf("%s.notifyEx() ++ event(%d)", img.String(), eventfd)
-	defer img.debugf("%s.notifyEx() -- event(%d)", img.String(), eventfd)
+func (img *Image) notifyQemuEx(eventfd int) error {
+	img.debugf("%s.notifyQemuEx() ++ event(%d)", img.String(), eventfd)
+	defer img.debugf("%s.notifyQemuEx() -- event(%d)", img.String(), eventfd)
 
 	if _, err := unix.Write(eventfd, eventSignalBytes); err != nil {
 		img.shmMutex.Unlock()
@@ -435,66 +430,55 @@ func (img *Image) notifyEx(eventfd int) error {
 	return nil
 }
 
-// waitEx 等待QEMU进程处理完毕
+// waitQemuEx 等待QEMU进程处理完毕
 // 注意：调用此函数时，请保证调用代码处于img.shmMutex的锁空间内
-func (img *Image) waitEx(eventfd int) error {
-	img.debugf("%s.waitEx() ++ event(%d)", img.String(), eventfd)
-	defer img.debugf("%s.waitEx() -- event(%d)", img.String(), eventfd)
+func (img *Image) waitQemuEx(eventfd int) error {
+	img.debugf("%s.waitQemuEx() ++ event(%d)", img.String(), eventfd)
+	defer img.debugf("%s.waitQemuEx() -- event(%d)", img.String(), eventfd)
 
 	var buf [8]byte
 	if _, err := unix.Read(eventfd, buf[:]); err != nil {
 		img.shmMutex.Unlock()
-		return errors.Wrapf(err, "waitEx")
+		return errors.Wrapf(err, "waitQemuEx")
 	}
 
-	if exited, _ := img.qemuProcessExited(); exited {
-		return errors.New("waitEx: qemu process already exited")
+	if exited, _ := img.getQemuExitStat(); exited {
+		return errors.New("waitQemuEx: qemu process already exited")
 	}
 	return nil
 }
 
-func (img *Image) qemuProcessExited() (exited bool, code int) {
+func (img *Image) getQemuExitStat() (exited bool, code int) {
 	if img.proc.ProcessState != nil {
 		return true, img.proc.ProcessState.ExitCode()
 	}
 	return false, -1
 }
 
-func (img *Image) onQemuProcessExit() {
+func (img *Image) onQemuExit() {
 	_ = img.proc.Wait()
 
-	if _, code := img.qemuProcessExited(); code != 0 {
-		// 预写一个，避免 waitEx 因时序性调用问题发生阻塞
-		_ = img.notifyEx(img.efdp)
-		//_ = img.notifyEx(img.efdr)
-		_ = releaseImage(img)
+	if _, code := img.getQemuExitStat(); code != 0 {
+		// 预写一个，避免 waitQemuEx 因时序性调用问题发生阻塞
+		_ = img.notifyQemuEx(img.efdp)
+		//_ = img.notifyQemuEx(img.efdr)
+		_ = releaseImageObject(img)
 	}
 }
 
-func (img *Image) checkQemuProcessAlive() error {
-	if exited, _ := img.qemuProcessExited(); exited {
-		return errors.New("checkQemuProcessAlive: qemu process already exited")
+func (img *Image) checkQemuAlive() error {
+	if exited, _ := img.getQemuExitStat(); exited {
+		return errors.New("checkQemuAlive: qemu process already exited")
 	}
 	return nil
 }
 
-func getImageSizeAndFormat(path string) (size int64, format string, err error) {
-	imgInfo, err := JsonInfo(context.Background(), path)
-	if err != nil {
-		return 0, "", err
-	}
-
-	format = gjson.Get(imgInfo, "format").String()
-	size = gjson.Get(imgInfo, "virtual-size").Int()
-	return
-}
-
-func getRequestAndResponseEvent() (req, resp int, err error) {
-	efdr, err := mustEventfd("request")
+func createEventfdPair() (req, resp int, err error) {
+	efdr, err := createEventfd("request")
 	if err != nil {
 		return 0, 0, err
 	}
-	efdp, err := mustEventfd("response")
+	efdp, err := createEventfd("response")
 	if err != nil {
 		_ = unix.Close(efdr)
 		return 0, 0, err
@@ -502,7 +486,7 @@ func getRequestAndResponseEvent() (req, resp int, err error) {
 	return efdr, efdp, nil
 }
 
-func mustEventfd(name string) (int, error) {
+func createEventfd(name string) (int, error) {
 	fd, err := unix.Eventfd(0, unix.EFD_SEMAPHORE)
 	if err != nil {
 		return -1, errors.Wrapf(err, "failed to open eventfd(%s)", name)
@@ -510,7 +494,7 @@ func mustEventfd(name string) (int, error) {
 	return fd, nil
 }
 
-func releaseImage(img *Image) error {
+func releaseImageObject(img *Image) error {
 	if img == nil {
 		return nil
 	}

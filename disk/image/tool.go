@@ -16,6 +16,7 @@ import (
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/pkg/errors"
+	"github.com/tidwall/gjson"
 )
 
 var DefaultClusterSizeInKiB = int64(512)
@@ -27,6 +28,17 @@ func JsonInfo(ctx context.Context, path string) (string, error) {
 		return "", errors.Wrapf(e, "JsonInfo `%s`", cmdline)
 	}
 	return strings.TrimSpace(o), nil
+}
+
+func GetSizeAndFormat(path string) (size int64, format string, err error) {
+	imgInfo, err := JsonInfo(context.Background(), path)
+	if err != nil {
+		return 0, "", err
+	}
+
+	format = gjson.Get(imgInfo, "Format").String()
+	size = gjson.Get(imgInfo, "virtual-size").Int()
+	return
 }
 
 func CreateQCow2(ctx context.Context, image string, bytes_ int64) error {
