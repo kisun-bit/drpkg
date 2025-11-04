@@ -363,3 +363,9 @@ func DiskPhysicalSectorSize(dev string) (int, error) {
 	}
 	return size, nil
 }
+
+func CreateHiddenFile(path string, sizeBytes int64) error {
+	_ = path
+	_ = sizeBytes
+	return errors.New("not implemented")
+}

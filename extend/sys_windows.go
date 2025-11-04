@@ -635,3 +635,154 @@ func TryToGrantSeSystemEnvironmentPrivilege() error {
 
 	return windows.AdjustTokenPrivileges(token, false, &ap, 0, nil, nil)
 }
+
+func CreateHiddenFile(path string, sizeBytes int64) error {
+	const chunkSize = 1 << 20
+	buf := make([]byte, chunkSize)
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	remaining := sizeBytes
+	for remaining > 0 {
+		toWrite := chunkSize
+		if remaining < int64(chunkSize) {
+			toWrite = int(remaining)
+		}
+		nr, er := f.Write(buf[:toWrite])
+		if er != nil {
+			return er
+		}
+		remaining -= int64(nr)
+	}
+
+	if err = f.Sync(); err != nil {
+		return err
+	}
+
+	ptr, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	if err = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_HIDDEN); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type Extent struct {
+	NextVCN uint64
+	LCN     uint64
+}
+
+type RetrievalPointersBuffer struct {
+	ExtentCount uint32
+	Padding     uint32
+	StartingVCN uint64
+	Extents     []Extent
+}
+
+func GetClusterSize(drive string) (int64, error) {
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	procGetDiskFreeSpaceW := kernel32.NewProc("GetDiskFreeSpaceW")
+
+	var sectorsPerCluster, bytesPerSector, numberOfFreeClusters, totalNumberOfClusters uint32
+
+	// Drive 字符串需要以 null 结尾，例如 "C:\\"
+	drivePtr, err := syscall.UTF16PtrFromString(drive)
+	if err != nil {
+		return 0, err
+	}
+
+	r1, _, err := procGetDiskFreeSpaceW.Call(
+		uintptr(unsafe.Pointer(drivePtr)),
+		uintptr(unsafe.Pointer(&sectorsPerCluster)),
+		uintptr(unsafe.Pointer(&bytesPerSector)),
+		uintptr(unsafe.Pointer(&numberOfFreeClusters)),
+		uintptr(unsafe.Pointer(&totalNumberOfClusters)),
+	)
+
+	if r1 == 0 {
+		return 0, fmt.Errorf("GetDiskFreeSpaceW failed: %v", err)
+	}
+
+	clusterSize := int64(sectorsPerCluster) * int64(bytesPerSector)
+	return clusterSize, nil
+}
+
+func QueryFileExtents(file string, clusterSize int) (r RetrievalPointersBuffer, err error) {
+	fd, err := os.Open(file)
+	if err != nil {
+		return r, err
+	}
+	defer fd.Close()
+
+	stat, err := fd.Stat()
+	if err != nil {
+		return r, err
+	}
+
+	if stat.Size() < int64(clusterSize) {
+		return r, errors.Errorf("file %s is too small (%vB)", file, stat.Size())
+	}
+
+	// 返回值定义：
+	//  typedef struct RETRIEVAL_POINTERS_BUFFER {
+	//    DWORD                    ExtentCount;
+	//    LARGE_INTEGER            StartingVcn;
+	//    struct {
+	//      LARGE_INTEGER NextVcn;
+	//      LARGE_INTEGER Lcn;
+	//    };
+	//    __unnamed_struct_195e_66 Extents[1];
+	//  } RETRIEVAL_POINTERS_BUFFER, *PRETRIEVAL_POINTERS_BUFFER;
+
+	// 计算最大有多少个extent.
+	maxExtents := int(stat.Size() / int64(clusterSize))
+
+	// 构造输出缓冲区.
+	bufferSize := int(unsafe.Sizeof(uint32(0))) + // ExtentCount
+		int(unsafe.Sizeof(uint32(0))) + // Padding
+		int(unsafe.Sizeof(uint64(0))) + // StartingVCN
+		maxExtents*int(unsafe.Sizeof(Extent{}))
+
+	var startingVCN uint64 = 0
+	var bytesReturned uint32
+
+	outBuf := make([]byte, bufferSize)
+
+	err = windows.DeviceIoControl(
+		windows.Handle(fd.Fd()),
+		windows.FSCTL_GET_RETRIEVAL_POINTERS,
+		(*byte)(unsafe.Pointer(&startingVCN)),
+		uint32(unsafe.Sizeof(startingVCN)),
+		&outBuf[0],
+		uint32(len(outBuf)),
+		&bytesReturned,
+		nil,
+	)
+	if err != nil {
+		return r, err
+	}
+	if bytesReturned == 0 {
+		return r, errors.Errorf("no bytes returned")
+	}
+
+	// 解析结构体字段
+	r.ExtentCount = *(*uint32)(unsafe.Pointer(&outBuf[0]))
+	r.StartingVCN = *(*uint64)(unsafe.Pointer(&outBuf[8])) // 4字节 padding 后是 StartingVCN
+
+	r.Extents = make([]Extent, r.ExtentCount)
+	baseOffset := 16 // Extents 从 offset 16 开始
+	for i := 0; i < int(r.ExtentCount); i++ {
+		offset := baseOffset + i*int(unsafe.Sizeof(Extent{}))
+		extent := (*Extent)(unsafe.Pointer(&outBuf[offset]))
+		r.Extents[i] = *extent
+	}
+
+	return r, nil
+}
