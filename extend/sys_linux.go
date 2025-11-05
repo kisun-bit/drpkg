@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -364,8 +365,16 @@ func DiskPhysicalSectorSize(dev string) (int, error) {
 	return size, nil
 }
 
-func CreateHiddenFile(path string, sizeBytes int64) error {
+func CreateHiddenFile(path string, sizeBytes int64, removeBefore bool) error {
 	_ = path
 	_ = sizeBytes
 	return errors.New("not implemented")
+}
+
+func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
+	return nil, errors.New("not implemented")
+}
+
+func CopyFileByDiskExtents(file string, dst io.Writer) (int64, error) {
+	return 0, errors.New("not implemented")
 }

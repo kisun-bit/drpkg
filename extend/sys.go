@@ -116,3 +116,9 @@ func IsProcessRunning(c *exec.Cmd) bool {
 	existed, _ := process.PidExists(int32(c.Process.Pid))
 	return existed
 }
+
+type FileDiskExtentSegment struct {
+	Disk  string
+	Start int64
+	Size  int64
+}

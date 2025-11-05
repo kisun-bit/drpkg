@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"io"
 	"os"
 	"reflect"
 	"strconv"
@@ -180,4 +181,13 @@ func ReadStringFromFile(path string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(ret)), nil
+}
+
+func Md5sum(r io.Reader) (string, error) {
+	h := md5.New()
+	if _, err := io.Copy(h, r); err != nil {
+		return "", err
+	}
+	code := h.Sum(nil)
+	return hex.EncodeToString(code), nil
 }

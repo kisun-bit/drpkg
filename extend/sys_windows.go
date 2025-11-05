@@ -636,11 +636,15 @@ func TryToGrantSeSystemEnvironmentPrivilege() error {
 	return windows.AdjustTokenPrivileges(token, false, &ap, 0, nil, nil)
 }
 
-func CreateHiddenFile(path string, sizeBytes int64) error {
+func CreateHiddenFile(path string, sizeBytes int64, removeBefore bool) error {
 	const chunkSize = 1 << 20
 	buf := make([]byte, chunkSize)
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0)
+	if removeBefore {
+		_ = os.Remove(path)
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC|os.O_SYNC, 0666)
 	if err != nil {
 		return err
 	}
@@ -714,7 +718,7 @@ func GetClusterSize(drive string) (int64, error) {
 	return clusterSize, nil
 }
 
-func QueryFileExtents(file string, clusterSize int) (r RetrievalPointersBuffer, err error) {
+func QueryFileExtentsOnVolume(file string, clusterSize int) (r RetrievalPointersBuffer, err error) {
 	fd, err := os.Open(file)
 	if err != nil {
 		return r, err
@@ -785,4 +789,152 @@ func QueryFileExtents(file string, clusterSize int) (r RetrievalPointersBuffer, 
 	}
 
 	return r, nil
+}
+
+type volumeSegment struct {
+	start int64
+	size  int64
+}
+
+func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
+	stat, err := os.Lstat(file)
+	if err != nil {
+		return nil, err
+	}
+	if stat.IsDir() {
+		return nil, errors.Errorf("%s is a directory", file)
+	}
+	fileSize := stat.Size()
+
+	volName := filepath.VolumeName(file)
+	if volName == "" || !strings.HasSuffix(volName, ":") {
+		return nil, errors.Errorf("volume name of %s is invalid", file)
+	}
+	volUncPath := fmt.Sprintf("\\\\.\\%s", volName)
+	volPath := fmt.Sprintf("%s\\", volName)
+
+	volExtentsOnDisk, err := VolumeMountpointToExtents(volUncPath)
+	if err != nil {
+		return nil, err
+	}
+	bytesPerCluster, err := GetClusterSize(volPath)
+	if err != nil {
+		return nil, err
+	}
+	fileExtentsInfo, err := QueryFileExtentsOnVolume(file, int(bytesPerCluster))
+	if err != nil {
+		return nil, err
+	}
+	if fileExtentsInfo.ExtentCount == 0 {
+		return nil, errors.Errorf("file %s has no extents", file)
+	}
+
+	fileExtentsOnVolume := make([]volumeSegment, 0)
+	vcn := fileExtentsInfo.StartingVCN
+	for i, e := range fileExtentsInfo.Extents {
+		if i > 0 {
+			vcn = fileExtentsInfo.Extents[i-1].NextVCN
+		}
+		logicStart := int64(vcn) * bytesPerCluster
+		segStart := int64(e.LCN) * bytesPerCluster
+		segSize := int64(e.NextVCN-vcn) * bytesPerCluster
+		if logicStart+segSize > fileSize {
+			segSize = fileSize - logicStart
+		}
+		fileExtentsOnVolume = append(fileExtentsOnVolume, volumeSegment{
+			start: segStart,
+			size:  segSize,
+		})
+	}
+
+	for _, fe := range fileExtentsOnVolume {
+		extentSize := fe.size
+		fileExtentVolStart := fe.start
+		fileExtentVolEnd := fileExtentVolStart + extentSize
+		diskDelta := fe.start
+
+		diskVolStart := int64(0)
+		for _, ve := range volExtentsOnDisk {
+			diskVolEnd := diskVolStart + int64(ve.ExtentLength)
+			diskDelta = fileExtentVolStart - diskVolStart
+
+			if fileExtentVolStart < diskVolStart {
+				return nil, errors.New("unexcepted range")
+			} else if fileExtentVolStart >= diskVolStart && fileExtentVolEnd <= diskVolEnd {
+				// 全包含
+				es = append(es, FileDiskExtentSegment{
+					Disk:  WindowsDiskPathFromID(ve.DiskNumber),
+					Start: int64(ve.StartingOffset) + diskDelta,
+					Size:  extentSize,
+				})
+				break
+			} else if fileExtentVolStart < diskVolEnd && fileExtentVolEnd > diskVolEnd {
+				// 部分包含，做截断处理
+				deltaExtentSize := diskVolEnd - fileExtentVolStart
+				es = append(es, FileDiskExtentSegment{
+					Disk:  WindowsDiskPathFromID(ve.DiskNumber),
+					Start: int64(ve.StartingOffset) + diskDelta,
+					Size:  deltaExtentSize,
+				})
+				extentSize -= deltaExtentSize
+				fileExtentVolStart += deltaExtentSize
+			}
+
+			diskVolStart = diskVolEnd
+		}
+	}
+
+	if len(es) == 0 {
+		return nil, errors.New("failed to calculate extents")
+	}
+	return es, nil
+}
+
+func CopyFileByDiskExtents(file string, dst io.Writer) (int64, error) {
+	es, err := FileDiskExtents(file)
+	if err != nil {
+		return 0, err
+	}
+	bytesPerCluster, err := GetClusterSize(filepath.VolumeName(file) + "\\")
+	if err != nil {
+		return 0, err
+	}
+
+	buf := make([]byte, bytesPerCluster)
+	size := int64(0)
+
+	for _, de := range es {
+		df, eopen := os.Open(de.Disk)
+		if eopen != nil {
+			return 0, eopen
+		}
+
+		remain := de.Size
+		start := de.Start
+		for {
+			if remain <= 0 {
+				_ = df.Close()
+				break
+			}
+			nr, er := df.ReadAt(buf, start)
+			if er != nil {
+				_ = df.Close()
+				return 0, errors.Wrapf(er, "failed to read extent from %s", de.Disk)
+			}
+			wLen := nr
+			if int64(nr) > remain {
+				wLen = int(remain)
+			}
+			nw, ew := dst.Write(buf[:wLen])
+			if ew != nil {
+				_ = df.Close()
+				return 0, errors.Wrap(ew, "failed to write extent to writer")
+			}
+			size += int64(nw)
+			remain -= int64(nr)
+			start += int64(nr)
+		}
+	}
+
+	return size, nil
 }
