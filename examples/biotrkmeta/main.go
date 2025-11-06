@@ -1,14 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/binary"
-	"encoding/hex"
-	"fmt"
+	"io"
 	"log"
 	"os"
+	"syscall"
 
 	"github.com/kisun-bit/drpkg/extend"
+	"github.com/pkg/errors"
+)
+
+const (
+	SIZEOFMETADATA = int64(129 << 20)
+	MAGIC          = "BIOTRKMETA      "
 )
 
 type Header struct {
@@ -16,60 +23,87 @@ type Header struct {
 	MaxProtectedDisks    uint32
 	MaxBitCountPerBitmap uint32
 	BytesPerBit          uint32
-	FirstBitmapStart     uint32
+	FirstBitmapStart     uint64
 	DriverErrorCode      uint32
+	Reversed             [1048716]byte
 }
 
-func writeHeaderToMeta(metaFile string) error {
-	var hdr Header
-	copy(hdr.Signature[:], "BIOTRKMETA      ")
-	hdr.MaxProtectedDisks = 64
-	hdr.MaxBitCountPerBitmap = 16777216
-	hdr.BytesPerBit = 4194304
-	hdr.FirstBitmapStart = 1048576
-	hdr.DriverErrorCode = 0
+func DefaultHeader() (hdr Header) {
+	copy(hdr.Signature[:], MAGIC)
+	hdr.MaxProtectedDisks = 1 << 6
+	hdr.MaxBitCountPerBitmap = 16 << 20
+	hdr.BytesPerBit = 4 << 20
+	hdr.FirstBitmapStart = 1 << 20
+	copy(hdr.Reversed[:], make([]byte, len(hdr.Reversed)))
+	return hdr
+}
 
-	f, err := os.OpenFile(metaFile, os.O_RDWR|os.O_SYNC, 0666)
+func InitializeCdpMetaFile(path string) (err error) {
+	chunkSize := int64(1 << 20)
+	buf := make([]byte, chunkSize)
+
+	header := DefaultHeader()
+	headerBuf := new(bytes.Buffer)
+
+	fileHasher := md5.New()
+	diskHasher := md5.New()
+
+	_ = os.Remove(path)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC|os.O_SYNC, 0666)
 	if err != nil {
-		return fmt.Errorf("open meta file failed: %v", err)
+		return err
 	}
 	defer f.Close()
-	defer f.Sync()
 
-	if err = binary.Write(f, binary.LittleEndian, &hdr); err != nil {
-		return fmt.Errorf("write header failed: %v", err)
+	if err = binary.Write(headerBuf, binary.LittleEndian, &header); err != nil {
+		return err
 	}
+	headerBytes := headerBuf.Bytes()
+
+	fileHashReader := io.MultiWriter(f, fileHasher)
+	remaining := SIZEOFMETADATA
+	for remaining > 0 {
+		b := buf
+		if remaining == SIZEOFMETADATA {
+			b = headerBytes
+		}
+		toWrite := len(b)
+		if remaining < chunkSize {
+			toWrite = int(remaining)
+		}
+		nw, er := fileHashReader.Write(b[:toWrite])
+		if er != nil {
+			return er
+		}
+		remaining -= int64(nw)
+	}
+
+	if err = f.Sync(); err != nil {
+		return err
+	}
+
+	ptr, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	if err = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_SYSTEM|syscall.FILE_ATTRIBUTE_HIDDEN); err != nil {
+		return err
+	}
+
+	if _, err = extend.CopyFileByDiskExtents(path, diskHasher); err != nil {
+		return err
+	}
+	if !bytes.Equal(fileHasher.Sum(nil), diskHasher.Sum(nil)) {
+		return errors.New("hash mismatch")
+	}
+
 	return nil
 }
 
 func main() {
 	metaFile := os.Args[1]
-	metaFileSize := 129 << 20
 
-	if err := extend.CreateHiddenFile(metaFile, int64(metaFileSize), true); err != nil {
+	if err := InitializeCdpMetaFile(metaFile); err != nil {
 		log.Fatalf("create hidden file failed: %v", err)
 	}
-	if err := writeHeaderToMeta(metaFile); err != nil {
-		log.Fatalf("write header failed: %v", err)
-	}
-
-	f, err := os.OpenFile(metaFile, os.O_RDONLY, 0)
-	if err != nil {
-		log.Fatalf("open meta file failed: %v", err)
-	}
-	defer f.Close()
-	originMd5sum, err := extend.Md5sum(f)
-	if err != nil {
-		log.Fatalf("md5sum origin file: %v", err)
-	}
-	fmt.Printf("originMd5sum:%s\n", originMd5sum)
-
-	h := md5.New()
-	n, err := extend.CopyFileByDiskExtents(metaFile, h)
-	if err != nil {
-		log.Fatalf("copy file failed: %v", err)
-	}
-
-	fmt.Printf("targetMd5sum:%s, size: %v\n", hex.EncodeToString(h.Sum(nil)), n)
-	fmt.Println("success")
 }

@@ -497,7 +497,15 @@ func GetDiskGeometry(disk string) (DISK_GEOMETRY, error) {
 	buf := make([]uint8, 0x80)
 	var n uint32
 
-	if err = windows.DeviceIoControl(windows.Handle(reader.Fd()), IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, nil, 0, &buf[0], uint32(len(buf)), &n, nil); err != nil {
+	if err = windows.DeviceIoControl(
+		windows.Handle(reader.Fd()),
+		IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
+		nil,
+		0,
+		&buf[0],
+		uint32(len(buf)),
+		&n,
+		nil); err != nil {
 		return DISK_GEOMETRY{}, err
 	}
 
@@ -505,7 +513,8 @@ func GetDiskGeometry(disk string) (DISK_GEOMETRY, error) {
 	blockSize := int64(diskGeometryBase.Geometry.BytesPerSector)
 	blockCount := int64(diskGeometryBase.DiskSize) / blockSize
 	if int64(diskGeometryBase.DiskSize)%blockSize != 0 {
-		return DISK_GEOMETRY{}, errors.Errorf("block device size is not an integer multiple of its block size (%d %% %d = %d)", diskGeometryBase.DiskSize, blockSize, diskGeometryBase.DiskSize%uint64(blockSize))
+		return DISK_GEOMETRY{}, errors.Errorf("block device size is not an integer multiple of its block size (%d %% %d = %d)",
+			diskGeometryBase.DiskSize, blockSize, diskGeometryBase.DiskSize%uint64(blockSize))
 	}
 	_ = blockCount
 	return diskGeometryBase.Geometry, nil
@@ -634,48 +643,6 @@ func TryToGrantSeSystemEnvironmentPrivilege() error {
 	ap.Privileges[0].Attributes = windows.SE_PRIVILEGE_ENABLED
 
 	return windows.AdjustTokenPrivileges(token, false, &ap, 0, nil, nil)
-}
-
-func CreateHiddenFile(path string, sizeBytes int64, removeBefore bool) error {
-	const chunkSize = 1 << 20
-	buf := make([]byte, chunkSize)
-
-	if removeBefore {
-		_ = os.Remove(path)
-	}
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC|os.O_SYNC, 0666)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	remaining := sizeBytes
-	for remaining > 0 {
-		toWrite := chunkSize
-		if remaining < int64(chunkSize) {
-			toWrite = int(remaining)
-		}
-		nr, er := f.Write(buf[:toWrite])
-		if er != nil {
-			return er
-		}
-		remaining -= int64(nr)
-	}
-
-	if err = f.Sync(); err != nil {
-		return err
-	}
-
-	ptr, err := syscall.UTF16PtrFromString(path)
-	if err != nil {
-		return err
-	}
-	if err = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_HIDDEN); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 type Extent struct {

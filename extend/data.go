@@ -183,7 +183,7 @@ func ReadStringFromFile(path string) (string, error) {
 	return strings.TrimSpace(string(ret)), nil
 }
 
-func Md5sum(r io.Reader) (string, error) {
+func FileMd5sum(r io.Reader) (string, error) {
 	h := md5.New()
 	if _, err := io.Copy(h, r); err != nil {
 		return "", err
