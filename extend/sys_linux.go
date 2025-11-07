@@ -622,6 +622,7 @@ func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 	if len(fileRegionsOnVolume) == 0 {
 		return nil, errors.Errorf("file %s has no regions on volume", file)
 	}
+	//spew.Dump(fileRegionsOnVolume)
 
 	volumeRegionsOnDisk := make([]Segment, 0)
 	if fileDevMaj.IsLV() {
@@ -640,6 +641,8 @@ func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 	if len(volumeRegionsOnDisk) == 0 {
 		return nil, errors.Errorf("volume %s has no regions on disk", volume)
 	}
+	//fmt.Println("------------------------")
+	//spew.Dump(volumeRegionsOnDisk)
 
 	for _, fe := range fileRegionsOnVolume {
 		extentSize := fe.size

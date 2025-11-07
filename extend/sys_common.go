@@ -61,6 +61,9 @@ func ScanPVLabelFromDisk(dev string) (pl PVLabel, existed bool, err error) {
 	return PVLabel{}, false, nil
 }
 
+// CopyFileByDiskExtents 基于文件的磁盘分布拷贝数据
+// 注意：某一些稀疏文件由于存在空洞，会导致原文件和拷贝后文件存在数据差异。
+// 因为被视为空洞的区域会被文件以0填充，但是空洞区域在磁盘上可能存在脏数据
 func CopyFileByDiskExtents(file string, dst io.Writer) (int64, error) {
 	es, err := FileDiskExtents(file)
 	if err != nil {
