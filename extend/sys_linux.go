@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +14,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/kisun-bit/drpkg/command"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 	"golang.org/x/sys/unix"
@@ -180,7 +180,7 @@ func DeviceMajorTable(filter ...string) (map[DevMajor]string, error) {
 
 	for _, entry := range entries {
 		devPath := filepath.Join("/dev", entry.Name())
-		if !funk.InStrings(filter, devPath) {
+		if len(filter) != 0 && !funk.InStrings(filter, devPath) {
 			continue
 		}
 
@@ -365,10 +365,319 @@ func DiskPhysicalSectorSize(dev string) (int, error) {
 	return size, nil
 }
 
-func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
-	return nil, errors.New("not implemented")
+// IsDirectAccessBlockDevice 判断是否是普通磁盘类设备(type==0)
+func IsDirectAccessBlockDevice(device string) (bool, error) {
+	_, diskName, err := ResolveDevice(device)
+	if err != nil {
+		return false, err
+	}
+	t, err := GetDeviceType(diskName)
+	if err != nil {
+		return false, err
+	}
+	return t == 0, nil
 }
 
-func CopyFileByDiskExtents(file string, dst io.Writer) (int64, error) {
-	return 0, errors.New("not implemented")
+func DeviceUUID(device string) string {
+	if strings.HasPrefix(device, "/dev/mapper") {
+		device, _ = filepath.EvalSymlinks(device)
+	}
+	uuidDevRoot := "/dev/disk/by-uuid"
+	des, err := os.ReadDir(uuidDevRoot)
+	if err != nil {
+		return ""
+	}
+	if len(des) == 0 {
+		return ""
+	}
+	for _, d := range des {
+		uuid_ := d.Name()
+		link, _ := filepath.EvalSymlinks(filepath.Join(uuidDevRoot, uuid_))
+		if filepath.Base(link) == filepath.Base(device) {
+			return uuid_
+		}
+	}
+	return ""
+}
+
+// GetDeviceType 返回 SCSI peripheral type (0=direct-access,5=CD-ROM...)
+func GetDeviceType(diskName string) (int, error) {
+	b, err := os.ReadFile(filepath.Join("/sys/class/block", diskName, "device", "type"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return -1, nil // 某些虚拟块设备可能没有 type
+		}
+		return -1, err
+	}
+	t, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return -1, err
+	}
+	return t, nil
+}
+
+// ResolveDevice 返回真实块设备路径和对应“磁盘名”
+// diskName 即 /sys/class/block/<diskName>
+func ResolveDevice(devPath string) (realPath, diskName string, err error) {
+	stat, err := os.Lstat(devPath)
+	if err != nil {
+		return "", "", err
+	}
+	if stat.Mode()&os.ModeSymlink != 0 {
+		devPath, err = filepath.EvalSymlinks(devPath)
+		if err != nil {
+			return "", "", err
+		}
+	}
+
+	base := filepath.Base(devPath)
+	sysPath := filepath.Join("/sys/class/block", base)
+	linkTarget, err := filepath.EvalSymlinks(sysPath)
+	if err != nil {
+		return "", "", err
+	}
+
+	// 如果上级目录就是 "block"，说明本身是磁盘
+	if strings.HasSuffix(filepath.Dir(linkTarget), "block") {
+		return devPath, base, nil
+	}
+	// 否则说明是分区，父目录名即磁盘名
+	return devPath, filepath.Base(filepath.Dir(linkTarget)), nil
+}
+
+// DiskOrPartitionSegment 计算磁盘或分区的起始偏移与大小
+func DiskOrPartitionSegment(device string) (Segment, error) {
+	var seg Segment
+
+	realDev, diskName, err := ResolveDevice(device)
+	if err != nil {
+		return seg, err
+	}
+
+	// 判断是否是磁盘本体还是分区
+	sysPath := filepath.Join("/sys/class/block", filepath.Base(realDev))
+	linkTarget, _ := filepath.EvalSymlinks(sysPath)
+	isDisk := strings.HasSuffix(filepath.Dir(linkTarget), "block")
+
+	if !isDisk {
+		seg.Disk = filepath.Join("/dev", diskName)
+		startBytes, err := os.ReadFile(filepath.Join(sysPath, "start"))
+		if err != nil {
+			return seg, err
+		}
+		start, err := strconv.ParseUint(strings.TrimSpace(string(startBytes)), 10, 64)
+		if err != nil {
+			return seg, err
+		}
+		// /sys/class/block/sda1/start的单位始终是512字节扇区（"kernel sector"）
+		seg.Start = start * 512
+	} else {
+		seg.Disk = realDev
+	}
+
+	sizeBytes, err := os.ReadFile(filepath.Join(sysPath, "size"))
+	if err != nil {
+		return seg, err
+	}
+	sectors, err := strconv.ParseUint(strings.TrimSpace(string(sizeBytes)), 10, 64)
+	if err != nil {
+		return seg, err
+	}
+	// /sys/class/block/sda/size的单位始终是512字节扇区（"kernel sector"）
+	seg.Size = sectors * 512
+	return seg, nil
+}
+
+func LVSegments(lvPath string) (segments []Segment, err error) {
+	if strings.HasPrefix(lvPath, "/dev/mapper") {
+		if lvPath, err = filepath.EvalSymlinks(lvPath); err != nil {
+			return nil, err
+		}
+	}
+	if !IsExisted(lvPath) {
+		return nil, errors.Errorf("LV %s does not exist", lvPath)
+	}
+
+	blockSysDir := filepath.Join("/sys/class/block", filepath.Base(lvPath))
+	des, err := os.ReadDir(filepath.Join(blockSysDir, "slaves"))
+	if err != nil {
+		return nil, err
+	}
+
+	_, o, err := command.Execute("dmsetup table " + lvPath)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, d := range des {
+		diskOrPartitionName := d.Name()
+		devicePath := filepath.Join("/dev", diskOrPartitionName)
+		seg, err := DiskOrPartitionSegment(devicePath)
+		if err != nil {
+			return nil, err
+		}
+
+		slaveDeviceMajorTable, err := DeviceMajorTable(devicePath)
+		if err != nil {
+			return nil, err
+		}
+		slaveDeviceMajor := DevMajor("")
+		for major, _ := range slaveDeviceMajorTable {
+			slaveDeviceMajor = major
+			break
+		}
+		if slaveDeviceMajor == "" {
+			return nil, errors.Errorf("major of %s not found", devicePath)
+		}
+
+		lvPartialSegment := seg
+		for _, tableLine := range strings.Split(o, "\n") {
+			tableLine = strings.TrimSpace(tableLine)
+			tableLineFields := strings.Fields(tableLine)
+			if tableLine == "" {
+				continue
+			}
+			if len(tableLineFields) != 5 || tableLineFields[2] != "linear" {
+				return nil, errors.Errorf("unsupported dm-table: %s", tableLine)
+			}
+			lvPartialDevMajor := DevMajor(tableLineFields[3])
+			if lvPartialDevMajor != slaveDeviceMajor {
+				continue
+			}
+			lvPartialStartSector, err := strconv.ParseUint(tableLineFields[4], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			lvPartialSectors, err := strconv.ParseUint(tableLineFields[1], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			// LVM的扇区大小固定为512，见https://wiki.gentoo.org/wiki/Device-mapper
+			// 原文如下：
+			// """
+			// The device mapper, like the rest of the Linux block layer deals with things at the sector level.
+			// A sector defined as 512 bytes, regardless of the actual physical geometry the the block device.
+			// All formulas and values to the device mapper will be in sectors unless otherwise stated
+			// """
+			lvPartialSegment.Start += lvPartialStartSector * 512
+			lvPartialSegment.Size = lvPartialSectors * 512
+			segments = append(segments, lvPartialSegment)
+		}
+	}
+
+	return segments, nil
+}
+
+func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, errors.Errorf("%s is a directory", file)
+	}
+	stat := info.Sys().(*syscall.Stat_t)
+	fileSize := info.Size()
+	fileMaj := uint32(stat.Dev >> 8)
+	fileMin := uint32(stat.Dev & 0xff)
+
+	devNameTable, err := DeviceMajorTable()
+	if err != nil {
+		return nil, err
+	}
+	fileDevMaj := DevMajor(fmt.Sprintf("%d:%d", fileMaj, fileMin))
+
+	volume, ok := devNameTable[fileDevMaj]
+	if !ok || volume == "" {
+		return nil, errors.Errorf("device path of %s not found", volume)
+	}
+
+	eArr, err := getFileExtentsFp(f)
+	if err != nil {
+		return nil, err
+	}
+
+	fileRegionsOnVolume := make([]volumeSegment, 0)
+	sz := int64(0)
+	for _, d := range eArr {
+		if sz >= fileSize {
+			break
+		}
+		expectSize := fileSize - sz
+		if expectSize > int64(d.Length) {
+			expectSize = int64(d.Length)
+		}
+		fileRegionsOnVolume = append(fileRegionsOnVolume, volumeSegment{
+			start: int64(d.Physical),
+			size:  expectSize,
+		})
+		sz += expectSize
+	}
+	if len(fileRegionsOnVolume) == 0 {
+		return nil, errors.Errorf("file %s has no regions on volume", file)
+	}
+
+	volumeRegionsOnDisk := make([]Segment, 0)
+	if fileDevMaj.IsLV() {
+		volumeRegionsOnDisk, err = LVSegments(volume)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// FIXME 兼容multipath和RAID
+		seg, err := DiskOrPartitionSegment(volume)
+		if err != nil {
+			return nil, err
+		}
+		volumeRegionsOnDisk = append(volumeRegionsOnDisk, seg)
+	}
+	if len(volumeRegionsOnDisk) == 0 {
+		return nil, errors.Errorf("volume %s has no regions on disk", volume)
+	}
+
+	for _, fe := range fileRegionsOnVolume {
+		extentSize := fe.size
+		fileExtentVolStart := fe.start
+		fileExtentVolEnd := fileExtentVolStart + extentSize
+		diskDelta := fe.start
+
+		diskVolStart := int64(0)
+		for _, ve := range volumeRegionsOnDisk {
+			diskVolEnd := diskVolStart + int64(ve.Size)
+			diskDelta = fileExtentVolStart - diskVolStart
+
+			if fileExtentVolStart < diskVolStart {
+				return nil, errors.New("unexcepted range")
+			} else if fileExtentVolStart >= diskVolStart && fileExtentVolEnd <= diskVolEnd {
+				// 全包含
+				es = append(es, FileDiskExtentSegment{
+					Disk:  ve.Disk,
+					Start: int64(ve.Start) + diskDelta,
+					Size:  extentSize,
+				})
+				break
+			} else if fileExtentVolStart < diskVolEnd && fileExtentVolEnd > diskVolEnd {
+				// 部分包含，做截断处理
+				deltaExtentSize := diskVolEnd - fileExtentVolStart
+				es = append(es, FileDiskExtentSegment{
+					Disk:  ve.Disk,
+					Start: int64(ve.Start) + diskDelta,
+					Size:  deltaExtentSize,
+				})
+				extentSize -= deltaExtentSize
+				fileExtentVolStart += deltaExtentSize
+			}
+
+			diskVolStart = diskVolEnd
+		}
+	}
+
+	//fmt.Println(len(es))
+	return es, nil
 }

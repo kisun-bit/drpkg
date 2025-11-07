@@ -14,7 +14,7 @@ type Volume struct {
 	Name string `json:"name"`
 
 	// Segments 卷的数据分布在哪些磁盘区间
-	Segments []Segment `json:"segments"`
+	Segments []extend.Segment `json:"segments"`
 
 	// MountPoint 卷的挂载点
 	// Windows: 使用卷的装入点，如："C:"
@@ -42,13 +42,6 @@ type Volume struct {
 	EnabledBitlocker bool `json:"isBitlocker"`
 
 	// TODO 更多字段
-}
-
-// Segment 表示卷在物理磁盘上的连续数据区间
-type Segment struct {
-	Disk  string `json:"disk"`  // 磁盘路径，例如 "/dev/sda" 或 "\\.\PHYSICALDRIVE0"
-	Start uint64 `json:"start"` // 起始偏移量
-	Size  uint64 `json:"size"`  // 区间大小
 }
 
 // UsageInfo 存储空间使用信息

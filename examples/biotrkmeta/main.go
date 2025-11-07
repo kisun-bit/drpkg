@@ -28,12 +28,13 @@ const (
 
 type Header struct {
 	Signature            [16]byte      `struc:"little"`
+	State                uint32        `struc:"little"`
 	MaxProtectedDisks    uint32        `struc:"little"`
 	MaxBitCountPerBitmap uint32        `struc:"little"`
 	BytesPerBit          uint32        `struc:"little"`
 	FirstBitmapStart     uint64        `struc:"little"`
 	DriverErrorCode      uint32        `struc:"little"`
-	Reversed             [1048716]byte `struc:"little"`
+	Reversed             [1048712]byte `struc:"little"`
 }
 
 type MetadataRegions struct {
