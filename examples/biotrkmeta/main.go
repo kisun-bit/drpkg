@@ -3,15 +3,17 @@ package main
 import (
 	"bytes"
 	"crypto/md5"
-	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"syscall"
 
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/lunixbochs/struc"
+	"github.com/olekukonko/tablewriter"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -25,24 +27,24 @@ const (
 )
 
 type Header struct {
-	Signature            [16]byte
-	MaxProtectedDisks    uint32
-	MaxBitCountPerBitmap uint32
-	BytesPerBit          uint32
-	FirstBitmapStart     uint64
-	DriverErrorCode      uint32
-	Reversed             [1048716]byte
+	Signature            [16]byte      `struc:"little"`
+	MaxProtectedDisks    uint32        `struc:"little"`
+	MaxBitCountPerBitmap uint32        `struc:"little"`
+	BytesPerBit          uint32        `struc:"little"`
+	FirstBitmapStart     uint64        `struc:"little"`
+	DriverErrorCode      uint32        `struc:"little"`
+	Reversed             [1048716]byte `struc:"little"`
 }
 
 type MetadataRegions struct {
-	Count   uint32 `struc:"sizeof=Regions"`
-	Regions []MetadataRegion
+	Count   uint32           `struc:"little,sizeof=Regions"`
+	Regions []MetadataRegion `struc:"little"`
 }
 
 type MetadataRegion struct {
-	DiskID uint32
-	Start  uint64
-	Size   uint64
+	DiskID uint32 `struc:"little"`
+	Start  uint64 `struc:"little"`
+	Size   uint64 `struc:"little"`
 }
 
 func DefaultHeader() (hdr Header) {
@@ -106,7 +108,7 @@ func InitializeCdpMetaFile(path string) (err error) {
 	}
 	defer f.Close()
 
-	if err = binary.Write(headerBuf, binary.LittleEndian, &header); err != nil {
+	if err = struc.Pack(headerBuf, &header); err != nil {
 		return err
 	}
 	headerBytes := headerBuf.Bytes()
@@ -180,8 +182,19 @@ func ConfigRegistry(metaFile string) error {
 	if err = struc.Pack(&buf, &meta); err != nil {
 		return err
 	}
+	fragmentsVal := buf.Bytes()
 
-	if err = k.SetBinaryValue("fragments", buf.Bytes()); err != nil {
+	t := tablewriter.NewWriter(os.Stdout)
+	t.SetHeader([]string{"Number", "Disk", "Start (bytes)", "Length (bytes)"})
+	for i, v := range meta.Regions {
+		line := []string{strconv.Itoa(i), strconv.Itoa(int(v.DiskID)), strconv.FormatUint(v.Start, 10), strconv.FormatUint(v.Size, 10)}
+		t.Append(line)
+	}
+	fmt.Printf("Print regions of cdp meta file:\n")
+	t.Render()
+
+	fmt.Print("Print REGKEY(fragments):\n", hex.Dump(fragmentsVal))
+	if err = k.SetBinaryValue("fragments", fragmentsVal); err != nil {
 		return err
 	}
 
@@ -191,20 +204,20 @@ func ConfigRegistry(metaFile string) error {
 func main() {
 	metaFile := os.Args[1]
 
-	fmt.Printf("[s1] Disable VSS\n")
+	fmt.Printf("Disable VSS...\n")
 	if err := DisableVSS(); err != nil {
 		log.Fatal("Failed to disable VSS: ", err)
 	}
 
-	fmt.Printf("[s2] Initialize cdp meta file\n")
+	fmt.Printf("Initialize cdp meta file...\n")
 	if err := InitializeCdpMetaFile(metaFile); err != nil {
 		log.Fatalf("Failed to create hidden file: %v", err)
 	}
 
-	fmt.Printf("[s3] Configure registry\n")
+	fmt.Printf("Configure registry...\n")
 	if err := ConfigRegistry(metaFile); err != nil {
 		log.Fatal("Failed to configure registry: ", err)
 	}
 
-	fmt.Println("success")
+	fmt.Print("success")
 }
