@@ -74,7 +74,7 @@ func CopyFileByDiskExtents(file string, dst io.Writer) (int64, error) {
 	size := int64(0)
 
 	for _, de := range es {
-		df, eopen := os.Open(de.Disk)
+		df, eopen := os.OpenFile(de.Disk, R_DSYNC_MODE, 0666)
 		if eopen != nil {
 			return 0, eopen
 		}

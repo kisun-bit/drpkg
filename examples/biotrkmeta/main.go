@@ -3,22 +3,15 @@ package main
 import (
 	"bytes"
 	"crypto/md5"
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"strconv"
-	"syscall"
 
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/lunixbochs/struc"
-	"github.com/olekukonko/tablewriter"
 	"github.com/pkg/errors"
-	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
-	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/mgr"
 )
 
 const (
@@ -58,52 +51,16 @@ func DefaultHeader() (hdr Header) {
 	return hdr
 }
 
-func DisableVSS() error {
-	m, err := mgr.Connect()
-	if err != nil {
-		return err
-	}
-	defer m.Disconnect()
-
-	srv, err := m.OpenService("vss")
-	if err != nil {
-		return err
-	}
-	defer srv.Close()
-
-	_, err = srv.Control(svc.Stop)
-	if err != nil && !errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
-		return err
-	}
-
-	oldCfg, err := srv.Config()
-	if err != nil {
-		return err
-	}
-	if oldCfg.StartType == windows.SERVICE_DISABLED {
-		return nil
-	}
-	oldCfg.StartType = windows.SERVICE_DISABLED
-
-	if err = srv.UpdateConfig(oldCfg); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func InitializeCdpMetaFile(path string) (err error) {
 	chunkSize := int64(1 << 20)
 	buf := make([]byte, chunkSize)
+	rand.Read(buf)
 
 	header := DefaultHeader()
 	headerBuf := new(bytes.Buffer)
 
-	fileHasher := md5.New()
-	diskHasher := md5.New()
-
 	_ = os.Remove(path)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC|os.O_SYNC, 0666)
+	f, err := os.OpenFile(path, os.O_CREATE|extend.W_DSYNC_MODE, 0644)
 	if err != nil {
 		return err
 	}
@@ -114,7 +71,6 @@ func InitializeCdpMetaFile(path string) (err error) {
 	}
 	headerBytes := headerBuf.Bytes()
 
-	fileHashReader := io.MultiWriter(f, fileHasher)
 	remaining := SIZEOFMETADATA
 	for remaining > 0 {
 		b := buf
@@ -125,7 +81,7 @@ func InitializeCdpMetaFile(path string) (err error) {
 		if remaining < chunkSize {
 			toWrite = int(remaining)
 		}
-		nw, er := fileHashReader.Write(b[:toWrite])
+		nw, er := f.Write(b[:toWrite])
 		if er != nil {
 			return er
 		}
@@ -136,69 +92,37 @@ func InitializeCdpMetaFile(path string) (err error) {
 		return err
 	}
 
-	ptr, err := syscall.UTF16PtrFromString(path)
-	if err != nil {
+	if err = customFile(path); err != nil {
 		return err
-	}
-	if err = syscall.SetFileAttributes(ptr, syscall.FILE_ATTRIBUTE_SYSTEM|syscall.FILE_ATTRIBUTE_HIDDEN); err != nil {
-		return err
-	}
-
-	if _, err = extend.CopyFileByDiskExtents(path, diskHasher); err != nil {
-		return err
-	}
-	if !bytes.Equal(fileHasher.Sum(nil), diskHasher.Sum(nil)) {
-		return errors.New("hash mismatch")
 	}
 
 	return nil
 }
 
-func ConfigRegistry(metaFile string) error {
-	k, _, err := registry.CreateKey(registry.LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Services\\biotrk\\Parameters", registry.ALL_ACCESS)
+func Validate(metaFile string) (err error) {
+	f, err := os.Open(metaFile)
 	if err != nil {
 		return err
 	}
-	defer k.Close()
+	defer f.Close()
 
-	var meta MetadataRegions
-	es, err := extend.FileDiskExtents(metaFile)
+	fileMd5, err := extend.FileMd5sum(f)
 	if err != nil {
 		return err
 	}
-	for _, v := range es {
-		meta.Count++
-		id, e := extend.WindowsDiskIDFromPath(v.Disk)
-		if e != nil {
-			return e
-		}
-		meta.Regions = append(meta.Regions, MetadataRegion{
-			DiskID: id,
-			Start:  uint64(v.Start),
-			Size:   uint64(v.Size),
-		})
-	}
+	diskMd5Hasher := md5.New()
 
-	var buf bytes.Buffer
-	if err = struc.Pack(&buf, &meta); err != nil {
+	if _, err = extend.CopyFileByDiskExtents(metaFile, diskMd5Hasher); err != nil {
 		return err
 	}
-	fragmentsVal := buf.Bytes()
+	diskMd5 := hex.EncodeToString(diskMd5Hasher.Sum(nil))
 
-	t := tablewriter.NewWriter(os.Stdout)
-	t.SetHeader([]string{"Number", "Disk", "Start (bytes)", "Length (bytes)"})
-	for i, v := range meta.Regions {
-		line := []string{strconv.Itoa(i), strconv.Itoa(int(v.DiskID)), strconv.FormatUint(v.Start, 10), strconv.FormatUint(v.Size, 10)}
-		t.Append(line)
+	fmt.Println("file-hash: ", fileMd5)
+	fmt.Println("disk-hash: ", diskMd5)
+
+	if fileMd5 != diskMd5 {
+		return errors.New("file md5 does not match disk md5 hash")
 	}
-	fmt.Printf("Print regions of cdp meta file:\n")
-	t.Render()
-
-	fmt.Print("Print REGKEY(fragments):\n", hex.Dump(fragmentsVal))
-	if err = k.SetBinaryValue("fragments", fragmentsVal); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -213,6 +137,11 @@ func main() {
 	fmt.Printf("Initialize cdp meta file...\n")
 	if err := InitializeCdpMetaFile(metaFile); err != nil {
 		log.Fatalf("Failed to create hidden file: %v", err)
+	}
+
+	fmt.Printf("Validate cdp meta file...\n")
+	if err := Validate(metaFile); err != nil {
+		log.Fatalf("Failed to validate cdp meta file: %v", err)
 	}
 
 	fmt.Printf("Configure registry...\n")
