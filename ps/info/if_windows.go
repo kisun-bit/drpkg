@@ -104,6 +104,10 @@ func IsPhysicalIF(name string) bool {
 	if strings.HasPrefix(adapters[0].PNPDeviceID, "VMBUS") {
 		return true
 	}
+	// Xen虚拟机
+	if strings.HasPrefix(adapters[0].PNPDeviceID, "XEN") {
+		return true
+	}
 
 	return false
 }
