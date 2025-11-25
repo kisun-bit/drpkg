@@ -851,3 +851,13 @@ func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 	}
 	return es, nil
 }
+
+// QueryDosDevice 获取磁盘驱动器（例如：C:）的DosDevice形式（例如：\Device\HarddiskVolume1）
+func QueryDosDevice(drive string) (string, error) {
+	dev := make([]uint16, windows.MAX_PATH)
+	_, err := windows.QueryDosDevice(windows.StringToUTF16Ptr(drive), &dev[0], windows.MAX_PATH)
+	if err != nil {
+		return "", err
+	}
+	return windows.UTF16ToString(dev), nil
+}
