@@ -208,7 +208,9 @@ func (gpt *GPT) BackupGPT() (bgpt *BackupGPT, err error) {
 	// 备份分区表的表头
 	//
 
-	if _, err = bgptBinReader.Seek(int64(1*gpt.SectorSize), io.SeekEnd); err != nil {
+	backupHeaderOffset := int64(len(bgpt.Bin)) - int64(gpt.SectorSize)
+
+	if _, err = bgptBinReader.Seek(backupHeaderOffset, io.SeekStart); err != nil {
 		return nil, err
 	}
 	if err = struc.Unpack(bgptBinReader, &bgpt.Header); err != nil {

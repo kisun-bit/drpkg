@@ -30,4 +30,12 @@ func main() {
 		log.Fatalln("CopyFileByDiskExtents: ", err)
 	}
 	fmt.Println("hash from disk: ", hex.EncodeToString(hasher.Sum(nil)))
+
+	es, err := extend.FileDiskExtents(file)
+	if err != nil {
+		log.Fatalln("FileDiskExtents: ", err)
+	}
+	for _, et := range es {
+		fmt.Println(et.Disk, et.Start, et.Size)
+	}
 }
