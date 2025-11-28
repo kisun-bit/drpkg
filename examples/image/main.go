@@ -26,7 +26,7 @@ func DemoWrite() {
 	origin, _ := os.Open(os.Args[2])
 	defer origin.Close()
 
-	img, err := image.Open(os.Args[3], image.EnableDebug())
+	img, err := image.Open(os.Args[3])
 	if err != nil {
 		logger.Fatal("Open: ", err)
 	}

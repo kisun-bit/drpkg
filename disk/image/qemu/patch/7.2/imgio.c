@@ -131,7 +131,7 @@ static void infof(const char *fmt, ...);
 static void errorf(const char *fmt, ...);
 static void cleanup(void);
 static int init_shared_memory(void);
-static int openfile(char *name, int flags, bool force_share, QDict *opts);
+static int openfile(char *name);
 static int handle_read_request(ReadRequest *req);
 static int handle_write_request(WriteRequest *req);
 static int handle_flush_request(FlushRequest *req);
@@ -219,28 +219,16 @@ static int init_shared_memory(void) {
     return 0;
 }
 
-static int openfile(char *name, int flags, bool force_share, QDict *opts) {
+static int openfile(char *name) {
     Error *local_err = NULL;
+    int flags = BDRV_O_UNMAP | BDRV_O_RDWR;
 
     if (qemuio_blk) {
         errorf("Error: File already opened\n");
-        qobject_unref(opts);
         return 1;
     }
 
-    if (force_share) {
-        if (!opts) {
-            opts = qdict_new();
-        }
-        if (qdict_haskey(opts, BDRV_OPT_FORCE_SHARE) &&
-            strcmp(qdict_get_str(opts, BDRV_OPT_FORCE_SHARE), "on")) {
-            errorf("Error: Arg(-U) conflicts with image options\n");
-            qobject_unref(opts);
-            return 1;
-        }
-        qdict_put_str(opts, BDRV_OPT_FORCE_SHARE, "on");
-    }
-    qemuio_blk = blk_new_open(name, NULL, opts, flags, &local_err);
+    qemuio_blk = blk_new_open(name, NULL, NULL, flags, &local_err);
     if (!qemuio_blk) {
         error_reportf_err(local_err, "can't open%s%s: ", name ? " device " : "", name ?: "");
         errorf("Error: can't open%s%s\n", name ? " device " : "", name ? : "");
@@ -458,7 +446,6 @@ int main(int argc, char *argv[]) {
     int request_efd_value = -1;
     int response_efd_value = -1;
     int shmid_value = -1;
-    int flags = BDRV_O_UNMAP | BDRV_O_RDWR;
 
     infof("++++++++++ imgio ++++++++++\n");
 
@@ -553,7 +540,7 @@ int main(int argc, char *argv[]) {
     trace_init_file();
     qemu_set_log(LOG_TRACE, &error_fatal);
 
-    if (openfile(file_path, flags, FALSE, NULL)) {
+    if (openfile(file_path)) {
         errorf("Error: Failed to open file by qemu");
         return 1;
     }

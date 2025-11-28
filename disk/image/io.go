@@ -264,6 +264,10 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 		err = errors.Wrapf(err, "WriteAt")
 	}()
 
+	if off >= img.VirtualSize {
+		return 0, errors.New("overflow")
+	}
+
 	//
 	// 发送写指令，每次最多写1MiB，若b的长度超过1MiB，则分多次写
 	//
