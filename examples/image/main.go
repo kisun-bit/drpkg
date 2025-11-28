@@ -32,7 +32,7 @@ func DemoWrite() {
 	}
 	defer img.Close()
 
-	bufLen := 1 << 20
+	bufLen := 2 << 20
 	buf := make([]byte, bufLen)
 	off := int64(0)
 	go func() {
@@ -56,7 +56,8 @@ func DemoWrite() {
 		}
 		if nr > 0 {
 			if _, ew := img.WriteAt(buf[:nr], off); ew != nil {
-				logger.Fatal("WriteAt: ", ew)
+				logger.Error("WriteAt: ", ew)
+				return
 			}
 			_, _ = hash.Write(buf[:nr])
 			off += int64(nr)
@@ -104,7 +105,7 @@ func DemoRead() {
 			return
 		}
 		if nr > 0 {
-			//_, _ = hash.Write(buf[:nr])
+			_, _ = hash.Write(buf[:nr])
 			off += int64(nr)
 		}
 		if er == io.EOF || nr == 0 {
