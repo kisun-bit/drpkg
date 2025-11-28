@@ -1,6 +1,6 @@
 //go:build linux
 
-package event
+package image
 
 import (
 	"encoding/binary"

@@ -13,7 +13,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
-	"github.com/kisun-bit/drpkg/disk/image/event"
+	"github.com/kisun-bit/drpkg/disk/image"
 	"github.com/kisun-bit/drpkg/logger"
 )
 
@@ -26,7 +26,7 @@ func DemoWrite() {
 	origin, _ := os.Open(os.Args[2])
 	defer origin.Close()
 
-	img, err := event.Open(os.Args[3])
+	img, err := image.Open(os.Args[3])
 	if err != nil {
 		logger.Fatal("Open: ", err)
 	}
@@ -75,7 +75,7 @@ func DemoRead() {
 
 	logger.Debugf("origin file: %s", os.Args[2])
 
-	img, err := event.Open(os.Args[2])
+	img, err := image.Open(os.Args[2])
 	if err != nil {
 		logger.Fatal("Open: ", err)
 	}
@@ -117,7 +117,7 @@ func DemoRead() {
 }
 
 func DemoImageMap() {
-	imi, err := event.Map(context.Background(), os.Args[2])
+	imi, err := image.Map(context.Background(), os.Args[2])
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func DemoImageMap() {
 
 func main() {
 	//defer time.Sleep(time.Hour)
-	if err := event.QemuToolDirSetup(os.Args[1]); err != nil {
+	if err := image.QemuToolDirSetup(os.Args[1]); err != nil {
 		logger.Error("QemuToolDirSetup: ", err)
 	}
 	//DemoRead()
