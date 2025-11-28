@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/ps/lvm/lvm2cmd"
 )
 
@@ -38,7 +39,7 @@ func QueryLVMInfo() (li LVM, err error) {
 				Attr: lv.AttrStr,
 				Size: lv.Size,
 			}
-			segs, err := LVSegments(lvi.Device)
+			segs, err := extend.LVSegments(lvi.Device)
 			if err != nil {
 				return li, err
 			}

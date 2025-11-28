@@ -57,7 +57,7 @@ func QueryVolumes() ([]Volume, error) {
 		curVol.MountPoint = drvMountpoint
 
 		for _, d := range des {
-			curVol.Segments = append(curVol.Segments, Segment{
+			curVol.Segments = append(curVol.Segments, extend.Segment{
 				Disk:  extend.WindowsDiskPathFromID(d.DiskNumber),
 				Start: d.StartingOffset,
 				Size:  d.ExtentLength,

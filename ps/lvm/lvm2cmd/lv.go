@@ -225,54 +225,99 @@ var (
 )
 
 func ParseLvAttrs(attrStr string) ([10]int, error) {
-	attrVolType, ok := AttrVolTypeMap[attrStr[0]]
-	if !ok {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[0]: %s", attrStr)
-	}
-	attrPermissions, ok := AttrPermissionsMap[attrStr[1]]
-	if !ok {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[1]: %s", attrStr)
-	}
-	attrAllocPolicy, ok := AttrAllocPolicyMap[attrStr[2]]
-	if !ok {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[2]: %s", attrStr)
-	}
-	attrFixed := 0
-	if attrStr[3] == 'm' {
-		attrFixed += LV_ATTR_FIXED_MINOR
-	} else if attrStr[3] != '-' {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[3]: %s", attrStr)
-	}
-	attrState, ok := AttrStateMap[attrStr[4]]
-	if !ok {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[4]: %s", attrStr)
-	}
-	attrDevice, ok := AttrDeviceMap[attrStr[5]]
-	if !ok {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[5]: %s", attrStr)
-	}
-	attrTargetType, ok := AttrTargetTypeMap[attrStr[6]]
-	if !ok {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[6]: %s", attrStr)
-	}
-	attrBlocks := 0
-	if attrStr[7] == 'z' {
-		attrFixed += LV_ATTR_BLOCKS_ARE_OVERWRITTEN_WITH_ZEROES_BEFORE_USE
-	} else if attrStr[7] != '-' {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[7]: %s", attrStr)
-	}
-	attrHealth, ok := AttrHealthMap[attrStr[8]]
-	if !ok {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[8]: %s", attrStr)
-	}
-	attrSkip := 0
-	if attrStr[9] == 'k' {
-		attrFixed += LV_ATTR_SKIP_ACTIVATION
-	} else if attrStr[9] != '-' {
-		return [10]int{}, fmt.Errorf("invalid lv_attr[9]: %s", attrStr)
+	var attr [10]int
+
+	getChar := func(idx int) (byte, bool) {
+		if idx >= len(attrStr) {
+			return 0, false // 不存在，不报错
+		}
+		return attrStr[idx], true
 	}
 
-	return [10]int{attrVolType, attrPermissions, attrAllocPolicy, attrFixed, attrState, attrDevice, attrTargetType, attrBlocks, attrHealth, attrSkip}, nil
+	getMap := func(m map[byte]int, idx int) (int, error) {
+		b, ok := getChar(idx)
+		if !ok {
+			return 0, nil // 不存在，默认 0
+		}
+
+		v, found := m[b]
+		if !found {
+			return 0, fmt.Errorf("invalid lv_attr[%d]: %c", idx, b)
+		}
+		return v, nil
+	}
+
+	var err error
+
+	// [0]
+	if attr[0], err = getMap(AttrVolTypeMap, 0); err != nil {
+		return attr, err
+	}
+	// [1]
+	if attr[1], err = getMap(AttrPermissionsMap, 1); err != nil {
+		return attr, err
+	}
+	// [2]
+	if attr[2], err = getMap(AttrAllocPolicyMap, 2); err != nil {
+		return attr, err
+	}
+
+	// [3]
+	if b, ok := getChar(3); ok {
+		switch b {
+		case 'm':
+			attr[3] = LV_ATTR_FIXED_MINOR
+		case '-':
+			// nothing
+		default:
+			return attr, fmt.Errorf("invalid lv_attr[3]: %c", b)
+		}
+	}
+
+	// [4]
+	if attr[4], err = getMap(AttrStateMap, 4); err != nil {
+		return attr, err
+	}
+
+	// [5]
+	if attr[5], err = getMap(AttrDeviceMap, 5); err != nil {
+		return attr, err
+	}
+
+	// [6]
+	if attr[6], err = getMap(AttrTargetTypeMap, 6); err != nil {
+		return attr, err
+	}
+
+	// [7]
+	if b, ok := getChar(7); ok {
+		switch b {
+		case 'z':
+			attr[3] += LV_ATTR_BLOCKS_ARE_OVERWRITTEN_WITH_ZEROES_BEFORE_USE
+		case '-':
+			// nothing
+		default:
+			return attr, fmt.Errorf("invalid lv_attr[7]: %c", b)
+		}
+	}
+
+	// [8]
+	if attr[8], err = getMap(AttrHealthMap, 8); err != nil {
+		return attr, err
+	}
+
+	// [9]
+	if b, ok := getChar(9); ok {
+		switch b {
+		case 'k':
+			attr[3] += LV_ATTR_SKIP_ACTIVATION
+		case '-':
+		default:
+			return attr, fmt.Errorf("invalid lv_attr[9]: %c", b)
+		}
+	}
+
+	return attr, nil
 }
 
 func FindLv(name string, lvName ...string) (*LogicalVolume, error) {
