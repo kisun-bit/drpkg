@@ -54,7 +54,8 @@ type Image struct {
 }
 
 type openopt struct {
-	debug bool
+	debug   bool
+	noFlush bool
 }
 
 type OpenOption func(*openopt)
@@ -63,6 +64,12 @@ type OpenOption func(*openopt)
 func EnableDebug() OpenOption {
 	return func(i *openopt) {
 		i.debug = true
+	}
+}
+
+func EnableNoFlush() OpenOption {
+	return func(i *openopt) {
+		i.noFlush = true
 	}
 }
 
@@ -133,6 +140,9 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 		"-r", strconv.Itoa(3),
 		"-p", strconv.Itoa(4),
 		"-s", strconv.Itoa(img.shmId),
+	}
+	if img.opt.noFlush {
+		procArgs = append(procArgs, "-u")
 	}
 	if img.opt.debug {
 		procArgs = append(procArgs, "-d")

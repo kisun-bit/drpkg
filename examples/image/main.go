@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -26,7 +25,7 @@ func DemoWrite(enableHash bool) {
 	origin, _ := os.Open(os.Args[2])
 	defer origin.Close()
 
-	img, err := image.Open(os.Args[3])
+	img, err := image.Open(os.Args[3], image.EnableNoFlush())
 	if err != nil {
 		logger.Fatal("Open: ", err)
 	}
@@ -111,7 +110,9 @@ func DemoRead(enableHash bool) {
 			return
 		}
 		if nr > 0 {
-			_, _ = hash.Write(buf[:nr])
+			if enableHash {
+				_, _ = hash.Write(buf[:nr])
+			}
 			off += int64(nr)
 		}
 		if er == io.EOF || nr == 0 {
@@ -119,7 +120,11 @@ func DemoRead(enableHash bool) {
 		}
 	}
 
-	logger.Debugf("Read: %d, md5: %v", off, hex.EncodeToString(hash.Sum(nil)))
+	output := fmt.Sprintf("Read: %d", off)
+	if enableHash {
+		output = fmt.Sprintf(" md5: %v", hash.Sum(nil))
+	}
+	logger.Debugf(output)
 }
 
 func DemoImageMap() {
@@ -135,7 +140,7 @@ func main() {
 	if err := image.QemuToolDirSetup(os.Args[1]); err != nil {
 		logger.Error("QemuToolDirSetup: ", err)
 	}
-	//DemoRead()
+	//DemoRead(false)
 	DemoWrite(false)
 	//DemoImageMap()
 }
