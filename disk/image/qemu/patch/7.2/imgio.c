@@ -190,10 +190,10 @@ static void cleanup(void) {
         g_shm_addr = NULL;
     }
 
-    if (g_shm_id >= 0) {
-        shmctl(g_shm_id, IPC_RMID, NULL);
-        g_shm_id = -1;
-    }
+    // if (g_shm_id >= 0) {
+    //    shmctl(g_shm_id, IPC_RMID, NULL);
+    //    g_shm_id = -1;
+    // }
 }
 
 // 初始化共享内存

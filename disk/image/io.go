@@ -170,6 +170,12 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 		return nil, errors.Wrapf(err, "failed to receive ready signal from C process")
 	}
 	readyValue := binary.LittleEndian.Uint64(readyBuf[:])
+
+	if exited, code := img.getQemuExitStat(); exited {
+		return nil, errors.Errorf(
+			"qemu process exited with status %d, this qcow2 file may have already been opened by another process",
+			code)
+	}
 	logger.Debugf("Qemu process is ready (read %d bytes, value=%d)", n, readyValue)
 
 	logger.Debugf("%s is opened", img.String())
