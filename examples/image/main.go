@@ -17,7 +17,7 @@ import (
 	"github.com/kisun-bit/drpkg/logger"
 )
 
-func DemoWrite() {
+func DemoWrite(enableHash bool) {
 	hash := md5.New()
 
 	logger.Debugf("origin file: %s", os.Args[2])
@@ -59,7 +59,9 @@ func DemoWrite() {
 				logger.Error("WriteAt: ", ew)
 				return
 			}
-			_, _ = hash.Write(buf[:nr])
+			if enableHash {
+				_, _ = hash.Write(buf[:nr])
+			}
 			off += int64(nr)
 		}
 		if er == io.EOF {
@@ -67,10 +69,14 @@ func DemoWrite() {
 		}
 	}
 
-	logger.Debugf("Written: %d, md5: %v", off, hex.EncodeToString(hash.Sum(nil)))
+	output := fmt.Sprintf("Written: %d", off)
+	if enableHash {
+		output = fmt.Sprintf(" md5: %v", hash.Sum(nil))
+	}
+	logger.Debugf(output)
 }
 
-func DemoRead() {
+func DemoRead(enableHash bool) {
 	hash := md5.New()
 
 	logger.Debugf("origin file: %s", os.Args[2])
@@ -130,6 +136,6 @@ func main() {
 		logger.Error("QemuToolDirSetup: ", err)
 	}
 	//DemoRead()
-	DemoWrite()
+	DemoWrite(false)
 	//DemoImageMap()
 }

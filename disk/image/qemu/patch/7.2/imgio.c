@@ -221,7 +221,9 @@ static int init_shared_memory(void) {
 
 static int openfile(char *name) {
     Error *local_err = NULL;
-    int flags = BDRV_O_UNMAP | BDRV_O_RDWR;
+
+    // FIXME 测试发现添加BDRV_O_NO_FLUSH后，速度出现极大提升，但是后续需要搞清楚此参数的说明
+    int flags = BDRV_O_UNMAP | BDRV_O_RDWR | BDRV_O_NO_FLUSH;
 
     if (qemuio_blk) {
         errorf("Error: File already opened\n");
