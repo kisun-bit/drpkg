@@ -105,6 +105,7 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 	if err != nil {
 		return nil, err
 	}
+	logger.Debugf("efd(request)=%v efd(response)=%v", img.efdr, img.efdp)
 
 	img.shmId, err = unix.SysvShmGet(os.Getpid(), shmSize, unix.IPC_CREAT|0o660)
 	if err != nil {

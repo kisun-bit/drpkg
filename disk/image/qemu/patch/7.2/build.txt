@@ -1,0 +1,12 @@
+1. 下载qemu-7.2.0源码包并解压
+2. 将imgio.c和meson.build替换到qemu-7.2.0的对应目录下
+3. 执行编译前配置，例如您要编译x86_64架构的，可以执行：
+   ./configure --target-list=x86_64-softmmu --enable-debug
+4. 执行make进行编译
+5. 编译完成后，进入build目录，可以找到imgio和img
+6. ldd imgio和ldd img，查看其依赖的共享库，将依赖库一并拷贝到一个新目录下
+7. 使用patchelf工具修改imgio和img的rpath，使其指向当前目录
+   例如：
+   patchelf --set-rpath . imgio
+   patchelf --set-rpath . img
+8. 同样地，修改所有依赖库的rpath，使其指向当前目录

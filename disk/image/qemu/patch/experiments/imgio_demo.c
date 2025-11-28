@@ -18,29 +18,6 @@
 #include <getopt.h>
 #include <libgen.h>
 
-#include "qemu/osdep.h"
-#include "qemu/help-texts.h"
-#include "qemu/cutils.h"
-#include "qapi/error.h"
-#include "qemu-io.h"
-#include "qemu/error-report.h"
-#include "qemu/main-loop.h"
-#include "qemu/module.h"
-#include "qemu/option.h"
-#include "qemu/config-file.h"
-#include "qemu/readline.h"
-#include "qemu/log.h"
-#include "qemu/sockets.h"
-#include "qapi/qmp/qstring.h"
-#include "qapi/qmp/qdict.h"
-#include "qom/object_interfaces.h"
-#include "sysemu/block-backend.h"
-#include "block/block_int.h"
-#include "trace/control.h"
-#include "crypto/init.h"
-#include "qemu-version.h"
-#include "qemu/memalign.h"
-
 // 共享内存大小和偏移量定义
 #define SHM_SIZE (4 << 20)          // 4MB
 #define REQUEST_OFFSET 0
@@ -112,6 +89,7 @@ typedef struct __attribute__((packed)) {
 } CloseRequest;
 
 // 全局变量
+static int g_file_fd = -1;             // 文件描述符
 static int g_event_fd_request = -1;    // 请求事件描述符（Go写入，C读取）
 static int g_event_fd_response = -1;   // 响应事件描述符（C写入，Go读取）
 static int g_shm_id = -1;              // 共享内存ID
@@ -121,29 +99,23 @@ static char *g_request_area = NULL;    // 请求区域
 static char *g_response_area = NULL;   // 响应区域
 static bool g_running = true;          // 运行标志
 
-static BlockBackend *qemuio_blk = NULL; // QEMU存储块对象
-static int64_t ImageSize = 0;           // 镜像大小
-
 // 函数声明
 void on_parent_exit(int sig);
 static void debugf(const char *fmt, ...);
-static void infof(const char *fmt, ...);
-static void errorf(const char *fmt, ...);
 static void cleanup(void);
 static int init_shared_memory(void);
-static int openfile(char *name, int flags, bool force_share, QDict *opts);
 static int handle_read_request(ReadRequest *req);
 static int handle_write_request(WriteRequest *req);
 static int handle_flush_request(FlushRequest *req);
 static int handle_close_request(CloseRequest *req);
-static int process_requests(void);
+static void process_requests(void);
 
 void on_parent_exit(int sig) {
-    infof("Received SIGTERM (parent exited), exiting child\n");
+    printf("Received SIGTERM (parent exited), exiting child.\n");
     exit(0);
 }
 
-static void debugf(const char *fmt, ...)
+void debugf(const char *fmt, ...)
 {
     if (!g_enable_debug) {
         return;
@@ -155,26 +127,13 @@ static void debugf(const char *fmt, ...)
     fflush(stdout);
 }
 
-static void infof(const char *fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    vprintf(fmt, args);
-    va_end(args);
-    fflush(stdout);
-}
-
-static void errorf(const char *fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
-    fflush(stderr);
-}
-
 // 清理资源
 static void cleanup(void) {
+    if (g_file_fd >= 0) {
+        close(g_file_fd);
+        g_file_fd = -1;
+    }
+
     if (g_event_fd_request >= 0) {
         close(g_event_fd_request);
         g_event_fd_request = -1;
@@ -198,65 +157,34 @@ static void cleanup(void) {
 
 // 初始化共享内存
 static int init_shared_memory(void) {
-    infof("Initializing shared memory with ID: %d\n", g_shm_id);
+    printf("Initializing shared memory with ID: %d\n", g_shm_id);
 
     // 映射共享内存
     g_shm_addr = shmat(g_shm_id, NULL, 0);
     if (g_shm_addr == (void *)-1) {
-        errorf("Error: Failed to attach shared memory, shmat failed for shm_id=%d: %s\n", g_shm_id, strerror(errno));
+        perror("Failed to attach shared memory");
+        printf("shmat failed for shm_id=%d: %s\n", g_shm_id, strerror(errno));
+        fflush(stdout);
         g_shm_addr = NULL;
         return -1;
     }
 
-    infof("Shared memory attached at address: %p\n", g_shm_addr);
+    printf("Shared memory attached at address: %p\n", g_shm_addr);
 
     // 设置请求和响应区域指针
     g_request_area = (char *)g_shm_addr + REQUEST_OFFSET;
     g_response_area = (char *)g_shm_addr + RESPONSE_OFFSET;
 
-    infof("Request area: %p, Response area: %p\n", g_request_area, g_response_area);
-
-    return 0;
-}
-
-static int openfile(char *name, int flags, bool force_share, QDict *opts) {
-    Error *local_err = NULL;
-
-    if (qemuio_blk) {
-        errorf("Error: File already opened\n");
-        qobject_unref(opts);
-        return 1;
-    }
-
-    if (force_share) {
-        if (!opts) {
-            opts = qdict_new();
-        }
-        if (qdict_haskey(opts, BDRV_OPT_FORCE_SHARE) &&
-            strcmp(qdict_get_str(opts, BDRV_OPT_FORCE_SHARE), "on")) {
-            errorf("Error: Arg(-U) conflicts with image options\n");
-            qobject_unref(opts);
-            return 1;
-        }
-        qdict_put_str(opts, BDRV_OPT_FORCE_SHARE, "on");
-    }
-    qemuio_blk = blk_new_open(name, NULL, opts, flags, &local_err);
-    if (!qemuio_blk) {
-        error_reportf_err(local_err, "can't open%s%s: ", name ? " device " : "", name ?: "");
-        errorf("Error: can't open%s%s\n", name ? " device " : "", name ? : "");
-        return 1;
-    }
-
-    blk_set_enable_write_cache(qemuio_blk, TRUE);
+    printf("Request area: %p, Response area: %p\n", g_request_area, g_response_area);
 
     return 0;
 }
 
 // 处理读请求
 static int handle_read_request(ReadRequest *req) {
-    int ret = 0;
     ReadResponse *resp = (ReadResponse *)g_response_area;
     char *data = (char *)(resp + 1);  // 数据紧跟在响应结构体后面
+    ssize_t bytes_read;
 
     debugf("handle_read_request: offset=%ld, length=%d\n", req->offset, req->length);
 
@@ -269,30 +197,36 @@ static int handle_read_request(ReadRequest *req) {
     // 检查请求长度是否合法
     if (req->length <= 0 || req->length > RW_MAX_LEN) {
         resp->base.errorCode = -EINVAL;
-        errorf("Invalid length: %d\n", req->length);
+        debugf("Invalid length: %d\n", req->length);
         return -1;
     }
 
-    int64_t remain = ImageSize - req->offset;
-    int64_t read_bytes = (remain > req->length) ? req->length : remain;
-
-    ret = blk_pread(qemuio_blk, (int64_t)req->offset, read_bytes, data, 0);
-    if (ret < 0) {
-        errorf("Error: Failed to call blk_pread: %s\n", strerror(-ret));
-        return ret;
+    // 定位文件偏移
+    if (lseek(g_file_fd, req->offset, SEEK_SET) == -1) {
+        resp->base.errorCode = -errno;
+        debugf("lseek failed: %s\n", strerror(errno));
+        return -1;
     }
 
-    resp->length = read_bytes;
-    debugf("Read success: resp->base.type=%u, resp->base.sequence=%lu, resp->base.errorCode=%d, resp->length=%d\n",
-           resp->base.type, resp->base.sequence, resp->base.errorCode, resp->length);
+    // 读取文件数据
+    bytes_read = read(g_file_fd, data, req->length);
+    if (bytes_read == -1) {
+        resp->base.errorCode = -errno;
+        debugf("read failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    resp->length = bytes_read;
+    debugf("Read success: bytes_read=%ld, resp->base.type=%u, resp->base.sequence=%lu, resp->base.errorCode=%d, resp->length=%d\n",
+           bytes_read, resp->base.type, resp->base.sequence, resp->base.errorCode, resp->length);
     return 0;
 }
 
 // 处理写请求
 static int handle_write_request(WriteRequest *req) {
-    int ret = 0;
     WriteResponse *resp = (WriteResponse *)g_response_area;
     char *data = (char *)(req + 1);  // 数据紧跟在请求结构体后面
+    ssize_t bytes_written;
 
     // 初始化响应
     resp->base.type = req->base.type;
@@ -303,17 +237,23 @@ static int handle_write_request(WriteRequest *req) {
     // 检查请求长度是否合法
     if (req->length <= 0 || req->length > RW_MAX_LEN) {
         resp->base.errorCode = -EINVAL;
-        errorf("Invalid length: %d\n", req->length);
         return -1;
     }
 
-    ret = blk_pwrite(qemuio_blk, req->offset, req->length, data, 0);
-    if (ret < 0) {
-        errorf("Error: Failed to call blk_pwrite: %s\n", strerror(-ret));
-        return ret;
+    // 定位文件偏移
+    if (lseek(g_file_fd, req->offset, SEEK_SET) == -1) {
+        resp->base.errorCode = -errno;
+        return -1;
     }
 
-    resp->length = req->length;
+    // 写入文件数据
+    bytes_written = write(g_file_fd, data, req->length);
+    if (bytes_written == -1) {
+        resp->base.errorCode = -errno;
+        return -1;
+    }
+
+    resp->length = bytes_written;
     return 0;
 }
 
@@ -327,9 +267,9 @@ static int handle_flush_request(FlushRequest *req) {
     resp->base.errorCode = 0;
 
     // 刷盘操作
-    if (qemuio_blk) {
-        debugf("FLUSH\n");
-        blk_flush(qemuio_blk);
+    if (fsync(g_file_fd) == -1) {
+        resp->base.errorCode = -errno;
+        return -1;
     }
 
     return 0;
@@ -347,48 +287,38 @@ static int handle_close_request(CloseRequest *req) {
     // 设置退出标志
     g_running = false;
 
-    if (qemuio_blk) {
-        blk_flush(qemuio_blk);
-        bdrv_drain_all();
-        blk_unref(qemuio_blk);
-        qemuio_blk = NULL;
-        debugf("CLOSE\n");
-        fflush(stdout);
-    }
-
     return 0;
 }
 
 // 处理请求
-static int process_requests(void) {
+static void process_requests(void) {
     ShmBaseRequest *base_req = (ShmBaseRequest *)g_request_area;
     uint64_t value;
-    int ret = 0; // 默认成功
 
-    infof("Entering request processing loop, waiting on fd=%d\n", g_event_fd_request);
+    printf("Entering request processing loop, waiting on fd=%d\n", g_event_fd_request);
+    fflush(stdout);
 
     while (g_running) {
         // 等待事件通知（从 request eventfd 读取）
+        // Go 端使用 EFD_SEMAPHORE 标志，每次 read() 返回 1
         debugf("Blocking on read(event_fd_request=%d)...\n", g_event_fd_request);
-
+        
         if (read(g_event_fd_request, &value, sizeof(value)) != sizeof(value)) {
             if (errno == EINTR) {
                 continue;
             }
-            errorf("Error: Failed to read from request eventfd\n");
-            ret = -1; // 出错
+            perror("Failed to read from request eventfd");
             break;
         }
 
         // 使用 EFD_SEMAPHORE 时，每次读取返回 1
+        // 如果读取到的值不是 1，说明有问题
         if (value != 1) {
-            errorf("Error: eventfd returned unexpected value: %lu\n", value);
-            ret = -1; // 出错
-            break;
+            debugf("Warning: eventfd returned unexpected value: %lu\n", value);
         }
 
         debugf("Received request: type=%u, sequence=%lu\n", base_req->type, base_req->sequence);
-
+        
         // 调试：打印共享内存的原始字节
         debugf("Raw bytes from shared memory (first 24 bytes):\n    ");
         for (int i = 0; i < 24; i++) {
@@ -412,11 +342,11 @@ static int process_requests(void) {
 
             case REQUEST_CLOSE:
                 handle_close_request((CloseRequest *)g_request_area);
-                ret = 0; // 正常关闭
-                goto out; // 退出循环
+                 break;
 
             default:
-                debugf("Unknown request type: %u\n", base_req->type);
+                // 未知请求类型
+                printf("Unknown request type: %u\n", base_req->type);
                 ((ShmBaseResponse *)g_response_area)->type = base_req->type;
                 ((ShmBaseResponse *)g_response_area)->sequence = base_req->sequence;
                 ((ShmBaseResponse *)g_response_area)->errorCode = -EINVAL;
@@ -427,18 +357,17 @@ static int process_requests(void) {
         value = 1;
         if (write(g_event_fd_response, &value, sizeof(value)) != sizeof(value)) {
             perror("Failed to write to response eventfd");
-            ret = -1;
             break;
         }
 
         debugf("Response sent\n");
+
+        // 处理关闭请求后，直接退出
+        if (base_req->type==REQUEST_CLOSE) {
+            break;
+        }
     }
-
-out:
-    infof("Exiting request processing loop with ret=%d\n", ret);
-    return ret;
 }
-
 
 // 显示使用帮助
 static void show_usage(const char *prog_name) {
@@ -458,9 +387,8 @@ int main(int argc, char *argv[]) {
     int request_efd_value = -1;
     int response_efd_value = -1;
     int shmid_value = -1;
-    int flags = BDRV_O_UNMAP | BDRV_O_RDWR;
 
-    infof("++++++++++ imgio ++++++++++\n");
+    printf("++++++++++ imgio ++++++++++\n");
 
     signal(SIGTERM, on_parent_exit);
     prctl(PR_SET_PDEATHSIG, SIGTERM);
@@ -517,6 +445,13 @@ int main(int argc, char *argv[]) {
     // 注册退出清理函数
     atexit(cleanup);
 
+    // 打开文件（先尝试读写模式，如果失败则尝试只读模式）
+    g_file_fd = open(file_path, O_RDWR);
+    if (g_file_fd == -1) {
+        fprintf(stderr, "Failed to open `%s`. Error: %s\n", file_path, strerror(errno));
+        return 1;
+    }
+
     // 设置eventfd
     g_event_fd_request = request_efd_value;
     g_event_fd_response = response_efd_value;
@@ -526,60 +461,27 @@ int main(int argc, char *argv[]) {
 
     // 初始化共享内存
     if (init_shared_memory() != 0) {
-        errorf("Failed to initialize shared memory\n");
+        fprintf(stderr, "Failed to initialize shared memory\n");
         return 1;
     }
 
-    infof("File: %s, RequestEFD: %d, ResponseEFD: %d, ShmID: %d, PID: %d\n",
-        file_path, g_event_fd_request, g_event_fd_response, g_shm_id, getpid());
-
-    // 初始化QEMU环境
-    infof("Preparing the QEMU environment\n");
-
-    socket_init();
-    error_init(argv[0]);
-    module_call_init(MODULE_INIT_TRACE);
-    qemu_init_exec_dir(argv[0]);
-    qcrypto_init(&error_fatal);
-    module_call_init(MODULE_INIT_QOM);
-    qemu_add_opts(&qemu_trace_opts);
-    bdrv_init();
-    qemu_init_main_loop(&error_fatal);
-
-    if (!trace_init_backends()) {
-        errorf("Error: Failed to call trace_init_backends");
-        return 1;
-    }
-    trace_init_file();
-    qemu_set_log(LOG_TRACE, &error_fatal);
-
-    if (openfile(file_path, flags, FALSE, NULL)) {
-        errorf("Error: Failed to open file by qemu");
-        return 1;
-    }
-
-    ImageSize = blk_getlength(qemuio_blk);
-    if (ImageSize <= 0) {
-        errorf("Error: Failed to call blk_getlength");
-        return 1;
-    }
-
-    infof("Size of image is %ld bytes\n", ImageSize);
+    printf("File: %s, RequestEFD: %d, ResponseEFD: %d, ShmID: %d, PID: %d\n",
+           file_path, g_event_fd_request, g_event_fd_response, g_shm_id, getpid());
 
     // 发送就绪信号给 Go 端
     uint64_t ready_signal = 1;
     if (write(g_event_fd_response, &ready_signal, sizeof(ready_signal)) != sizeof(ready_signal)) {
-        errorf("Error: Failed to send ready signal");
+        perror("Failed to send ready signal");
         return 1;
     }
-    infof("Ready signal sent to parent process\n");
+    printf("Ready signal sent to parent process\n");
+    fflush(stdout);
 
     // 处理请求
-    if (process_requests() < 0) {
-        errorf("Error: Process requests failed\n");
-        return 1;
-    }
+    process_requests();
 
-    infof("---------- imgio ----------\n");
+    printf("---------- imgio ----------\n");
+    fflush(stdout);
+
     return 0;
 }

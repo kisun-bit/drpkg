@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 import (
@@ -24,7 +26,7 @@ func DemoWrite() {
 	origin, _ := os.Open(os.Args[2])
 	defer origin.Close()
 
-	img, err := image.Open(os.Args[3])
+	img, err := image.Open(os.Args[3], image.EnableDebug())
 	if err != nil {
 		logger.Fatal("Open: ", err)
 	}
@@ -126,7 +128,7 @@ func main() {
 	if err := image.QemuToolDirSetup(os.Args[1]); err != nil {
 		logger.Error("QemuToolDirSetup: ", err)
 	}
-	DemoRead()
-	//DemoWrite()
+	//DemoRead()
+	DemoWrite()
 	//DemoImageMap()
 }
