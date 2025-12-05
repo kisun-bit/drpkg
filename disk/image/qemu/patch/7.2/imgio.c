@@ -124,6 +124,8 @@ static bool g_running = true;          // 运行标志
 
 static BlockBackend *qemuio_blk = NULL; // QEMU存储块对象
 static int64_t ImageSize = 0;           // 镜像大小
+static int64_t ReadBytes = 0;
+static int64_t WriteBytes = 0;
 
 // 函数声明
 void on_parent_exit(int sig);
@@ -277,6 +279,8 @@ static int handle_read_request(ReadRequest *req) {
         return ret;
     }
 
+    __atomic_add_fetch(&ReadBytes,  (int64_t)req->length, __ATOMIC_RELAXED);
+
     resp->length = read_bytes;
     debugf("Read success: resp->base.type=%u, resp->base.sequence=%lu, resp->base.errorCode=%d, resp->length=%d\n",
            resp->base.type, resp->base.sequence, resp->base.errorCode, resp->length);
@@ -307,6 +311,8 @@ static int handle_write_request(WriteRequest *req) {
         errorf("Error: Failed to call blk_pwrite: %s\n", strerror(-ret));
         return ret;
     }
+
+    __atomic_add_fetch(&WriteBytes, (int64_t)req->length, __ATOMIC_RELAXED);
 
     resp->length = req->length;
     return 0;
@@ -580,6 +586,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    infof("Read: %ldB, Written: %ldB\n", ReadBytes, WriteBytes);
     infof("---------- imgio ----------\n");
     return 0;
 }
