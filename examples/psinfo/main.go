@@ -14,5 +14,5 @@ func main() {
 		return
 	}
 	//_ = psi
-	fmt.Println(psi.PrettyString())
+	fmt.Println(psi.Pretty())
 }
