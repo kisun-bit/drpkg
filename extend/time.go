@@ -1,6 +1,9 @@
 package extend
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // TimeByMicrosoftTimestamp 将微软时间戳转换为当前时间
 func TimeByMicrosoftTimestamp(timestamp uint64) time.Time {
@@ -10,4 +13,13 @@ func TimeByMicrosoftTimestamp(timestamp uint64) time.Time {
 	unixEpochStart := uint64(116444736000000000) // 1601年1月1日至1970年1月1日的100纳秒计时单位差值
 	timestampInNano := int64((timestamp - unixEpochStart)) * 100
 	return time.Unix(0, timestampInNano)
+}
+
+func Sleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(d):
+		return
+	}
 }
