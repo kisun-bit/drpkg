@@ -365,6 +365,18 @@ func DiskPhysicalSectorSize(dev string) (int, error) {
 	return size, nil
 }
 
+func DiskSectorAlignment(dev string) (sa StorageAlignment, err error) {
+	sa.PhysicalSectorSize, err = DiskPhysicalSectorSize(dev)
+	if err != nil {
+		return
+	}
+	sa.LogicalSectorSize, err = DiskLogicalSectorSize(dev)
+	if err != nil {
+		return
+	}
+	return
+}
+
 // IsDirectAccessBlockDevice 判断是否是普通磁盘类设备(type==0)
 func IsDirectAccessBlockDevice(device string) (bool, error) {
 	_, diskName, err := ResolveDevice(device)

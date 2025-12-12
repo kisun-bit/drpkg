@@ -618,6 +618,16 @@ func DiskAlignmentStorage(hardDiskPath string) (sad STORAGE_ACCESS_ALIGNMENT_DES
 	return sad, nil
 }
 
+func DiskSectorAlignment(dev string) (sa StorageAlignment, err error) {
+	sad, err := DiskAlignmentStorage(dev)
+	if err != nil {
+		return sa, errors.Wrapf(err, "DiskAlignmentStorage")
+	}
+	sa.PhysicalSectorSize = int(sad.BytesPerPhysicalSector)
+	sa.LogicalSectorSize = int(sad.BytesPerLogicalSector)
+	return sa, nil
+}
+
 // TryToGrantSeSystemEnvironmentPrivilege 尝试获取 SeSystemEnvironmentPrivilege 的权限
 // 参考：https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4672
 func TryToGrantSeSystemEnvironmentPrivilege() error {

@@ -122,3 +122,8 @@ type FileDiskExtentSegment struct {
 	Start int64
 	Size  int64
 }
+
+type StorageAlignment struct {
+	LogicalSectorSize  int
+	PhysicalSectorSize int
+}
