@@ -146,7 +146,18 @@ func (dm DevMajor) MinNum() string {
 }
 
 func (dm DevMajor) IsLV() bool {
-	return dm.MajorNum() == "253"
+	//return dm.MajorNum() == "253"
+
+	dmNamePath := fmt.Sprintf("/sys/dev/block/%s/dm/name", dm)
+	lvName, err := ReadStringFromFile(dmNamePath)
+	if err != nil {
+		return false
+	}
+	lvPath := fmt.Sprintf("/dev/mapper/%s", lvName)
+
+	cmdline := fmt.Sprintf("lvdisplay %s", lvPath)
+	r, _, _ := command.Execute(cmdline)
+	return r == 0
 }
 
 func VolumeMountpoints() (volumeMountpoints []DevMountpoint, err error) {
