@@ -2,12 +2,10 @@ package info
 
 import (
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/ps/efi"
-	"github.com/pkg/errors"
 )
 
 type LinuxKernel struct {
@@ -93,32 +91,49 @@ func QueryEFIInfo() (e EFI, err error) {
 	if err != nil {
 		return e, err
 	}
-	for _, variable := range vars {
-		if variable.Name != "BootCurrent" {
+
+	// 统一处理 BootXXXX
+	resolveBootEntry := func(namespace string, entry uint16) (string, error) {
+		name := efi.BootEntryName(entry)
+		data, err := efi.GetEfiVariableValue(namespace, name)
+		if err != nil {
+			return "", err
+		}
+		text, err := efi.DecodeUTF16(data)
+		if err != nil {
+			return "", err
+		}
+		path, _ := efi.MatchUEFIPath(text)
+		return path, nil
+	}
+
+	// ===============================
+	// 1. 优先从 BootCurrent 查
+	// ===============================
+	for _, v := range vars {
+		if v.Name != "BootCurrent" {
 			continue
 		}
-		bcText, err := efi.GetEfiVariableValue(variable.Namespace, variable.Name)
+
+		data, err := efi.GetEfiVariableValue(v.Namespace, v.Name)
 		if err != nil {
 			return e, err
 		}
-		if len(bcText) == 6 {
-			bcText = bcText[4:]
+
+		if len(data) == 6 { // 某些固件前4字节是属性
+			data = data[4:]
 		}
-		cur, err := efi.BytesToU16(bcText)
+
+		cur, err := efi.BytesToU16(data)
 		if err != nil {
 			return e, err
 		}
-		bcEntryName := efi.BootEntryName(cur)
-		e.BootCurrent = bcEntryName
-		bcEntryBytes, err := efi.GetEfiVariableValue(variable.Namespace, bcEntryName)
+
+		e.BootCurrent = efi.BootEntryName(cur)
+		e.BootFile, err = resolveBootEntry(v.Namespace, cur)
 		if err != nil {
 			return e, err
 		}
-		bcEntryText, err := efi.DecodeUTF16(bcEntryBytes)
-		if err != nil {
-			return e, err
-		}
-		e.BootFile, _ = efi.MatchUEFIPath(bcEntryText)
 
 		//
 		// Note:
@@ -136,36 +151,56 @@ func QueryEFIInfo() (e EFI, err error) {
 		// Boot0002* EFI Network   PciRoot(0x0)/Pci(0x16,0x0)/Pci(0x0,0x0)/MAC(005056ac730b,1)
 		// Boot0003* EFI Internal Shell (Unsupported option)       MemoryMapped(11,0xefe6018,0xf3f5017)/FvFile(c57ad6b7-0515-40a8-9d21-551652854e37)
 		// Boot0004* CentOS        HD(1,GPT,2c396c7a-a5b0-437d-85dc-fa2d3239e53d,0x800,0x64000)/File(\EFI\centos\shimx64.efi)
-		// [root@RunStor efivars]# ll /boot/efi/EFI/BOOT/
-		// -rwx------. 1 root root 959224 Apr  5  2024 BOOTX64.EFI
-		// -rwx------. 1 root root  91432 Apr  5  2024 fbx64.efi
-		// [root@RunStor efivars]#
-		// [root@RunStor efivars]# ll /boot/efi/EFI/rocky/
-		// -rwx------. 1 root root     104 Apr  5  2024 BOOTX64.CSV
-		// -rwx------. 1 root root 2541896 Mar 18 19:41 gcdx64.efi
-		// -rwx------. 1 root root 2541896 Mar 18 19:41 grubx64.efi
-		// -rwx------. 1 root root  857352 Apr  5  2024 mmx64.efi
-		// -rwx------. 1 root root  959224 Apr  5  2024 shim.efi
-		// -rwx------. 1 root root  952016 Apr  5  2024 shimx64-rocky.efi
-		// -rwx------. 1 root root  959224 Apr  5  2024 shimx64.efi
-		//
+		// ...
 
 		if e.BootFile == "" {
-			if !extend.IsWindowsPlatform() {
-				matches, _ := filepath.Glob("/boot/efi/EFI/BOOT/BOOT*.EFI")
-				if len(matches) > 0 {
-					e.BootFile = strings.TrimPrefix(matches[0], "/boot/efi")
-				}
-			} else {
-				if runtime.GOARCH == "amd64" {
-					e.BootFile = "/EFI/Boot/bootx64.efi"
-				}
-				// FIXME arm版本的windows
-			}
+			fillDefaultBootFile(&e)
 		}
+		e.Effective = e.BootFile == ""
+	}
 
-		e.Effective = true
+	if e.Effective {
 		return e, nil
 	}
-	return e, errors.New("efi not found")
+
+	// ===============================
+	// 2. fallback：从 BootOrder 查第一个
+	// ===============================
+	for _, v := range vars {
+		if v.Name != "BootOrder" {
+			continue
+		}
+
+		data, err := efi.GetEfiVariableValue(v.Namespace, v.Name)
+		if err != nil {
+			return e, err
+		}
+		if len(data) < 2 {
+			break
+		}
+
+		cur, err := efi.BytesToU16(data[:2])
+		if err != nil {
+			return e, err
+		}
+
+		e.BootCurrent = efi.BootEntryName(cur)
+		e.BootFile, _ = resolveBootEntry(v.Namespace, cur)
+
+		if e.BootFile == "" {
+			fillDefaultBootFile(&e)
+		}
+		e.Effective = e.BootFile == ""
+	}
+
+	return e, nil
+}
+
+func fillDefaultBootFile(e *EFI) {
+	if !extend.IsWindowsPlatform() {
+		if matches, _ := filepath.Glob("/boot/efi/EFI/BOOT/BOOT*.EFI"); len(matches) > 0 {
+			e.BootFile = strings.TrimPrefix(matches[0], "/boot/efi")
+		}
+		return
+	}
 }
