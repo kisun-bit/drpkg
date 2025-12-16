@@ -24,7 +24,7 @@ func QueryVolumes() ([]Volume, error) {
 				return nil, err
 			}
 		} else {
-			isDA, err := extend.IsDirectAccessBlockDevice(devMount.Device)
+			isDA, err := extend.IsNormalDiskDevice(devMount.Device)
 			if err != nil {
 				return nil, err
 			}

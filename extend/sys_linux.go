@@ -36,22 +36,14 @@ func GetFileSize(fileName string) (size uint64, err error) {
 
 		switch runtime.GOARCH {
 		case "386":
-			_, _, err = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize, uintptr(unsafe.Pointer(&size)))
-			if err != nil {
-				err = errors.Wrap(err, "ioctl: LinuxIOCTLGetBlockSize")
-			}
+			_, _, errno = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize, uintptr(unsafe.Pointer(&size)))
 			size <<= 9
 		case "amd64", "arm64":
-			_, _, err = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize64, uintptr(unsafe.Pointer(&size)))
-			if err != nil {
-				err = errors.Wrap(err, "ioctl: LinuxIOCTLGetBlockSize64")
-			}
-		default:
-			size, err = getSizeFromSysfs(fileName)
+			_, _, errno = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize64, uintptr(unsafe.Pointer(&size)))
 		}
 
-		if err != nil {
-			return 0, err
+		if errno != 0 {
+			return getSizeFromSysfs(fileName)
 		}
 		return size, nil
 	} else {
@@ -273,21 +265,30 @@ func ListDisks() (disks []string, err error) {
 	if err != nil {
 		return nil, err
 	}
+
 	for _, file := range subFiles {
 		filename := file.Name()
-		path := filepath.Join(sysBlockDir, filename, "device/type")
-		devType, err := ReadIntFromFile(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, err
+		disk := filepath.Join("/dev", filename)
+
+		_, diskName, e := ResolveDevice(disk)
+		if e != nil {
+			return nil, e
 		}
-		if devType != 0 {
+		if filename != diskName {
 			continue
 		}
-		disks = append(disks, filepath.Join("/dev", filename))
+
+		ok, e := IsNormalDiskDevice(disk)
+		if e != nil {
+			return nil, e
+		}
+		if !ok {
+			continue
+		}
+
+		disks = append(disks, disk)
 	}
+
 	sort.Strings(disks)
 	return disks, nil
 }
@@ -345,6 +346,17 @@ func IsDiskReadonly(disk string) (bool, error) {
 	return r != 0, errors.Wrapf(e, "get disk read-only attribute")
 }
 
+func IsDiskRemovable(disk string) (bool, error) {
+	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "removable"))
+	if err == nil {
+		return ret != "0", nil
+	}
+	if errors.Is(err, syscall.ENXIO) || os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, errors.Wrapf(err, "get disk removable attr")
+}
+
 func BytesPerSector(dev string) (int, error) {
 	return DiskLogicalSectorSize(dev)
 }
@@ -352,43 +364,21 @@ func BytesPerSector(dev string) (int, error) {
 func DiskLogicalSectorSize(dev string) (int, error) {
 	base := filepath.Base(dev)
 	p := fmt.Sprintf("/sys/class/block/%s/queue/logical_block_size", base)
-	data, err := os.ReadFile(p)
+	i, err := ReadIntFromFile(p)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return 512, nil
-		}
-		return 0, errors.Wrapf(err, "failed to read %s", p)
+		return 0, err
 	}
-	sizeStr := strings.TrimSpace(string(data))
-	size, err := strconv.Atoi(sizeStr)
-	if err != nil {
-		return 0, errors.Wrapf(err, "failed to parse %s", p)
-	}
-	if size == 0 {
-		return 0, errors.Errorf("failed to get logical-sector-size of %v", dev)
-	}
-	return size, nil
+	return int(i), nil
 }
 
 func DiskPhysicalSectorSize(dev string) (int, error) {
 	base := filepath.Base(dev)
 	p := fmt.Sprintf("/sys/class/block/%s/queue/physical_block_size", base)
-	data, err := os.ReadFile(p)
+	i, err := ReadIntFromFile(p)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return 512, nil
-		}
-		return 0, errors.Wrapf(err, "failed to read %s", p)
+		return 0, err
 	}
-	sizeStr := strings.TrimSpace(string(data))
-	size, err := strconv.Atoi(sizeStr)
-	if err != nil {
-		return 0, errors.Wrapf(err, "failed to parse %s", p)
-	}
-	if size == 0 {
-		return 0, errors.Errorf("failed to get physical-sector-size of %v", dev)
-	}
-	return size, nil
+	return int(i), nil
 }
 
 func DiskSectorAlignment(dev string) (sa StorageAlignment, err error) {
@@ -414,6 +404,38 @@ func IsDirectAccessBlockDevice(device string) (bool, error) {
 		return false, err
 	}
 	return t == 0, nil
+}
+
+func IsNormalDiskDevice(device string) (bool, error) {
+	_, diskName, err := ResolveDevice(device)
+	if err != nil {
+		return false, err
+	}
+
+	path := filepath.Join("/sys/class/block", diskName, "device/subsystem")
+
+	linkTarget, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if linkTarget == "" {
+		return false, nil
+	}
+
+	if strings.HasPrefix(filepath.Base(diskName), "sr") {
+		return false, nil
+	}
+
+	ro, _ := IsDiskReadonly(path)
+	removable, _ := IsDiskRemovable(path)
+	if ro && removable {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func DeviceUUID(device string) string {
