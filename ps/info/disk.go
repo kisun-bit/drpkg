@@ -50,6 +50,8 @@ type DiskTable struct {
 	Device string `json:"device"`
 	// Type 分区表类型
 	Type table2.TableType `json:"type"`
+	// Damaged 是否损坏，仅在Type等于GPT或MBR时才有意义
+	Damaged bool `json:"damaged"`
 	// Identifier 分区表唯一ID
 	Identifier string `json:"identifier"`
 	// Partitions 分区表项集合
@@ -78,6 +80,13 @@ func GetDiskTable(disk string) (dt DiskTable, err error) {
 
 	dt.Device = disk
 	dt.Type = t
+
+	defer func() {
+		if err != nil {
+			dt.Damaged = true
+			err = nil
+		}
+	}()
 
 	switch t {
 	case table2.TableTypeGPT:
