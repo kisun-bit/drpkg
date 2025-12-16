@@ -34,19 +34,45 @@ func GetFileSize(fileName string) (size uint64, err error) {
 		}
 		defer f.Close()
 
-		if runtime.GOARCH == "386" {
-			_, _, errno = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize, uintptr(unsafe.Pointer(&size)))
+		switch runtime.GOARCH {
+		case "386":
+			_, _, err = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize, uintptr(unsafe.Pointer(&size)))
+			if err != nil {
+				err = errors.Wrap(err, "ioctl: LinuxIOCTLGetBlockSize")
+			}
 			size <<= 9
-		} else {
-			_, _, errno = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize64, uintptr(unsafe.Pointer(&size)))
+		case "amd64", "arm64":
+			_, _, err = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize64, uintptr(unsafe.Pointer(&size)))
+			if err != nil {
+				err = errors.Wrap(err, "ioctl: LinuxIOCTLGetBlockSize64")
+			}
+		default:
+			size, err = getSizeFromSysfs(fileName)
 		}
-		if errno != 0 {
-			return 0, errno
+
+		if err != nil {
+			return 0, err
 		}
 		return size, nil
 	} else {
 		return uint64(info.Size()), nil
 	}
+}
+
+func getSizeFromSysfs(dev string) (uint64, error) {
+	devname := filepath.Base(dev)
+	data, err := os.ReadFile("/sys/class/block/" + devname + "/size")
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to read /sys/class/block/%s/size", devname)
+	}
+
+	sectors, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to parse /sys/class/block/%s/size", devname)
+	}
+
+	// Linux这里的size单位是512-byte sectors
+	return sectors * 512, nil
 }
 
 func MatchDevLinkName(base string, deviceName string) string {
