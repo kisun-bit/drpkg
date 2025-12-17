@@ -18,10 +18,8 @@ type Disk struct {
 	Device string `json:"device"`
 	// GUID 全局唯一ID
 	GUID string `json:"guid"`
-	// Sectors 物理扇区个数（单位：扇区）
+	// Sectors 逻辑扇区个数（单位：扇区）
 	Sectors int64 `json:"sectors"`
-	// SectorSize 扇区大小（单位：字节），等于 LogicalSectorSize
-	SectorSize int `json:"sectorSize"`
 	// LogicalSectorSize 逻辑扇区大小（单位：字节）
 	LogicalSectorSize int `json:"logicalSectorSize"`
 	// PhysicalSectorSize 物理扇区大小（单位：字节）
@@ -34,6 +32,9 @@ type Disk struct {
 	Model string `json:"model"`
 	// SerialNumber 硬件序列号（注意：可能为空）
 	SerialNumber string `json:"serialNumber"`
+	// Bus 总线类型
+	// 注意Windows请参考：WIN_STORAGE_BUS_TYPE
+	Bus string `json:"bus"`
 	// Table 分区表信息
 	Table DiskTable `json:"table"`
 	// IsOnline 是否已联机

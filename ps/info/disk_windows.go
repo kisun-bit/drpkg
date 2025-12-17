@@ -14,49 +14,48 @@ func QueryDisks() (disks []Disk, err error) {
 	if err != nil {
 		return nil, err
 	}
+
 	for _, diskPath := range diskPaths {
 		d := Disk{}
 		d.Name = strings.ToUpper(diskPath)
 		d.Device = diskPath
-		geo, err := extend.GetDiskGeometry(diskPath)
-		if err != nil {
-			return nil, errors.Wrapf(err, "GetDiskGeometry for %s", diskPath)
-		}
-		d.SectorSize = int(geo.BytesPerSector)
-		sad, err := extend.DiskAlignmentStorage(diskPath)
-		if err == nil {
+
+		sad, e := extend.DiskAlignmentStorage(diskPath)
+		if e == nil {
 			d.LogicalSectorSize = int(sad.BytesPerLogicalSector)
 			d.PhysicalSectorSize = int(sad.BytesPerPhysicalSector)
 		} else {
 			// 经测试，在win2k8r2上，IOCTL_STORAGE_QUERY_PROPERTY不受支持，
 			// 因此我们以DISK_GEOMETRY数据为准即可
 			if errors.Is(err, windows.ERROR_NOT_SUPPORTED) {
-				d.LogicalSectorSize = d.SectorSize
-				d.PhysicalSectorSize = d.SectorSize
+				d.LogicalSectorSize = 512
+				d.PhysicalSectorSize = 512
 			} else {
 				return nil, errors.Wrapf(err, "DiskAlignmentStorage for %s", diskPath)
 			}
 		}
 
-		size, err := extend.FileSize(diskPath)
-		if err != nil {
-			return nil, errors.Wrapf(err, "FileSize for %s", diskPath)
+		size, e := extend.FileSize(diskPath)
+		if e != nil {
+			return nil, errors.Wrapf(e, "FileSize for %s", diskPath)
 		}
 		d.Size = int64(size)
 		// 注意：现代硬盘的真实容量不再与 CHS 信息匹配
 		// 因此，通过CHS计算出来的实际容量会比真实硬盘容量更小，实际场景中请使用 IOCTL_DISK_GET_LENGTH_INFO 获取真实硬盘容量
 		// d.Sectors = int64(geo.Cylinders) * int64(geo.TracksPerCylinder) * int64(geo.SectorsPerTrack)
-		d.Sectors = d.Size / int64(d.SectorSize)
-		diskProperty, err := extend.DiskProperty(diskPath)
-		if err != nil {
-			return nil, errors.Wrapf(err, "GetDiskProperty for %s", diskPath)
+		d.Sectors = d.Size / int64(d.LogicalSectorSize)
+		diskProperty, e := extend.DiskProperty(diskPath)
+		if e != nil {
+			return nil, errors.Wrapf(e, "GetDiskProperty for %s", diskPath)
 		}
+		d.Bus = diskProperty.BusType.String()
+
 		d.Vendor = diskProperty.VendorId
 		d.Model = diskProperty.ProductId
 		d.SerialNumber = diskProperty.SerialNumber
-		offline, readonly, err := extend.GetDiskAttr(diskPath)
-		if err != nil {
-			return nil, errors.Wrapf(err, "GetDiskAttr for %s", diskPath)
+		offline, readonly, e := extend.GetDiskAttr(diskPath)
+		if e != nil {
+			return nil, errors.Wrapf(e, "GetDiskAttr for %s", diskPath)
 		}
 		d.IsReadOnly = readonly
 		d.IsOnline = !offline

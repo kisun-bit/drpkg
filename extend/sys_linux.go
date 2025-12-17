@@ -309,11 +309,6 @@ func GetDiskSectors(disk string) (int64, error) {
 	return r, errors.Wrapf(e, "get disk sectos")
 }
 
-func GetDiskSectorSize(disk string) (int64, error) {
-	r, e := ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "queue/hw_sector_size"))
-	return r, errors.Wrapf(e, "get disk secto-size")
-}
-
 func GetDiskVendor(disk string) (string, error) {
 	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/vendor"))
 	if err == nil {

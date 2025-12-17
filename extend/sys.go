@@ -50,50 +50,50 @@ type WIN_STORAGE_BUS_TYPE byte
 func (busType WIN_STORAGE_BUS_TYPE) String() string {
 	switch busType {
 	case BusTypeUnknown:
-		return "Unknown"
+		return "unknown"
 	case BusTypeScsi:
-		return "Scsi"
+		return "scsi"
 	case BusTypeAtapi:
-		return "Atapi" // 光学设备如CD
+		return "atapi" // 光学设备如CD
 	case BusTypeAta:
-		return "Ata"
+		return "ata"
 	case BusType1394:
 		return "1394"
 	case BusTypeSsa:
-		return "Ssa"
+		return "ssa"
 	case BusTypeFibre:
-		return "Fibre"
+		return "fibre"
 	case BusTypeUsb:
-		return "Usb"
+		return "usb"
 	case BusTypeRAID:
-		return "RAID"
+		return "raid"
 	case BusTypeiScsi:
-		return "iScsi"
+		return "iscsi"
 	case BusTypeSas:
 		// SCSI 设备的一种类型，其中 SAS（Serial Attached SCSI，串行连接 SCSI）是其中之一,
 		// SAS 是一种用于连接服务器和存储设备的高速、可靠的接口标准。它是 SCSI 标准的一种延伸，
 		// 采用了串行连接的方式，提供了更高的性能和可靠性.
-		return "Sas"
+		return "sas"
 	case BusTypeSata:
-		return "Sata"
+		return "sata"
 	case BusTypeSd:
-		return "Sd"
+		return "sd"
 	case BusTypeMmc:
-		return "Mmc"
+		return "mmc"
 	case BusTypeVirtual:
-		return "Virtual"
+		return "virtual"
 	case BusTypeFileBackedVirtual:
-		return "FileBackedVirtual"
+		return "filebackedvirtual"
 	case BusTypeSpaces:
-		return "Spaces"
+		return "spaces"
 	case BusTypeNvme:
-		return "Nvme"
+		return "nvme"
 	case BusTypeSCM:
-		return "SCM"
+		return "scm"
 	case BusTypeUfs:
-		return "Ufs"
+		return "ufs"
 	default:
-		return ""
+		return "unknown"
 	}
 }
 
