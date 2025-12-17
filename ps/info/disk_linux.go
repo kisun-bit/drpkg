@@ -1,11 +1,17 @@
 package info
 
 import (
+	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
+	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/extend"
+	"github.com/pkg/errors"
 )
+
+var xenbusSysPathMatch = regexp.MustCompile(`/devices/vbd-\d+/block/`)
 
 func QueryDisks() (disks []Disk, err error) {
 	diskPaths, err := extend.ListDisks()
@@ -66,26 +72,65 @@ func QueryDisks() (disks []Disk, err error) {
 }
 
 func GetDiskBusType(dev string) (string, error) {
-	sysPath := filepath.Join("/sys/block", filepath.Base(dev), "device")
-
-	realPath, err := filepath.EvalSymlinks(sysPath)
-	if err != nil {
-		return "", err
+	cmdline := fmt.Sprintf("udevadm info --query=all --export --name=%s", filepath.Base(dev))
+	_, o, e := command.Execute(cmdline)
+	if e != nil {
+		return "unknown", errors.Errorf("error getting disk bus type: %s", e)
 	}
 
-	switch {
-	case strings.Contains(realPath, "virtio"):
-		return "virtio", nil
-	case strings.Contains(realPath, "nvme"):
-		return "nvme", nil
-	case strings.Contains(realPath, "usb"):
-		return "usb", nil
-	case strings.Contains(realPath, "ata"):
+	var busStr string
+	var sysPath string
+
+	for _, line := range strings.Split(o, "\n") {
+		if busStr != "" && sysPath != "" {
+			break
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		items := strings.Split(line, ":")
+		if len(items) < 2 {
+			continue
+		}
+
+		kvStr := strings.TrimSpace(items[1])
+		if strings.HasPrefix(kvStr, "ID_BUS=") && busStr == "" {
+			busStr = strings.TrimSpace(strings.TrimLeft(kvStr, "ID_BUS="))
+		}
+
+		if items[0] == "P" && sysPath == "" {
+			sysPath = strings.TrimSpace(strings.TrimLeft(line, "P:"))
+		}
+	}
+
+	switch busStr {
+	case "ata":
 		return "sata", nil
-	case strings.Contains(realPath, "scsi"):
+	case "usb":
+		return "usb", nil
+	case "scsi":
 		return "scsi", nil
-	case strings.Contains(realPath, "mmc"):
-		return "mmc", nil
+	case "virtio":
+		return "virtio", nil
+	case "":
+		if strings.Contains(sysPath, "/virtio") {
+			return "virtio", nil
+		}
+		if strings.Contains(sysPath, "/nvme/") {
+			return "nvme", nil
+		}
+		if strings.Contains(sysPath, "/virtual/block/nbd") {
+			return "nbd", nil
+		}
+		if strings.Contains(sysPath, "/virtual/block/loop") {
+			return "loop", nil
+		}
+		if xenbusSysPathMatch.MatchString(sysPath) {
+			return "xenbus", nil
+		}
+		fallthrough
 	default:
 		return "unknown", nil
 	}
