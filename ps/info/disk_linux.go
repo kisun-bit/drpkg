@@ -107,7 +107,7 @@ func GetDiskBusType(dev string) (string, error) {
 
 	switch busStr {
 	case "ata":
-		return "sata", nil
+		return "ata", nil
 	case "usb":
 		return "usb", nil
 	case "scsi":
