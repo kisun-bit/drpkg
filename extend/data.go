@@ -1,9 +1,11 @@
 package extend
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"os"
 	"reflect"
@@ -190,4 +192,12 @@ func FileMd5sum(r io.Reader) (string, error) {
 	}
 	code := h.Sum(nil)
 	return hex.EncodeToString(code), nil
+}
+
+func UnmarshalMsBinary(data []byte, v any) error {
+	return json.Unmarshal(TrimUtf8Bom(data), v)
+}
+
+func TrimUtf8Bom(data []byte) []byte {
+	return bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 }
