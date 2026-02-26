@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"math/bits"
 	"os"
 	"reflect"
 	"strconv"
@@ -98,6 +99,93 @@ func ExistedNonZeroBit(array []byte, startBit, endBit int64) (firstNonZeroBitIdx
 		}
 	}
 	return 0, false
+}
+
+// IterateBitmapOnesFast 遍历位图为1的比特索引，并对其处理
+func IterateBitmapOnesFast(buf []byte, bufferSize uint64, fn func(bitIndex uint64)) {
+	if bufferSize == 0 {
+		return
+	}
+
+	maxBytes := uint64(len(buf))
+	if bufferSize < maxBytes {
+		maxBytes = bufferSize
+	}
+
+	for byteIdx := uint64(0); byteIdx < maxBytes; byteIdx++ {
+		b := buf[byteIdx]
+		for b != 0 {
+			bit := bits.TrailingZeros8(b)
+			bitIndex := byteIdx*8 + uint64(bit)
+			fn(bitIndex)
+
+			b &= b - 1
+		}
+	}
+}
+
+// InsertBitsToHead 在data头部插入bitCount个bit（来自bits，高位优先）
+// 示例：
+// 原数据:
+// [10110010][01100011]
+// 插入 bits: 1101  (4 bit)
+// 结果:
+// [11011011][00100110][00110000]
+func InsertBitsToHead(data []byte, bits uint64, bitCount int) []byte {
+	if bitCount <= 0 {
+		return append([]byte{}, data...)
+	}
+
+	totalBits := len(data)*8 + bitCount
+	totalBytes := (totalBits + 7) / 8
+
+	result := make([]byte, totalBytes)
+
+	// 写入插入的 bits（MSB-first）
+	for i := 0; i < bitCount; i++ {
+		bit := (bits >> (bitCount - 1 - i)) & 1
+
+		byteIndex := i / 8
+		bitIndex := 7 - (i % 8)
+
+		if bit == 1 {
+			result[byteIndex] |= 1 << bitIndex
+		}
+	}
+
+	// 写入原 data（整体后移 bitCount）
+	for i := 0; i < len(data)*8; i++ {
+		srcByte := i / 8
+		srcBit := 7 - (i % 8)
+		bit := (data[srcByte] >> srcBit) & 1
+
+		dstPos := i + bitCount
+		dstByte := dstPos / 8
+		dstBit := 7 - (dstPos % 8)
+
+		if bit == 1 {
+			result[dstByte] |= 1 << dstBit
+		}
+	}
+
+	return result
+}
+
+// BitOnes 生成一个低n位全为1的整数
+// 示例：
+//
+//	传入1，返回0b1
+//	传入2，返回0b11
+//	传入3，返回0b111
+//	......
+func BitOnes(n int) uint64 {
+	if n <= 0 {
+		return 0
+	}
+	if n >= 64 {
+		return ^uint64(0) // 64位全1
+	}
+	return (uint64(1) << n) - 1
 }
 
 // StringEndWithDigit 判断字符串的最后一个字符是否是数字
