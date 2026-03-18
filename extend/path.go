@@ -206,7 +206,7 @@ func FindSymlinkByDeviceName(base string, deviceName string) (name string, ok bo
 		if err != nil {
 			return "", false
 		}
-		if linkTarget == filepath.Join("/dev", deviceName) {
+		if linkTarget == filepath.Join("/dev", filepath.Base(deviceName)) {
 			return linkName, true
 		}
 	}
