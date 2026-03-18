@@ -1,7 +1,9 @@
 package info
 
 import (
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/extend"
@@ -83,6 +85,13 @@ func QueryBootType() BootType {
 	if e == nil && len(vars) > 0 {
 		return "uefi"
 	}
+
+	if runtime.GOOS == "linux" {
+		if _, err := os.Stat("/sys/firmware/efi"); err == nil {
+			return "uefi"
+		}
+	}
+
 	return "bios"
 }
 
