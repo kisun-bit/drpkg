@@ -18,6 +18,10 @@ type Disk struct {
 	Device string `json:"device"`
 	// GUID 全局唯一ID
 	GUID string `json:"guid"`
+	// PathId 路径唯一Id
+	// Windows: 取磁盘Id，如0、1、2
+	// Linux：  取/dev/disk/by-path/xxxxx，如：pci-0000:03:00.0-scsi-0:0:0:0
+	PathId string `json:"pathId"`
 	// Sectors 逻辑扇区个数（单位：扇区）
 	Sectors int64 `json:"sectors"`
 	// LogicalSectorSize 逻辑扇区大小（单位：字节）

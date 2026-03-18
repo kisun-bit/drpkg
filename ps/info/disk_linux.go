@@ -23,6 +23,12 @@ func QueryDisks() (disks []Disk, err error) {
 		d.Name = diskPath
 		d.Device = diskPath
 
+		name, ok := extend.FindSymlinkByDeviceName("/dev/disk/by-path", diskPath)
+		if !ok {
+			return nil, errors.Errorf("cannot find by-path of disk (%s)", diskPath)
+		}
+		d.PathId = name
+
 		d.LogicalSectorSize, err = extend.DiskLogicalSectorSize(diskPath)
 		if err != nil {
 			return nil, err

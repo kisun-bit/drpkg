@@ -190,6 +190,29 @@ func FileSize(path string) (size uint64, err error) {
 	return GetFileSize(path)
 }
 
+func FindSymlinkByDeviceName(base string, deviceName string) (name string, ok bool) {
+	if !IsExisted(base) {
+		return "", false
+	}
+
+	links, err := os.ReadDir(base)
+	if err != nil {
+		return "", false
+	}
+	for _, link := range links {
+		linkName := link.Name()
+		linkPath := filepath.Join(base, linkName)
+		linkTarget, err := filepath.EvalSymlinks(linkPath)
+		if err != nil {
+			return "", false
+		}
+		if linkTarget == filepath.Join("/dev", deviceName) {
+			return linkName, true
+		}
+	}
+	return "", false
+}
+
 func getCurrentDirByExecutable() string {
 	exePath, err := os.Executable()
 	if err != nil {
