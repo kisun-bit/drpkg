@@ -219,7 +219,7 @@ func DeviceMajorTable(filter ...string) (map[DevMajor]string, error) {
 		}
 
 		// 检查是否是设备文件
-		if stat.Mode&syscall.S_IFCHR != 0 || stat.Mode&syscall.S_IFBLK != 0 {
+		if (stat.Mode & syscall.S_IFMT) == syscall.S_IFBLK {
 			major := uint64(stat.Rdev) >> 8
 			minor := uint64(stat.Rdev) & 0xff
 			dms[DevMajor(fmt.Sprintf("%d:%d", major, minor))] = devPath
