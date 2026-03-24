@@ -187,7 +187,7 @@ func (gpt *GPT) ContainsBootFlag() bool {
 func (gpt *GPT) BackupGPT() (bgpt *BackupGPT, err error) {
 	bgpt = new(BackupGPT)
 
-	pesBinLen := int64(32) * int64(gpt.SectorSize)
+	pesBinLen := int64(gpt.Header.NumberOfPartEntriesArray) * int64(gpt.SectorSize)
 	bgpt.Offset = gpt.Header.BackupLBA*int64(gpt.SectorSize) - 1*int64(gpt.SectorSize) - pesBinLen
 
 	_, err = gpt.disk.Seek(bgpt.Offset, io.SeekStart)
