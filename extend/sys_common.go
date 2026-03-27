@@ -13,7 +13,6 @@ import (
 
 	"github.com/lunixbochs/struc"
 	"github.com/pkg/errors"
-	"golang.org/x/sys/windows"
 )
 
 type PVLabel struct {
@@ -193,15 +192,4 @@ func isSingleUppercase(s string) bool {
 	}
 	ch := s[0]
 	return ch >= 'A' && ch <= 'Z'
-}
-
-func MsGuidFromBytes(arr []uint8) (g windows.GUID, err error) {
-	if len(arr) != 16 {
-		return windows.GUID{}, errors.New("length of bytes array of GUID is insufficient")
-	}
-	g.Data1 = uint32(arr[3])<<24 | uint32(arr[2])<<16 | uint32(arr[1])<<8 | uint32(arr[0])
-	g.Data2 = uint16(arr[5])<<8 | uint16(arr[4])
-	g.Data3 = uint16(arr[7])<<8 | uint16(arr[6])
-	copy(g.Data4[:], arr[8:])
-	return g, nil
 }
