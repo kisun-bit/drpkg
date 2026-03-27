@@ -13,6 +13,13 @@ type Volume struct {
 	// Linux: "/dev/sda1" 或 "/dev/mapper/rl-root"
 	Name string `json:"name"`
 
+	// Layout 布局类型，
+	// 可取：简单、带区（Windows特有）、RAID-5（Windows特有）、镜像（Windows特有）、跨区（Windows特有）等
+	Layout extend.VolumeType `json:"layout"`
+
+	// SegmentLayoutType 卷的数据分布类型，可取：line（默认）、mirror、unknown
+	SegmentLayoutType extend.SegmentLayoutType `json:"segmentLayoutType"`
+
 	// Segments 卷的数据分布在哪些磁盘区间
 	Segments []extend.Segment `json:"segments"`
 

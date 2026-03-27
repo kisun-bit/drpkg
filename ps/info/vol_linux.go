@@ -16,14 +16,20 @@ func QueryVolumes() ([]Volume, error) {
 	for _, devMount := range devMounts {
 		v := Volume{}
 		v.Name = devMount.Device
+		v.Layout = extend.VolumeTypeSimple
+		v.SegmentLayoutType = extend.SegmentLayoutTypeLine
 
-		if devMount.Major.IsLV() {
+		switch {
+		case devMount.Major.IsLV():
 			// 逻辑卷
 			v.Segments, err = extend.LVSegments(devMount.Device)
 			if err != nil {
 				return nil, err
 			}
-		} else {
+		case devMount.Major.IsMultipath():
+			// TODO 多路径
+			continue
+		default:
 			isDA, err := extend.IsNormalDiskDevice(devMount.Device)
 			if err != nil {
 				return nil, err

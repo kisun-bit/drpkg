@@ -145,19 +145,20 @@ func (dm DevMajor) MinNum() string {
 	return minor
 }
 
-func (dm DevMajor) IsLV() bool {
-	//return dm.MajorNum() == "253"
-
-	dmNamePath := fmt.Sprintf("/sys/dev/block/%s/dm/name", dm)
-	lvName, err := ReadStringFromFile(dmNamePath)
+func (dm DevMajor) hasPrefixInUUID(prefix string) bool {
+	uuid, err := ReadStringFromFile(fmt.Sprintf("/sys/dev/block/%s/dm/uuid", dm))
 	if err != nil {
 		return false
 	}
-	lvPath := fmt.Sprintf("/dev/mapper/%s", lvName)
+	return strings.HasPrefix(uuid, prefix)
+}
 
-	cmdline := fmt.Sprintf("lvdisplay %s", lvPath)
-	r, _, _ := command.Execute(cmdline)
-	return r == 0
+func (dm DevMajor) IsLV() bool {
+	return dm.hasPrefixInUUID("LVM-")
+}
+
+func (dm DevMajor) IsMultipath() bool {
+	return dm.hasPrefixInUUID("mpath-")
 }
 
 func VolumeMountpoints() (volumeMountpoints []DevMountpoint, err error) {
@@ -482,6 +483,33 @@ func GetDeviceType(diskName string) (int, error) {
 	return t, nil
 }
 
+// GetMultipathSlaves 返回 multipath 设备对应的底层磁盘列表
+// 例如：/dev/mapper/mpatha → [/dev/sdb, /dev/sdc]
+func GetMultipathSlaves(devPath string) ([]string, error) {
+	name := filepath.Base(devPath)
+
+	slavesPath := filepath.Join("/sys/class/block", name, "slaves")
+
+	entries, err := os.ReadDir(slavesPath)
+	if err != nil {
+		return nil, errors.Errorf("read slaves dir failed: %w", err)
+	}
+
+	var result []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		result = append(result, filepath.Join("/dev", e.Name()))
+	}
+
+	if len(result) == 0 {
+		return nil, errors.Errorf("%s has no slaves (not a multipath device?)", devPath)
+	}
+
+	return result, nil
+}
+
 // ResolveDevice 返回真实块设备路径和对应“磁盘名”
 // diskName 即 /sys/class/block/<diskName>
 func ResolveDevice(devPath string) (realPath, diskName string, err error) {
@@ -552,6 +580,62 @@ func DiskOrPartitionSegment(device string) (Segment, error) {
 	// /sys/class/block/sda/size的单位始终是512字节扇区（"kernel sector"）
 	seg.Size = sectors * 512
 	return seg, nil
+}
+
+func MultipathSegments(device string) (segments []Segment, err error) {
+	// 获取 slaves（/dev/sdb, /dev/sdc）
+	disks, err := GetMultipathSlaves(device)
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取 dm table
+	_, output, err := command.Execute("dmsetup table " + device)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("empty dmsetup output")
+	}
+	if len(lines) > 1 {
+		return nil, fmt.Errorf("unexpected multiple lines for multipath")
+	}
+
+	fields := strings.Fields(lines[0])
+	if len(fields) < 3 {
+		return nil, fmt.Errorf("invalid dmsetup table format")
+	}
+
+	// 解析 start 和 length, 单位：512B
+	start, err := strconv.ParseUint(fields[0], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse start failed: %w", err)
+	}
+
+	length, err := strconv.ParseUint(fields[1], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse length failed: %w", err)
+	}
+
+	target := fields[2]
+	if target != "multipath" {
+		return nil, fmt.Errorf("not a multipath device")
+	}
+
+	// multipath 的语义是：
+	// 所有路径共享同一个逻辑空间（1:1 映射）
+	// 所以每个底层盘都对应同一个 segment
+	for _, d := range disks {
+		segments = append(segments, Segment{
+			Disk:  d,
+			Start: start * 512,
+			Size:  length * 512,
+		})
+	}
+
+	return segments, nil
 }
 
 func LVSegments(lvPath string) (segments []Segment, err error) {

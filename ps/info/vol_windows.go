@@ -21,6 +21,11 @@ func QueryVolumes() ([]Volume, error) {
 		return nil, err
 	}
 
+	volTypeTable, err := extend.QueryMsVolumeTypeTable()
+	if err != nil {
+		return nil, err
+	}
+
 	vols := make([]Volume, 0)
 
 	for _, v := range volumes {
@@ -55,6 +60,21 @@ func QueryVolumes() ([]Volume, error) {
 		curVol := Volume{}
 		curVol.Name = fmt.Sprintf("Volume (%s)", v.Name)
 		curVol.MountPoint = drvMountpoint
+
+		curVol.Layout = extend.VolumeTypeSimple
+		vt, ok := volTypeTable[strings.ToLower(string(v.Name[0]))]
+		if ok {
+			curVol.Layout = vt
+		}
+
+		switch curVol.Layout {
+		case extend.VolumeTypeMsRaid5, extend.VolumeTypeMsStripe:
+			curVol.SegmentLayoutType = extend.SegmentLayoutTypeUnknown
+		case extend.VolumeTypeMsMirror:
+			curVol.SegmentLayoutType = extend.SegmentLayoutTypeMirror
+		default:
+			curVol.SegmentLayoutType = extend.SegmentLayoutTypeLine
+		}
 
 		for _, d := range des {
 			curVol.Segments = append(curVol.Segments, extend.Segment{

@@ -2,8 +2,14 @@ package extend
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/lunixbochs/struc"
 	"github.com/pkg/errors"
@@ -107,4 +113,83 @@ func CopyFileByDiskExtents(file string, dst io.Writer) (int64, error) {
 	}
 
 	return size, nil
+}
+
+// QueryMsVolumeTypeTable 查询Windows平台的卷类型表
+func QueryMsVolumeTypeTable() (map[string]VolumeType, error) {
+	script := "list volume"
+
+	p := filepath.Join(ExecDir(), fmt.Sprintf("%d.volumetype.ds", time.Now().Unix()))
+	if err := os.WriteFile(p, []byte(script), 0644); err != nil {
+		return nil, err
+	}
+	defer os.Remove(p)
+
+	cmdline := fmt.Sprintf("chcp 437 & diskpart /s %s", p)
+	out, err := exec.Command("cmd.exe", "/c", cmdline).CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+
+	table_ := make(map[string]VolumeType)
+
+	//
+	// 输出示例：
+	//  DISKPART> list volume
+	//
+	//  Volume ###  Ltr  Label        Fs     Type        Size     Status     Info
+	//  ----------  ---  -----------  -----  ----------  -------  ---------  --------
+	//  Volume 0         ???          NTFS   Spanned     1056 MB  Healthy
+	//  Volume 1     E   ???          NTFS   Spanned     4121 MB  Healthy
+	//  Volume 2                      RAW    Simple        30 MB  Healthy
+	//  Volume 3     C                NTFS   Simple        39 GB  Healthy    Boot
+	//  Volume 4         ????         NTFS   Simple       350 MB  Healthy    System
+	//  Volume 5     L   ???          NTFS   Spanned     2847 MB  Healthy
+	//  Volume 6     H   ???          NTFS   Mirror      2014 MB  Healthy
+	//  Volume 7     G   ???          NTFS   Stripe      4028 MB  Healthy
+	//  Volume 8     K   ???          NTFS   Simple       200 MB  Healthy
+	//  Volume 9     J   RAID5?       NTFS   RAID-5        38 MB  Healthy
+	//  Volume 10    D                       DVD-ROM         0 B  No Media
+	//  Volume 11    F   ???          NTFS   Partition   2045 MB  Healthy
+	//
+
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.ToLower(strings.TrimSpace(line))
+		lineItems := strings.Fields(line)
+		if len(lineItems) < 3 || lineItems[0] != "volume" {
+			continue
+		}
+		// 卷索引不存在
+		if _, e := strconv.Atoi(lineItems[1]); e != nil {
+			continue
+		}
+		// 卷标不存在
+		if !isSingleUppercase(strings.ToUpper(lineItems[2])) {
+			continue
+		}
+		volumeLtr := lineItems[2]
+
+		switch {
+		case strings.Contains(line, VolumeTypeMsStripe):
+			table_[volumeLtr] = VolumeTypeMsStripe
+		case strings.Contains(line, VolumeTypeMsMirror):
+			table_[volumeLtr] = VolumeTypeMsMirror
+		case strings.Contains(line, VolumeTypeMsRaid5):
+			table_[volumeLtr] = VolumeTypeMsRaid5
+		case strings.Contains(line, VolumeTypeMsSpanned):
+			table_[volumeLtr] = VolumeTypeMsSpanned
+		default:
+			table_[volumeLtr] = VolumeTypeSimple
+		}
+	}
+
+	return table_, nil
+}
+
+func isSingleUppercase(s string) bool {
+	if len(s) != 1 {
+		return false
+	}
+	ch := s[0]
+	return ch >= 'A' && ch <= 'Z'
 }

@@ -1,5 +1,13 @@
 package extend
 
+type SegmentLayoutType string
+
+const (
+	SegmentLayoutTypeUnknown SegmentLayoutType = "unknown"
+	SegmentLayoutTypeLine    SegmentLayoutType = "line"
+	SegmentLayoutTypeMirror  SegmentLayoutType = "mirror"
+)
+
 // Segment 表示卷在物理磁盘上的连续数据区间
 type Segment struct {
 	Disk  string `json:"disk"`  // 磁盘路径，例如 "/dev/sda" 或 "\\.\PHYSICALDRIVE0"

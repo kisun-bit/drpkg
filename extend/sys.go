@@ -127,3 +127,14 @@ type StorageAlignment struct {
 	LogicalSectorSize  int
 	PhysicalSectorSize int
 }
+
+type VolumeType string
+
+const (
+	VolumeTypeUnknown   VolumeType = "unknown"
+	VolumeTypeSimple               = "simple"
+	VolumeTypeMsSpanned            = "spanned"
+	VolumeTypeMsMirror             = "mirror"
+	VolumeTypeMsStripe             = "stripe"
+	VolumeTypeMsRaid5              = "raid-5"
+)
