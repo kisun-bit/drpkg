@@ -142,6 +142,11 @@ func (up *UniPci) BaseClassId() uint32 {
 	return up.baseClass
 }
 
+// SubClassId 硬件子类别Id
+func (up *UniPci) SubClassId() uint32 {
+	return up.subClass
+}
+
 func (up *UniPci) Equals(other *UniPci) bool {
 	return up != nil && other != nil && up.String() == other.String()
 }
