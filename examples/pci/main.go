@@ -20,7 +20,7 @@ func main() {
 		//	continue
 		//}
 
-		fmt.Printf("[%03d] %s | %s\n", i, p, p.Human())
+		fmt.Printf("[%03d] %s\n\tmodalias:  %s\n\tmsHwId  :  %v\n\thuman   :  %s\n", i, p, p.Modalias(), p.MsHardwareId(), p.Human())
 		p2, e := universal.UniPciFromString(p.String())
 		if e != nil {
 			logger.Fatalf("UniPciFromString: %v", err)

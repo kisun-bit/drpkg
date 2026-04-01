@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -192,4 +193,16 @@ func isSingleUppercase(s string) bool {
 	}
 	ch := s[0]
 	return ch >= 'A' && ch <= 'Z'
+}
+
+func GetSystemRoot() string {
+	if runtime.GOOS == "windows" {
+		drive := os.Getenv("SystemDrive")
+		if drive == "" {
+			drive = "C:"
+		}
+		return filepath.Clean(drive)
+	} else {
+		return "/"
+	}
 }
