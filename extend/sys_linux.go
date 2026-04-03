@@ -573,6 +573,8 @@ func DiskOrPartitionSegment(device string) (Segment, error) {
 		seg.Device = realDev
 	}
 
+	seg.Device = GetDeviceMapperPath(seg.Device)
+
 	sizeBytes, err := os.ReadFile(filepath.Join(sysPath, "size"))
 	if err != nil {
 		return seg, err
@@ -633,7 +635,7 @@ func MultipathSegments(device string) (segments []Segment, err error) {
 	// 所以每个底层盘都对应同一个 segment
 	for _, d := range disks {
 		segments = append(segments, Segment{
-			Device: d,
+			Device: GetDeviceMapperPath(d),
 			Start:  start * 512,
 			Size:   length * 512,
 		})
@@ -845,4 +847,19 @@ func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 
 	//fmt.Println(len(es))
 	return es, nil
+}
+
+// GetDeviceMapperPath 获取设备映射路径
+// 如：传入/dev/dm-1返回/dev/mapper/centos-root
+func GetDeviceMapperPath(device string) string {
+	// 不使用dm名称作为设备路径
+	if strings.HasPrefix(filepath.Base(device), "dm-") {
+		dmNamePath := fmt.Sprintf("/sys/class/block/%s/dm/name", filepath.Base(device))
+		if dmName, e := os.ReadFile(dmNamePath); e == nil {
+			if dmNameStr := strings.TrimSpace(string(dmName)); dmNameStr != "" {
+				return fmt.Sprintf("/dev/mapper/%s", dmNameStr)
+			}
+		}
+	}
+	return device
 }

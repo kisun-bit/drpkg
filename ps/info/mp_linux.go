@@ -32,17 +32,22 @@ func QueryMultipath() ([]MultipathDevice, error) {
 		}
 		dmName := strings.TrimSpace(string(nameBody))
 		devicePath := fmt.Sprintf("/dev/mapper/%s", dmName)
+		//dp, err := filepath.EvalSymlinks(devicePath)
+		//if err != nil {
+		//	return nil, err
+		//}
 
 		mp := MultipathDevice{}
+		mp.Name = dmName
 		mp.Device = devicePath
 
-		size, err := extend.FileSize(devicePath)
+		size, err := extend.FileSize(mp.Device)
 		if err != nil {
 			return nil, err
 		}
 		mp.Size = int64(size)
 
-		ss, err := extend.MultipathSegments(devicePath)
+		ss, err := extend.MultipathSegments(mp.Device)
 		if err != nil {
 			return nil, err
 		}
