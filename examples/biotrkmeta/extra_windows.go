@@ -84,7 +84,7 @@ func ConfigRegistry(metaFile string) error {
 	fragmentsVal := buf.Bytes()
 
 	t := tablewriter.NewWriter(os.Stdout)
-	t.SetHeader([]string{"Number", "Disk", "Start (bytes)", "Length (bytes)"})
+	t.SetHeader([]string{"Number", "Device", "Start (bytes)", "Length (bytes)"})
 	for i, v := range meta.Regions {
 		line := []string{strconv.Itoa(i), strconv.Itoa(int(v.DiskID)), strconv.FormatUint(v.Start, 10), strconv.FormatUint(v.Size, 10)}
 		t.Append(line)

@@ -129,8 +129,8 @@ const (
 	// Windows / Microsoft
 	GPT_MSFT_RESERVED        PartType = "E3C9E316-0B5C-4DB8-817D-F92DF00215AE" // Microsoft Reserved
 	GPT_MSFT_BASIC_DATA      PartType = "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7" // Microsoft basic data
-	GPT_MSFT_LDM_METADATA    PartType = "5808C8AA-7E8F-42E0-85D2-E1E90434CFB3" // Logical Disk Manager metadata
-	GPT_MSFT_LDM_DATA        PartType = "AF9B60A0-1431-4F62-BC68-3311714A69AD" // Logical Disk Manager data
+	GPT_MSFT_LDM_METADATA    PartType = "5808C8AA-7E8F-42E0-85D2-E1E90434CFB3" // Logical Device Manager metadata
+	GPT_MSFT_LDM_DATA        PartType = "AF9B60A0-1431-4F62-BC68-3311714A69AD" // Logical Device Manager data
 	GPT_MSFT_RECOVERY        PartType = "DE94BBA4-06D1-4D40-A16A-BFD50179D6AC" // Windows Recovery
 	GPT_MSFT_GPFS            PartType = "37AFFC90-EF7D-4E96-91C3-2D7AE055B174" // IBM GPFS
 	GPT_MSFT_STORAGE_SPACES  PartType = "E75CAF8F-F680-4CEE-AFA3-B001E56EFC2D" // Storage Spaces
@@ -440,8 +440,8 @@ var TypeDescMapping = map[PartType]string{
 	// Windows / Microsoft
 	GPT_MSFT_RESERVED:        "Microsoft Reserved",
 	GPT_MSFT_BASIC_DATA:      "Microsoft basic data",
-	GPT_MSFT_LDM_METADATA:    "Logical Disk Manager metadata",
-	GPT_MSFT_LDM_DATA:        "Logical Disk Manager data",
+	GPT_MSFT_LDM_METADATA:    "Logical Device Manager metadata",
+	GPT_MSFT_LDM_DATA:        "Logical Device Manager data",
 	GPT_MSFT_RECOVERY:        "Windows Recovery",
 	GPT_MSFT_GPFS:            "IBM GPFS",
 	GPT_MSFT_STORAGE_SPACES:  "Storage Spaces",

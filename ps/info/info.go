@@ -40,6 +40,8 @@ type PublicInfo struct {
 	Disks []Disk `json:"disks"`
 	// Volumes 卷列表
 	Volumes []Volume `json:"volumes"`
+	// Multipath 多路径设备列表
+	Multipath []MultipathDevice `json:"multipath"`
 }
 
 type PrivateInfo struct {
@@ -121,6 +123,9 @@ func (p *PSInfo) fillPublicInfo() (err error) {
 		return err
 	}
 	if p.Public.Disks, err = QueryDisks(); err != nil {
+		return err
+	}
+	if p.Public.Multipath, err = QueryMultipath(); err != nil {
 		return err
 	}
 	return nil

@@ -180,7 +180,7 @@ func getPartitionDevice(disk string, partEntryIndex int) string {
 
 func extendDiskGUID(d *Disk) error {
 	if d == nil {
-		return errors.New("nil Disk")
+		return errors.New("nil Device")
 	}
 
 	switch runtime.GOOS {

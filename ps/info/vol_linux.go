@@ -27,8 +27,15 @@ func QueryVolumes() ([]Volume, error) {
 				return nil, err
 			}
 		case devMount.Major.IsMultipath():
-			// TODO 多路径
-			continue
+			size, err := extend.FileSize(devMount.Device)
+			if err != nil {
+				return nil, err
+			}
+			v.Segments = append(v.Segments, extend.Segment{
+				Device: devMount.Device,
+				Start:  0,
+				Size:   size,
+			})
 		default:
 			isDA, err := extend.IsNormalDiskDevice(devMount.Device)
 			if err != nil {
@@ -64,7 +71,7 @@ func QueryVolumes() ([]Volume, error) {
 
 		isDiskBootable := false
 		for _, d := range v.Segments {
-			if table.IsDiskBootable(d.Disk) {
+			if table.IsDiskBootable(d.Device) {
 				isDiskBootable = true
 				break
 			}

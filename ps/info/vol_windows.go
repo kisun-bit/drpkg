@@ -78,9 +78,9 @@ func QueryVolumes() ([]Volume, error) {
 
 		for _, d := range des {
 			curVol.Segments = append(curVol.Segments, extend.Segment{
-				Disk:  extend.WindowsDiskPathFromID(d.DiskNumber),
-				Start: d.StartingOffset,
-				Size:  d.ExtentLength,
+				Device: extend.WindowsDiskPathFromID(d.DiskNumber),
+				Start:  d.StartingOffset,
+				Size:   d.ExtentLength,
 			})
 		}
 
@@ -112,7 +112,7 @@ func QueryVolumes() ([]Volume, error) {
 
 		isDiskBootable := false
 		for _, d := range curVol.Segments {
-			if table.IsDiskBootable(d.Disk) {
+			if table.IsDiskBootable(d.Device) {
 				isDiskBootable = true
 				break
 			}

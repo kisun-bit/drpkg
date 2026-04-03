@@ -487,6 +487,9 @@ func GetDeviceType(diskName string) (int, error) {
 // 例如：/dev/mapper/mpatha → [/dev/sdb, /dev/sdc]
 func GetMultipathSlaves(devPath string) ([]string, error) {
 	name := filepath.Base(devPath)
+	if dmPath, err := filepath.EvalSymlinks(devPath); err == nil {
+		name = filepath.Base(dmPath)
+	}
 
 	slavesPath := filepath.Join("/sys/class/block", name, "slaves")
 
@@ -535,6 +538,7 @@ func ResolveDevice(devPath string) (realPath, diskName string, err error) {
 	if strings.HasSuffix(filepath.Dir(linkTarget), "block") {
 		return devPath, base, nil
 	}
+
 	// 否则说明是分区，父目录名即磁盘名
 	return devPath, filepath.Base(filepath.Dir(linkTarget)), nil
 }
@@ -554,7 +558,7 @@ func DiskOrPartitionSegment(device string) (Segment, error) {
 	isDisk := strings.HasSuffix(filepath.Dir(linkTarget), "block")
 
 	if !isDisk {
-		seg.Disk = filepath.Join("/dev", diskName)
+		seg.Device = filepath.Join("/dev", diskName)
 		startBytes, err := os.ReadFile(filepath.Join(sysPath, "start"))
 		if err != nil {
 			return seg, err
@@ -566,7 +570,7 @@ func DiskOrPartitionSegment(device string) (Segment, error) {
 		// /sys/class/block/sda1/start的单位始终是512字节扇区（"kernel sector"）
 		seg.Start = start * 512
 	} else {
-		seg.Disk = realDev
+		seg.Device = realDev
 	}
 
 	sizeBytes, err := os.ReadFile(filepath.Join(sysPath, "size"))
@@ -629,9 +633,9 @@ func MultipathSegments(device string) (segments []Segment, err error) {
 	// 所以每个底层盘都对应同一个 segment
 	for _, d := range disks {
 		segments = append(segments, Segment{
-			Disk:  d,
-			Start: start * 512,
-			Size:  length * 512,
+			Device: d,
+			Start:  start * 512,
+			Size:   length * 512,
 		})
 	}
 
@@ -810,7 +814,7 @@ func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 			} else if fileExtentVolStart >= diskVolStart && fileExtentVolEnd <= diskVolEnd {
 				// 全包含
 				es = append(es, FileDiskExtentSegment{
-					Disk:  ve.Disk,
+					Disk:  ve.Device,
 					Start: int64(ve.Start) + diskDelta,
 					Size:  extentSize,
 				})
@@ -819,7 +823,7 @@ func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 				// 部分包含，做截断处理
 				deltaExtentSize := diskVolEnd - fileExtentVolStart
 				es = append(es, FileDiskExtentSegment{
-					Disk:  ve.Disk,
+					Disk:  ve.Device,
 					Start: int64(ve.Start) + diskDelta,
 					Size:  deltaExtentSize,
 				})
