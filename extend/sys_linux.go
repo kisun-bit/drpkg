@@ -645,6 +645,10 @@ func MultipathSegments(device string) (segments []Segment, err error) {
 func LVSegments(lvPath string) (segments []Segment, err error) {
 	if strings.HasPrefix(lvPath, "/dev/mapper") {
 		if lvPath, err = filepath.EvalSymlinks(lvPath); err != nil {
+			if os.IsNotExist(err) {
+				// LV快照
+				return segments, nil
+			}
 			return nil, err
 		}
 	}
@@ -691,8 +695,12 @@ func LVSegments(lvPath string) (segments []Segment, err error) {
 			if tableLine == "" {
 				continue
 			}
-			if len(tableLineFields) != 5 || tableLineFields[2] != "linear" {
+			if len(tableLineFields) != 5 {
 				return nil, errors.Errorf("unsupported dm-table: %s", tableLine)
+			}
+			if tableLineFields[2] != "linear" {
+				// FIXME: 标识非线性数据
+				return segments, nil
 			}
 			lvPartialDevMajor := DevMajor(tableLineFields[3])
 			if lvPartialDevMajor != slaveDeviceMajor {
