@@ -39,11 +39,18 @@ func QueryLVMInfo() (li LVM, err error) {
 				Attr: lv.AttrStr,
 				Size: lv.Size,
 			}
-			segs, err := extend.LVSegments(lvi.Device)
-			if err != nil {
-				return li, err
+
+			// 仅标准卷才会计算数据分布区间
+			if attrArr, e := lvm2cmd.ParseLvAttrs(lv.AttrStr); e == nil {
+				if attrArr[0] == 0 {
+					segs, err := extend.LVSegments(lvi.Device)
+					if err != nil {
+						return li, err
+					}
+					lvi.Segments = segs
+				}
 			}
-			lvi.Segments = segs
+
 			vgi.LVList = append(vgi.LVList, lvi)
 		}
 		li.VGList = append(li.VGList, vgi)
