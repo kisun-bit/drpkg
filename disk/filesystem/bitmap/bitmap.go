@@ -36,8 +36,5 @@ type FsBitmapParser interface {
 	fmt.Stringer
 
 	// Dump 导出位图数据
-	// data: 位图字节数据
-	// bytesPerBit: 每个 bit 表示的磁盘字节数（例如 4096）
-
 	Dump() (bitmap *FsBitmap, err error)
 }
