@@ -17,19 +17,27 @@ const (
 	BitmapFromFS
 )
 
+type FsBitmap struct {
+	// Type 文件系统类型
+	Type types.FsType
+
+	// BitmapKind: 位图来源类型
+	BitmapKind BitmapKind
+
+	// Bitmap 位图数据
+	Bitmap []byte
+
+	// BlockSize 数据块大小
+	BlockSize int
+}
+
 // FsBitmapParser 表示文件系统位图解析接口
 type FsBitmapParser interface {
 	fmt.Stringer
 
-	// Type 返回文件系统类型
-	Type() types.FsType
-
-	// Bits 返回位图的总 bit 数
-	Bits() int64
-
 	// Dump 导出位图数据
 	// data: 位图字节数据
 	// bytesPerBit: 每个 bit 表示的磁盘字节数（例如 4096）
-	// kind: 位图来源类型
-	Dump() (data []byte, bytesPerBit int, kind BitmapKind, err error)
+
+	Dump() (bitmap *FsBitmap, err error)
 }
