@@ -5,7 +5,7 @@ import (
 
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
-	"github.com/kisun-bit/drpkg/ps/pci/universal"
+	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 )

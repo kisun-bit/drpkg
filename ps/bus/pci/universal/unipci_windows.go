@@ -52,8 +52,14 @@ func listUniPci() ([]*UniPci, error) {
 	// https://learn.microsoft.com/zh-cn/windows/win32/api/setupapi/nf-setupapi-setupdigetclassdevsw
 	//
 
-	devInfo, err := windows.SetupDiGetClassDevsEx(nil, "", 0,
-		windows.DIGCF_ALLCLASSES|windows.DIGCF_PRESENT, 0, "")
+	devInfo, err := windows.SetupDiGetClassDevsEx(
+		nil,
+		"",
+		0,
+		windows.DIGCF_ALLCLASSES|windows.DIGCF_PRESENT,
+		0,
+		"",
+	)
 	if err != nil {
 		return nil, err
 	}

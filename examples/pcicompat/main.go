@@ -5,17 +5,19 @@ import (
 	"log"
 	"os"
 
-	"github.com/kisun-bit/drpkg/ps/pci/universal"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/kisun-bit/drpkg/ps/sysrepair"
 )
 
 func main() {
-	compatDrivers, incompatPci, err := universal.SearchCompatibleLinuxModules(
+	compatDrivers, incompatPci, err := sysrepair.SearchCompatibleLinuxModules(
 		"/",
 		os.Args[1],
 		[]string{
 			`PCI\V15ad\D07c0\SV15ad\SD07c0\BC01\SC07\I00\REV00`,
 			`PCI\V15ad\D07e0\SV15ad\SD07e0\BC01\SC06\I01\REV00`,
 			`PCI\V15ad\D0405\SV15ad\SD0405\BC03\SC00\I00\REV00`,
+			`PCI\V15ad\D07b0\SV15ad\SD07b0\BC02\SC01\I21\REV01`,
 			`PCI\V8086\D1237\SV1af4\SD1100\BC06\SC00\I00\REV02`,
 			`PCI\V8086\D7010\SV1af4\SD1100\BC01\SC01\I80\REV00`,
 
@@ -35,7 +37,7 @@ func main() {
 
 	fmt.Println("已兼容PCI列表：")
 	for _, m := range compatDrivers {
-		fmt.Println(m.Pci, m.Name)
+		spew.Dump(m)
 	}
 	fmt.Println("未兼容PCI列表：")
 	for _, p := range incompatPci {

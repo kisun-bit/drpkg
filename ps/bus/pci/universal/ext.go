@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kisun-bit/drpkg/ps/pci/ids"
+	ids2 "github.com/kisun-bit/drpkg/ps/bus/pci/ids"
 	"github.com/pkg/errors"
 )
 
@@ -31,7 +31,7 @@ var (
 )
 
 func Lookup(baseClass, vendor, device uint16) (baseClassStr string, vendorStr string, deviceStr string) {
-	for _, v := range ids.IDs {
+	for _, v := range ids2.IDs {
 		if v.ID != vendor {
 			continue
 		}
@@ -46,7 +46,7 @@ func Lookup(baseClass, vendor, device uint16) (baseClassStr string, vendorStr st
 		break
 	}
 
-	if v, ok := ids.Classes[uint32(baseClass)]; ok {
+	if v, ok := ids2.Classes[uint32(baseClass)]; ok {
 		baseClassStr = v
 	}
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/logger"
-	"github.com/kisun-bit/drpkg/ps/pci/universal"
+	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"
 )
 
 func main() {

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	idsModule "github.com/kisun-bit/drpkg/ps/pci/ids"
+	idsModule "github.com/kisun-bit/drpkg/ps/bus/pci/ids"
 )
 
 var (
