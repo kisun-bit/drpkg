@@ -7,6 +7,10 @@ import (
 	"github.com/pkg/errors"
 )
 
+//
+// 此模块实现了用一个通用字符串去标识一个硬件设备ID（硬件描述符）
+//
+
 const (
 	upPrefix                = "PCI"
 	upSeparator             = "\\"
@@ -88,6 +92,7 @@ func UniPciFromString(s string) (*UniPci, error) {
 }
 
 // String PCI在业务层的统一表现形式
+// 如：PCI\V8086\D1237\SV1af4\SD1100\BC06\SC00\I00\REV02
 func (up *UniPci) String() string {
 	if up._upStr != "" {
 		return up._upStr

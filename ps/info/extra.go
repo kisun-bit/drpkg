@@ -68,6 +68,7 @@ func IsVirtualHost(manufacturer string) bool {
 		"xen",
 		"openstack",
 		"kvm",
+		"virtual machine", // hyper-v
 		// FIXME 更多
 	}
 
