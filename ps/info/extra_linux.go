@@ -74,6 +74,7 @@ func QueryLinuxKernels(rootDir string) ([]LinuxKernel, error) {
 		k.Initrd = firstExistingFile(bootDirs,
 			"initrd.img-"+name,
 			"initrd-"+name,
+			"initrd-"+name+".img",
 			"initramfs-"+name+".img",
 		)
 
