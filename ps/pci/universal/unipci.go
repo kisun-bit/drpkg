@@ -157,6 +157,14 @@ func (up *UniPci) Modalias() string {
 		up.vendorId, up.deviceId, up.subsystemVendorId, up.subsystemDeviceId, up.baseClass, up.subClass, up.programInterface)
 }
 
+// VirtioModalias 获取此PCI在virtio总线上的硬件标识
+func (up *UniPci) VirtioModalias() (modAlias string, ok bool) {
+	if up.vendorId != 0x1af4 {
+		return "", false
+	}
+	return fmt.Sprintf("virtio:d%08Xv%08X", up.subsystemDeviceId, up.subsystemVendorId), true
+}
+
 // MsHardwareId 获取此PCI在Windows系统中的硬件ID集合
 func (up *UniPci) MsHardwareId() []string {
 

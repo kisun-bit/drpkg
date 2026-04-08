@@ -27,6 +27,9 @@ type FsBitmap struct {
 	// Bitmap 位图数据
 	Bitmap []byte
 
+	// Bits 位图中的位个数
+	Bits int64
+
 	// BlockSize 数据块大小
 	BlockSize int
 }
