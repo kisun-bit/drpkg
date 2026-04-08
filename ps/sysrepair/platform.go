@@ -1,9 +1,6 @@
 package sysrepair
 
 import (
-	"fmt"
-	"runtime"
-
 	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"
 )
 
@@ -39,6 +36,7 @@ type Platform struct {
 	PciList []string `json:"pciList,omitempty"`
 }
 
+// RuntimePlatform 返回当前所运行系统的硬件平台信息
 func RuntimePlatform() (pf Platform, err error) {
 	pf.Base = HPUnknown
 	pf.Virt = HPVTNone
@@ -50,13 +48,13 @@ func RuntimePlatform() (pf Platform, err error) {
 	for _, pci := range pciList {
 
 		switch {
-		case pci.VendorId() == 0x15ad && pf.Base == HPUnknown:
+		case pci.VendorId() == 0x15ad && pf.Base == HPUnknown: // 检查是否是vmwarev环境
 			pf.Base = HPVirt
 			pf.Virt = HPVTVmware
-		case pci.VendorId() == 0x5853 && pf.Base == HPUnknown:
+		case pci.VendorId() == 0x5853 && pf.Base == HPUnknown: // 检查是否是xen环境
 			pf.Base = HPVirt
 			pf.Virt = HPVTXen
-		case pci.VendorId() == 0x1af4 && pf.Base == HPUnknown:
+		case pci.VendorId() == 0x1af4 && pf.Base == HPUnknown: // 检查是否是qemu/kvm环境
 			pf.Base = HPVirt
 			pf.Virt = HPVTQemuKvm
 		}
@@ -65,21 +63,16 @@ func RuntimePlatform() (pf Platform, err error) {
 	}
 
 	// 检查是否是hyper-v环境
-
-	switch runtime.GOOS {
-	case "linux", "windows":
-		yes, err := vmbusExisted()
-		if err != nil {
-			return pf, err
-		}
-		if yes && pf.Base == HPUnknown {
-			pf.Base = HPVirt
-			pf.Virt = HPVTHyperV
-		}
-	default:
-		return pf, fmt.Errorf("unsupported platform type: %s", runtime.GOOS)
+	yes, err := vmbusExisted()
+	if err != nil {
+		return pf, err
+	}
+	if yes && pf.Base == HPUnknown {
+		pf.Base = HPVirt
+		pf.Virt = HPVTHyperV
 	}
 
+	// 排除所有虚拟化，确定为物理机环境
 	if pf.Base == HPUnknown {
 		pf.Base = HPBareMetal
 		pf.Virt = HPVTNone
