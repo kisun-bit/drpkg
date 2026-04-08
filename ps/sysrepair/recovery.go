@@ -6,7 +6,7 @@ package sysrepair
 // =========================
 //
 // [virt]        虚拟化 / 云平台
-//               包括但不限于：vmware / qemu-kvm / xen
+//               包括但不限于：vmware / qemu-kvm / xen / hyper-v
 //
 // [bare-metal]  裸机（物理机）
 //
@@ -89,6 +89,7 @@ const (
 	HPVTVmware  HPVirtType = "vmware"
 	HPVTQemuKvm HPVirtType = "qemu/kvm"
 	HPVTXen     HPVirtType = "xen"
+	HPVTHyperV  HPVirtType = "hyper-v"
 )
 
 // BackupSourceType 备份主机类型
