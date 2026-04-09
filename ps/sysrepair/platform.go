@@ -48,7 +48,7 @@ func RuntimePlatform() (pf Platform, err error) {
 	for _, pci := range pciList {
 
 		switch {
-		case pci.VendorId() == 0x15ad && pf.Base == HPUnknown: // 检查是否是vmwarev环境
+		case pci.VendorId() == 0x15ad && pf.Base == HPUnknown: // 检查是否是vmware环境
 			pf.Base = HPVirt
 			pf.Virt = HPVTVmware
 		case pci.VendorId() == 0x5853 && pf.Base == HPUnknown: // 检查是否是xen环境
