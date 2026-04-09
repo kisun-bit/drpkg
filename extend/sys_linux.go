@@ -611,7 +611,7 @@ func MultipathSegments(device string) (segments []Segment, err error) {
 
 	fields := strings.Fields(lines[0])
 	if len(fields) < 3 {
-		return nil, fmt.Errorf("invalid dmsetup table format")
+		return nil, fmt.Errorf("invalid dmsetup table format for %s", device)
 	}
 
 	// 解析 start 和 length, 单位：512B

@@ -42,6 +42,8 @@ type PublicInfo struct {
 	Volumes []Volume `json:"volumes"`
 	// Multipath 多路径设备列表
 	Multipath []MultipathDevice `json:"multipath"`
+	// RAID RAID设备列表
+	RAID []RAIDDevice `json:"raid"`
 }
 
 type PrivateInfo struct {
@@ -126,6 +128,9 @@ func (p *PSInfo) fillPublicInfo() (err error) {
 		return err
 	}
 	if p.Public.Multipath, err = QueryMultipath(); err != nil {
+		return err
+	}
+	if p.Public.RAID, err = QueryRAIDDevices(); err != nil {
 		return err
 	}
 	return nil
