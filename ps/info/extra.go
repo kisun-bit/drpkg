@@ -1,6 +1,7 @@
 package info
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,6 +54,10 @@ type EFI struct {
 	Effective   bool   `json:"effective"`
 	BootCurrent string `json:"bootCurrent"`
 	BootFile    string `json:"bootFile"`
+}
+
+func (v *WindowsVersion) String() string {
+	return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Build)
 }
 
 func IsVirtualHost(manufacturer string) bool {

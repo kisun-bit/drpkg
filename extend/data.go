@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unsafe"
 )
 
 type Number interface {
@@ -288,4 +289,23 @@ func UnmarshalMsBinary(data []byte, v any) error {
 
 func TrimUtf8Bom(data []byte) []byte {
 	return bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+}
+
+func IsAllZero(b []byte) bool {
+	n := len(b)
+	i := 0
+
+	for ; i+8 <= n; i += 8 {
+		v := *(*uint64)(unsafe.Pointer(&b[i]))
+		if v != 0 {
+			return false
+		}
+	}
+
+	for ; i < n; i++ {
+		if b[i] != 0 {
+			return false
+		}
+	}
+	return true
 }

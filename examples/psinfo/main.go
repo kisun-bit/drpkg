@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	psi, err := info.QueryPSInfo()
+	psi, err := info.QueryPsInfo()
 	if err != nil {
 		log.Fatal(err)
 		return

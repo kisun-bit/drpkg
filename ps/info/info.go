@@ -13,7 +13,7 @@ const (
 	BootTypeBIOS    BootType = "bios"
 )
 
-type PSInfo struct {
+type PsInfo struct {
 	// Public 主机公共信息
 	Public PublicInfo `json:"public"`
 	// Private 主机私有信息
@@ -78,9 +78,9 @@ type WindowsPrivateInfo struct {
 	// FIXME
 }
 
-// QueryPSInfo 查询系统信息
-func QueryPSInfo() (pi *PSInfo, err error) {
-	pi = new(PSInfo)
+// QueryPsInfo 查询系统信息
+func QueryPsInfo() (pi *PsInfo, err error) {
+	pi = new(PsInfo)
 
 	if err = pi.fillPublicInfo(); err != nil {
 		return nil, err
@@ -92,17 +92,71 @@ func QueryPSInfo() (pi *PSInfo, err error) {
 	return pi, nil
 }
 
-func (p *PSInfo) String() string {
+func (p *PsInfo) String() string {
 	j, _ := json.Marshal(*p)
 	return string(j)
 }
 
-func (p *PSInfo) Pretty() string {
+func (p *PsInfo) Pretty() string {
 	j, _ := json.MarshalIndent(*p, "", "        ")
 	return string(j)
 }
 
-func (p *PSInfo) fillPublicInfo() (err error) {
+func (p *PsInfo) OsVersion() string {
+	switch {
+	case p.Private.Linux.Effective:
+		return p.Private.Linux.Release.Distro
+	case p.Private.Windows.Effective:
+		return p.Private.Windows.Release.OsName
+	default:
+		return "unknown os version"
+	}
+}
+
+func (p *PsInfo) KernelVersion() string {
+	switch {
+	case p.Private.Linux.Effective:
+		for _, k := range p.Private.Linux.Kernels {
+			if k.Default {
+				return k.Name
+			}
+		}
+	case p.Private.Windows.Effective:
+		return p.Private.Windows.Release.Version.String()
+	}
+	return "unknown kernel version"
+}
+
+func (p *PsInfo) CpuModel() string {
+	if len(p.Public.Cpu.Models) > 0 {
+		return p.Public.Cpu.Models[0]
+	}
+	return "unknown cpu model"
+}
+
+func (p *PsInfo) DiskBootable(disk string) bool {
+	for _, d := range p.Public.Disks {
+		if d.Device != disk {
+			continue
+		}
+
+		for _, v := range p.Public.Volumes {
+			if !v.IsBootable {
+				continue
+			}
+
+			for _, vs := range v.Segments {
+				if vs.Device == d.Device {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+func (p *PsInfo) fillPublicInfo() (err error) {
 	if p.Public.Generic, err = QueryGeneric(); err != nil {
 		return err
 	}
@@ -136,7 +190,7 @@ func (p *PSInfo) fillPublicInfo() (err error) {
 	return nil
 }
 
-func (p *PSInfo) fillPrivateInfo() (err error) {
+func (p *PsInfo) fillPrivateInfo() (err error) {
 	switch runtime.GOOS {
 	case "linux":
 		p.Private.Linux.Effective = true
