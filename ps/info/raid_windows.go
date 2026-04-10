@@ -1,5 +1,5 @@
 package info
 
-func GetRAIDDevices() ([]RAIDDevice, error) {
+func QueryRAIDDevices() ([]RAIDDevice, error) {
 	return nil, nil
 }
