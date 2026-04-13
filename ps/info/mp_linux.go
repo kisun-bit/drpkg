@@ -53,7 +53,7 @@ func QueryMultipath() ([]MultipathDevice, error) {
 		}
 
 		for _, s := range ss {
-			mp.Disks = append(mp.Disks, s.Device)
+			mp.Slaves = append(mp.Slaves, s.Device)
 		}
 
 		mps = append(mps, mp)

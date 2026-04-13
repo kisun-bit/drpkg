@@ -67,11 +67,11 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 		}
 
 		raids = append(raids, RaidDevice{
-			Name:       name,
-			Level:      level,
-			Device:     filepath.Join("/dev", name),
-			Size:       size,
-			SubDevices: subDevices,
+			Name:   name,
+			Level:  level,
+			Device: filepath.Join("/dev", name),
+			Size:   int64(size),
+			Slaves: subDevices,
 		})
 	}
 

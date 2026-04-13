@@ -3,6 +3,8 @@ package info
 import (
 	"encoding/json"
 	"runtime"
+
+	"github.com/pkg/errors"
 )
 
 type BootType string
@@ -134,21 +136,19 @@ func (p *PsInfo) CpuModel() string {
 	return "unknown cpu model"
 }
 
-func (p *PsInfo) DiskBootable(disk string) bool {
-	for _, d := range p.Public.Disks {
-		if d.Device != disk {
+func (p *PsInfo) DeviceBootable(device string) bool {
+	for _, v := range p.Public.Volumes {
+		if !v.IsBootable {
 			continue
 		}
 
-		for _, v := range p.Public.Volumes {
-			if !v.IsBootable {
-				continue
-			}
+		if v.Name == device {
+			return true
+		}
 
-			for _, vs := range v.Segments {
-				if vs.Device == d.Device {
-					return true
-				}
+		for _, vs := range v.Segments {
+			if vs.Device == device {
+				return true
 			}
 		}
 	}
@@ -158,28 +158,28 @@ func (p *PsInfo) DiskBootable(disk string) bool {
 
 func (p *PsInfo) fillPublicInfo() (err error) {
 	if p.Public.Generic, err = QueryGeneric(); err != nil {
-		return err
+		return errors.Wrap(err, "query generic info")
 	}
 	if p.Public.Dmi, err = QueryDmi(); err != nil {
-		return err
+		return errors.Wrap(err, "query dmi")
 	}
 	p.Public.IsMemoryOS = IsMemoryOS()
 	p.Public.IsVirtualHost = IsVirtualHost(p.Public.Dmi.SystemName)
 	p.Public.BootType = QueryBootType()
 	if p.Public.BootType == "uefi" {
 		if p.Public.EFIInfo, err = QueryEFIInfo(); err != nil {
-			return err
+			return errors.Wrap(err, "query efi")
 		}
 	}
 	p.Public.EnableVTX = SupportCPUVirtual()
 	if p.Public.IFList, err = QueryIFList(); err != nil {
-		return err
+		return errors.Wrap(err, "query eth")
 	}
 	if p.Public.Volumes, err = QueryVolumes(); err != nil {
-		return err
+		return errors.Wrap(err, "query volumes")
 	}
 	if p.Public.Disks, err = QueryDisks(); err != nil {
-		return err
+		return errors.Wrap(err, "query disks")
 	}
 	return nil
 }
