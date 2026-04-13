@@ -7,15 +7,15 @@ import (
 	"strings"
 )
 
-// QueryRAIDDevices 获取所有 md 设备
-func QueryRAIDDevices() ([]RAIDDevice, error) {
+// QueryRaidDevices 获取所有 md 设备
+func QueryRaidDevices() ([]RaidDevice, error) {
 	mdPath := "/sys/block"
 	files, err := os.ReadDir(mdPath)
 	if err != nil {
 		return nil, err
 	}
 
-	var raids []RAIDDevice
+	var raids []RaidDevice
 	for _, f := range files {
 		name := f.Name()
 		if !strings.HasPrefix(name, "md") {
@@ -66,7 +66,7 @@ func QueryRAIDDevices() ([]RAIDDevice, error) {
 			}
 		}
 
-		raids = append(raids, RAIDDevice{
+		raids = append(raids, RaidDevice{
 			Name:       name,
 			Level:      level,
 			Device:     filepath.Join("/dev", name),

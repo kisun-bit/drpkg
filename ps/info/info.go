@@ -40,10 +40,6 @@ type PublicInfo struct {
 	Disks []Disk `json:"disks"`
 	// Volumes 卷列表
 	Volumes []Volume `json:"volumes"`
-	// Multipath 多路径设备列表
-	Multipath []MultipathDevice `json:"multipath"`
-	// RAID RAID设备列表
-	RAID []RAIDDevice `json:"raid"`
 }
 
 type PrivateInfo struct {
@@ -66,6 +62,10 @@ type LinuxPrivateInfo struct {
 	Swaps []LinuxSwap `json:"swaps"`
 	// LVM 逻辑卷信息
 	LVM LVM `json:"lvm"`
+	// Multipath 多路径设备列表
+	Multipath []MultipathDevice `json:"multipath"`
+	// Raid RAID设备列表
+	Raid []RaidDevice `json:"raid"`
 }
 
 type WindowsPrivateInfo struct {
@@ -181,12 +181,6 @@ func (p *PsInfo) fillPublicInfo() (err error) {
 	if p.Public.Disks, err = QueryDisks(); err != nil {
 		return err
 	}
-	if p.Public.Multipath, err = QueryMultipath(); err != nil {
-		return err
-	}
-	if p.Public.RAID, err = QueryRAIDDevices(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -203,6 +197,12 @@ func (p *PsInfo) fillPrivateInfo() (err error) {
 		}
 		p.Private.Linux.Target = QueryLinuxTarget()
 		if p.Private.Linux.LVM, err = QueryLVMInfo(); err != nil {
+			return err
+		}
+		if p.Private.Linux.Multipath, err = QueryMultipath(); err != nil {
+			return err
+		}
+		if p.Private.Linux.Raid, err = QueryRaidDevices(); err != nil {
 			return err
 		}
 	case "windows":

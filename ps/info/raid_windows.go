@@ -1,5 +1,5 @@
 package info
 
-func QueryRAIDDevices() ([]RAIDDevice, error) {
+func QueryRaidDevices() ([]RAIDDevice, error) {
 	return nil, nil
 }

@@ -1,6 +1,6 @@
 package info
 
-type RAIDDevice struct {
+type RaidDevice struct {
 	Name       string   `json:"name"`
 	Level      int      `json:"level"`
 	Device     string   `json:"device"`
