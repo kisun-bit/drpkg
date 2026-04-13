@@ -175,7 +175,7 @@ func (mbr *MBR) ContainsProtectiveMBR() bool {
 
 func (mbr *MBR) ContainsBootFlag() bool {
 	for _, p := range mbr.MainPartitionEntries {
-		if p.Type() == "80" {
+		if p.BootIndicator == 0x80 {
 			return true
 		}
 	}

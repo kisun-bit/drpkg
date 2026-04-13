@@ -74,6 +74,9 @@ func ContainsOSFileOrBootFile(dir string) bool {
 			return true
 		}
 	case "linux":
+		if dir == "/" {
+			return true
+		}
 		if strings.HasSuffix(dir, "/boot") {
 			return true
 		}
