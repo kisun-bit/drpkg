@@ -645,15 +645,19 @@ func MultipathSegments(device string) (segments []Segment, err error) {
 }
 
 func LVSegments(lvPath string) (segments []Segment, err error) {
-	if strings.HasPrefix(lvPath, "/dev/mapper") {
-		if lvPath, err = filepath.EvalSymlinks(lvPath); err != nil {
-			if os.IsNotExist(err) {
-				// LV快照
-				return segments, nil
-			}
-			return nil, err
-		}
+	newpath := lvPath
+
+	// 尝试获取其链接，若成功则直接使用，若失败则可能是快照lv、已是绝对路径的情况之一
+	newpath, err = filepath.EvalSymlinks(lvPath)
+	if err == nil {
+		lvPath = newpath
 	}
+
+	// 排除lv快照
+	if strings.HasPrefix(lvPath, "/dev/mapper") && !IsExisted(lvPath) {
+		return segments, nil
+	}
+
 	if !IsExisted(lvPath) {
 		return nil, errors.Errorf("LV %s does not exist", lvPath)
 	}
@@ -795,7 +799,6 @@ func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 			return nil, err
 		}
 	} else {
-		// FIXME 兼容multipath和RAID
 		seg, err := DiskOrPartitionSegment(volume)
 		if err != nil {
 			return nil, err
