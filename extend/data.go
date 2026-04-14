@@ -14,6 +14,8 @@ import (
 	"strings"
 	"unicode"
 	"unsafe"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 type Number interface {
@@ -308,4 +310,12 @@ func IsAllZero(b []byte) bool {
 		}
 	}
 	return true
+}
+
+func Pretty(i any) string {
+	b, err := json.MarshalIndent(i, "", "    ")
+	if err != nil {
+		return spew.Sdump(i)
+	}
+	return string(b)
 }

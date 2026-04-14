@@ -1,4 +1,4 @@
-package sysrepair
+package recovery
 
 import (
 	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"

@@ -1,4 +1,4 @@
-package sysrepair
+package recovery
 
 //
 // =========================
@@ -155,17 +155,6 @@ type RecoveryParameter struct {
 	Target Platform `json:"targetPlatform"`
 }
 
-func (rp *RecoveryParameter) Check() error {
-	// TODO
-	return nil
-}
-
-func (rp *RecoveryParameter) RecoveryOperation() RecoveryOperation {
-	// TODO
-	return ""
-}
-
-func (rp *RecoveryParameter) ROHeterogeneousType() RecoveryOperation {
-	// TODO
-	return ""
+type RecoveryManager struct {
+	Parameter RecoveryParameter `json:"parameter"`
 }

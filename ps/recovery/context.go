@@ -1,4 +1,4 @@
-package sysrepair
+package recovery
 
 import (
 	"strings"
@@ -40,16 +40,11 @@ func SysContextTypeFromRootDir(rootDir string) SysContextType {
 }
 
 //
-// 从指定的物理磁盘中加载离线Linux系统（基础环境：qemu外部内核启动的LiveOS环境）
+// 无代理恢复，从指定的物理磁盘中加载离线Linux/Windows系统（基础环境：内置KVM修复环境）
 // 使用者：跨平台级恢复、异构恢复、接管
 //
 
 //
-// 从指定的物理磁盘中加载离线Windows系统（基础环境：WinPE系统）
-// 使用者：跨平台级恢复、异构恢复、接管
-//
-
-//
-// 加载LiveCD系统
+// 有代理恢复，加载LiveCD系统
 // 使用者：驱动注入，异构恢复
 //

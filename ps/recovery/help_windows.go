@@ -1,4 +1,4 @@
-package sysrepair
+package recovery
 
 import (
 	"strings"
