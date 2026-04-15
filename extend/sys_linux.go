@@ -866,3 +866,8 @@ func GetDeviceMapperPath(device string) string {
 	}
 	return device
 }
+
+func PnpDeviceID(deviceID string) (string, error) {
+	_ = deviceID
+	return "", errors.New("PnpDeviceID: not implemented")
+}

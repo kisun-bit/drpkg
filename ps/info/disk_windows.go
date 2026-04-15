@@ -1,7 +1,6 @@
 package info
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/disk/table"
@@ -11,21 +10,19 @@ import (
 )
 
 func QueryDisks() (disks []Disk, err error) {
-	diskPaths, err := extend.ListDisks()
+	diskPaths, err := extend.ListDisksV2()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "list disks")
 	}
 
-	for _, diskPath := range diskPaths {
-		d := Disk{}
-		d.Name = strings.ToUpper(diskPath)
-		d.Device = diskPath
+	for _, dp := range diskPaths {
 
-		id, e := extend.WindowsDiskIDFromPath(diskPath)
-		if e != nil {
-			return nil, e
-		}
-		d.PathId = strconv.Itoa(int(id))
+		diskPath := dp.DeviceID
+
+		d := Disk{}
+		d.Name = strings.ToUpper(dp.DeviceID)
+		d.Device = dp.DeviceID
+		d.PathId = dp.PNPDeviceID
 
 		sad, e := extend.DiskAlignmentStorage(diskPath)
 		if e == nil {

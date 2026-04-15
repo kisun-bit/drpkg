@@ -26,6 +26,9 @@ const (
 
 // Platform 表示一个运行环境（源或目标）
 type Platform struct {
+	// Architecture OCI风格的架构标识
+	Architecture string `json:"architecture"`
+
 	// Base 平台类型：virt / bare-metal
 	Base HardwarePlatform `json:"base"`
 
