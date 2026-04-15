@@ -1,7 +1,10 @@
 package recovery
 
 import (
+	"runtime"
+
 	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"
+	"github.com/shirou/gopsutil/v3/cpu"
 )
 
 // HardwarePlatform 基础硬件平台
@@ -29,6 +32,8 @@ type Platform struct {
 	// Architecture OCI风格的架构标识
 	Architecture string `json:"architecture"`
 
+	CpuModel string `json:"cpu_model"`
+
 	// Base 平台类型：virt / bare-metal
 	Base HardwarePlatform `json:"base"`
 
@@ -43,6 +48,16 @@ type Platform struct {
 func RuntimePlatform() (pf Platform, err error) {
 	pf.Base = HPUnknown
 	pf.Virt = HPVTNone
+
+	pf.Architecture = runtime.GOARCH
+
+	ci, err := cpu.Info()
+	if err != nil {
+		return pf, err
+	}
+	if len(ci) > 0 {
+		pf.CpuModel = ci[0].ModelName
+	}
 
 	pciList, err := universal.ListUniPci()
 	if err != nil {
