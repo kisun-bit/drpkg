@@ -59,7 +59,7 @@ func DemoRegionScan(disk string) {
 	s := scan.Scanner{
 		Path:        disk,
 		BlockSize:   1 << 20,
-		Concurrency: 1,
+		Concurrency: 8,
 		OnData: func(r scan.Range) {
 			_handleBlock(r.Data)
 		},
@@ -71,6 +71,6 @@ func DemoRegionScan(disk string) {
 }
 
 func main() {
-	DemoNormal(os.Args[1])
-	//DemoRegionScan(os.Args[1])
+	//DemoNormal(os.Args[1])
+	DemoRegionScan(os.Args[1])
 }
