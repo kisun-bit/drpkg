@@ -66,6 +66,10 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 			}
 		}
 
+		if len(subDevices) == 0 {
+			continue
+		}
+
 		raids = append(raids, RaidDevice{
 			Name:   name,
 			Level:  level,

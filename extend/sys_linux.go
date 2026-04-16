@@ -534,8 +534,9 @@ func ResolveDevice(devPath string) (realPath, diskName string, err error) {
 		return "", "", err
 	}
 
-	// 如果上级目录就是 "block"，说明本身是磁盘
-	if strings.HasSuffix(filepath.Dir(linkTarget), "block") {
+	// 说明本身是磁盘
+	if strings.HasSuffix(filepath.Dir(linkTarget), "block") ||
+		filepath.Base(filepath.Dir(filepath.Dir(linkTarget))) == "nvme" {
 		return devPath, base, nil
 	}
 
@@ -555,7 +556,8 @@ func DiskOrPartitionSegment(device string) (Segment, error) {
 	// 判断是否是磁盘本体还是分区
 	sysPath := filepath.Join("/sys/class/block", filepath.Base(realDev))
 	linkTarget, _ := filepath.EvalSymlinks(sysPath)
-	isDisk := strings.HasSuffix(filepath.Dir(linkTarget), "block")
+	isDisk := strings.HasSuffix(filepath.Dir(linkTarget), "block") ||
+		filepath.Base(filepath.Dir(filepath.Dir(linkTarget))) == "nvme"
 
 	if !isDisk {
 		seg.Device = filepath.Join("/dev", diskName)
