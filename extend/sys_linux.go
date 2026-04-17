@@ -333,9 +333,13 @@ func GetDiskModel(disk string) (string, error) {
 }
 
 func GetDiskSerialNumber(disk string) (string, error) {
-	ret, err := os.ReadFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/wwid"))
+	path := filepath.Join("/sys/class/block", filepath.Base(disk), "device/wwid")
+	ret, err := os.ReadFile(path)
 	if err == nil && len(ret) > 4 {
 		return strings.TrimSpace(string(ret[4:])), nil
+	}
+	if errors.Is(err, syscall.EINVAL) {
+		return "", nil
 	}
 	if errors.Is(err, syscall.ENXIO) || os.IsNotExist(err) {
 		// 获取vpd_80序列号
