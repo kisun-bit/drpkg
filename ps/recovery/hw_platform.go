@@ -32,7 +32,8 @@ type Platform struct {
 	// Architecture OCI风格的架构标识
 	Architecture string `json:"architecture"`
 
-	CpuModel string `json:"cpu_model"`
+	// CpuVendorId CPU的制造商ID
+	CpuVendorId string `json:"cpuVendorId"`
 
 	// Base 平台类型：virt / bare-metal
 	Base HardwarePlatform `json:"base"`
@@ -56,7 +57,7 @@ func RuntimePlatform() (pf Platform, err error) {
 		return pf, err
 	}
 	if len(ci) > 0 {
-		pf.CpuModel = ci[0].ModelName
+		pf.CpuVendorId = ci[0].VendorID
 	}
 
 	pciList, err := universal.ListUniPci()
