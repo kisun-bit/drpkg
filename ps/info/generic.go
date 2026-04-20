@@ -25,6 +25,8 @@ type Generic struct {
 }
 
 type CpuStat struct {
+	// Vendors 制造商ID
+	Vendors []string `json:"vendors"`
 	// Models 型号
 	Models []string `json:"models"`
 	// Slots 插槽数量
@@ -64,7 +66,10 @@ func QueryCpuStat() (cs CpuStat, err error) {
 
 	slotList := make([]string, 0)
 	for _, c := range cpuList {
-		if !funk.InStrings(cs.Models, c.ModelName) {
+		if c.VendorID != "" && !funk.InStrings(cs.Vendors, c.VendorID) {
+			cs.Vendors = append(cs.Vendors, c.VendorID)
+		}
+		if c.ModelName != "" && !funk.InStrings(cs.Models, c.ModelName) {
 			cs.Models = append(cs.Models, c.ModelName)
 		}
 		slotId := fmt.Sprintf("%s-%s", c.PhysicalID, c.CoreID)

@@ -29,11 +29,11 @@ const (
 
 // Platform 表示一个运行环境（源或目标）
 type Platform struct {
-	// Architecture OCI风格的架构标识
-	Architecture string `json:"architecture"`
+	// Arch OCI风格的架构标识
+	Arch string `json:"arch"`
 
 	// CpuVendorId CPU的制造商ID
-	CpuVendorId string `json:"cpuVendorId"`
+	CpuVendor string `json:"cpuVendor"`
 
 	// Base 平台类型：virt / bare-metal
 	Base HardwarePlatform `json:"base"`
@@ -50,14 +50,14 @@ func RuntimePlatform() (pf Platform, err error) {
 	pf.Base = HPUnknown
 	pf.Virt = HPVTNone
 
-	pf.Architecture = runtime.GOARCH
+	pf.Arch = runtime.GOARCH
 
 	ci, err := cpu.Info()
 	if err != nil {
 		return pf, err
 	}
 	if len(ci) > 0 {
-		pf.CpuVendorId = ci[0].VendorID
+		pf.CpuVendor = ci[0].VendorID
 	}
 
 	pciList, err := universal.ListUniPci()
