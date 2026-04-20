@@ -18,6 +18,7 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 	var raids []RaidDevice
 	for _, f := range files {
 		name := f.Name()
+		device := filepath.Join("/dev", name)
 		if !strings.HasPrefix(name, "md") {
 			continue
 		}
@@ -51,6 +52,11 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 			}
 		}
 
+		table_, err := GetDiskTable(device)
+		if err != nil {
+			return nil, err
+		}
+
 		if data, err := os.ReadFile(sizeFile); err == nil {
 			size64, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
 			if err == nil {
@@ -73,8 +79,9 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 		raids = append(raids, RaidDevice{
 			Name:   name,
 			Level:  level,
-			Device: filepath.Join("/dev", name),
+			Device: device,
 			Size:   int64(size),
+			Table:  table_,
 			Slaves: subDevices,
 		})
 	}

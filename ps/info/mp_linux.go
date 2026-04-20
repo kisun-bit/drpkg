@@ -47,6 +47,11 @@ func QueryMultipath() ([]MultipathDevice, error) {
 		}
 		mp.Size = int64(size)
 
+		mp.Table, err = GetDiskTable(mp.Device)
+		if err != nil {
+			return nil, err
+		}
+
 		ss, err := extend.MultipathSegments(mp.Device)
 		if err != nil {
 			return nil, err
