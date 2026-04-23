@@ -1,11 +1,20 @@
 package recovery
 
 import (
+	"context"
 	"strings"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
+
+func Mount(ctx context.Context, device string, mountpoint string) (supported bool, err error) {
+	return true, nil
+}
+
+func Umount(deviceOrMountpoint string) error {
+	return nil
+}
 
 func vmbusExisted() (bool, error) {
 	devInfo, err := windows.SetupDiGetClassDevsEx(

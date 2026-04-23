@@ -17,19 +17,6 @@ type SystemFixer interface {
 	Release() error
 
 	//
-	// 工具
-	//
-
-	// Execute 离线环境下执行命令
-	Execute(cmdline string, timeout time.Duration) (exitcode int, output string, err error)
-
-	// Kernels 获取离线环境的内核集合
-	Kernels() ([]string, error)
-
-	// Logs 获取修复日志
-	Logs() chan string
-
-	//
 	// 修复管理
 	//
 
@@ -42,4 +29,17 @@ type SystemFixer interface {
 
 	// RemoveDrivers 卸载驱动
 	RemoveDrivers(kernel string, drivers []string) error
+
+	//
+	// 工具
+	//
+
+	// ExecuteInPe 离线环境下执行命令
+	ExecuteInPe(cmdline string, timeout time.Duration) (exit int, output string, err error)
+
+	// Kernels 获取离线环境的内核集合
+	Kernels() ([]string, error)
+
+	// Logs 获取修复日志
+	Logs() chan string
 }
