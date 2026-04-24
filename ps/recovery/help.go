@@ -8,24 +8,24 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
-	"github.com/kisun-bit/drpkg/ps/info"
 	"github.com/pkg/errors"
 )
 
 // IsRootDevice 是否为系统根盘
 func IsRootDevice(ctx context.Context, device string) bool {
-	return withMount(ctx, device, "IsRootDevice", info.IsRootDir)
+	return withMount(ctx, device, "IsRootDevice", extend.IsRootDir)
 }
 
 // IsEfiDevice 是否为 EFI 分区
 func IsEfiDevice(ctx context.Context, device string) bool {
-	return withMount(ctx, device, "IsEfiDevice", info.IsEfiDir)
+	return withMount(ctx, device, "IsEfiDevice", extend.IsEfiDir)
 }
 
 // IsBootDevice 是否为启动分区
 func IsBootDevice(ctx context.Context, device string) bool {
-	return withMount(ctx, device, "IsBootDevice", info.IsBootDir)
+	return withMount(ctx, device, "IsBootDevice", extend.IsBootDir)
 }
 
 // DetectFSTypeByBlkid 使用 blkid 探测文件系统类型

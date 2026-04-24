@@ -391,3 +391,110 @@ func NormalizeWindowsRoot(dir string) string {
 
 	return dir
 }
+
+func EffectiveForBoot(dir string) bool {
+	return IsRootDir(dir) || IsBootDir(dir) || IsEfiDir(dir)
+}
+
+func IsWindowsRoot(dir string) bool {
+	if !ContainAllSubDirs(dir, "Windows") {
+		return false
+	}
+	registryPath := filepath.Join(dir, "Windows", "System32", "config", "SYSTEM")
+	return IsExisted(registryPath)
+}
+
+func IsLinuxRoot(dir string) bool {
+	// 必须目录（放宽）
+	if !ContainAllSubDirs(dir, "etc", "usr") {
+		return false
+	}
+
+	// 至少存在一个关键文件
+	passwdPath := filepath.Join(dir, "etc", "passwd")
+	if !IsExisted(passwdPath) {
+		return false
+	}
+
+	// systemd 或 init 存在一个
+	initPath := filepath.Join(dir, "sbin", "init")
+	if IsExisted(initPath) {
+		return true
+	}
+	sysmdPath := filepath.Join(dir, "lib", "systemd", "systemd")
+	if IsExisted(sysmdPath) {
+		return true
+	}
+
+	return false
+}
+
+func IsEfiBoot(dir string) bool {
+	if !ContainAllSubDirs(dir, "EFI") {
+		return false
+	}
+
+	entries, _ := os.ReadDir(dir)
+	if len(entries) == 0 {
+		return false
+	}
+
+	return true
+}
+
+func IsLinuxBoot(dir string) bool {
+	if ContainAnySubDirs(dir, "grub", "grub2") {
+		return true
+	}
+
+	if ContainAnySubPrefixFiles(dir, "vmlinuz", "initrd", "initramfs") {
+		return true
+	}
+
+	return false
+}
+
+func IsWindowsBoot(dir string) bool {
+	if !ContainAllSubFiles(dir, "bootmgr") {
+		return false
+	}
+
+	bcdPath := filepath.Join(dir, "Boot", "BCD")
+	if IsExisted(bcdPath) {
+		return true
+	}
+	return false
+}
+
+func IsRootDir(dir string) bool {
+	switch runtime.GOOS {
+	case "windows":
+		dir = NormalizeWindowsRoot(dir)
+		return IsWindowsRoot(dir)
+	case "linux":
+		return IsLinuxRoot(dir)
+	default:
+		return false
+	}
+}
+
+func IsEfiDir(dir string) bool {
+	if runtime.GOOS == "windows" {
+		dir = NormalizeWindowsRoot(dir)
+	}
+	return IsEfiBoot(dir)
+}
+
+func IsBootDir(dir string) bool {
+	switch runtime.GOOS {
+	case "windows":
+		dir = NormalizeWindowsRoot(dir)
+		return IsWindowsBoot(dir)
+
+	case "linux":
+		return IsLinuxBoot(dir)
+
+	default:
+		return false
+	}
+}
