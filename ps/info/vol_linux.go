@@ -76,7 +76,7 @@ func QueryVolumes() ([]Volume, error) {
 				break
 			}
 		}
-		v.IsBootable = isDiskBootable && ContainsOSFileOrBootFile(v.MountPoint)
+		v.IsBootable = isDiskBootable && EffectiveForBoot(v.MountPoint)
 
 		vols = append(vols, v)
 	}

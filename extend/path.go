@@ -97,16 +97,6 @@ func IsEmptyDir(dir string) bool {
 	return len(ds) == 0
 }
 
-func ContainFiles(dir string, filenames ...string) (ok bool) {
-	for _, n := range filenames {
-		p := filepath.Join(dir, n)
-		if !IsExisted(p) {
-			return false
-		}
-	}
-	return true
-}
-
 // IsLinkTargetExisted 链接目标文件是否存在
 func IsLinkTargetExisted(searchDir, name string, recursive bool) bool {
 	var found bool
@@ -213,6 +203,163 @@ func FindSymlinkByDeviceName(base string, deviceName string) (name string, ok bo
 	return "", false
 }
 
+type dirCache struct {
+	files map[string]struct{}
+	dirs  map[string]struct{}
+}
+
+func readDirCache(dir string) (*dirCache, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	c := &dirCache{
+		files: make(map[string]struct{}, len(entries)),
+		dirs:  make(map[string]struct{}, len(entries)),
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			c.dirs[e.Name()] = struct{}{}
+		} else {
+			c.files[e.Name()] = struct{}{}
+		}
+	}
+	return c, nil
+}
+
+func existsEntry(root, subPath string, wantDir bool) bool {
+	full := filepath.Join(root, subPath)
+
+	info, err := os.Stat(full)
+	if err != nil {
+		return false
+	}
+
+	if wantDir {
+		return info.IsDir()
+	}
+	return !info.IsDir()
+}
+
+// 任意前缀文件（只匹配当前目录）
+func ContainAnySubPrefixFiles(dir string, prefixList ...string) bool {
+	if len(prefixList) == 0 {
+		return false
+	}
+
+	c, err := readDirCache(dir)
+	if err != nil {
+		return false
+	}
+
+	for name := range c.files {
+		for _, prefix := range prefixList {
+			if strings.HasPrefix(name, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// 任意目录
+func ContainAnySubDirs(dir string, subDirs ...string) bool {
+	c, err := readDirCache(dir)
+	if err != nil {
+		return false
+	}
+
+	for _, name := range subDirs {
+		// 支持 Boot/EFI 这种
+		if strings.Contains(name, "/") {
+			if existsEntry(dir, name, true) {
+				return true
+			}
+			continue
+		}
+
+		if _, ok := c.dirs[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// 全部目录
+func ContainAllSubDirs(dir string, subDirs ...string) bool {
+	c, err := readDirCache(dir)
+	if err != nil {
+		return false
+	}
+
+	for _, name := range subDirs {
+		if strings.Contains(name, "/") {
+			if !existsEntry(dir, name, true) {
+				return false
+			}
+			continue
+		}
+
+		if _, ok := c.dirs[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// 全部文件
+func ContainAllSubFiles(dir string, subFiles ...string) bool {
+	c, err := readDirCache(dir)
+	if err != nil {
+		return false
+	}
+
+	for _, name := range subFiles {
+		if strings.Contains(name, "/") {
+			if !existsEntry(dir, name, false) {
+				return false
+			}
+			continue
+		}
+
+		if _, ok := c.files[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// 全部条目（文件或目录）
+func ContainAllSubEntries(dir string, subEntries ...string) bool {
+	c, err := readDirCache(dir)
+	if err != nil {
+		return false
+	}
+
+	for _, name := range subEntries {
+		if strings.Contains(name, "/") {
+			// 不确定类型 → 直接 stat
+			full := filepath.Join(dir, name)
+			if _, err := os.Stat(full); err != nil {
+				return false
+			}
+			continue
+		}
+
+		if _, ok := c.files[name]; ok {
+			continue
+		}
+		if _, ok := c.dirs[name]; ok {
+			continue
+		}
+
+		return false
+	}
+	return true
+}
+
 func getCurrentDirByExecutable() string {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -229,4 +376,18 @@ func getCurrentDirByCaller() string {
 		abPath = path.Dir(filename)
 	}
 	return abPath
+}
+
+func NormalizeWindowsRoot(dir string) string {
+	// 处理 "C:" → "C:\"
+	if len(dir) == 2 && dir[1] == ':' {
+		return dir + "\\"
+	}
+
+	//// 如果不是以 "\" 结尾，则补上
+	//if !strings.HasSuffix(dir, "\\") {
+	//	return dir + "\\"
+	//}
+
+	return dir
 }

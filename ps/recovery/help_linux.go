@@ -11,13 +11,16 @@ import (
 )
 
 // Mount 挂载设备到指定挂载点
-func Mount(ctx context.Context, device string, mountpoint string) (supported bool, err error) {
+func Mount(ctx context.Context, device string, mountpoint string, readonly bool) (supported bool, err error) {
 	logger.Debugf("Mount() ++")
 	defer logger.Debugf("Mount() --")
 
-	logger.Debugf("Mount() Mount %s at %s", device, mountpoint)
+	logger.Debugf("Mount() Mount %s at %s (readonly=%v)", device, mountpoint, readonly)
 
 	mountCmd := fmt.Sprintf("mount %s %s", device, mountpoint)
+	if readonly {
+		mountCmd = fmt.Sprintf("mount -o ro %s %s", device, mountpoint)
+	}
 
 	_, output, err := command.ExecuteWithContext(ctx, mountCmd)
 	if err == nil {
@@ -119,7 +122,7 @@ func ActivateVgs() error {
 	logger.Debugf("ActivateVgs() ++")
 	defer logger.Debugf("ActivateVgs() --")
 
-	e = os.RemoveAll("/etc/lvm/devices/system.devices")
+	e := os.RemoveAll("/etc/lvm/devices/system.devices")
 	logger.Debugf("ActivateVgs() Remove system.devices: %s", e)
 
 	rescanLvmCmd := "pvscan; vgscan; vgchange -ay"

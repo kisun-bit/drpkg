@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func Mount(ctx context.Context, device string, mountpoint string) (supported bool, err error) {
+func Mount(ctx context.Context, device string, mountpoint string, readonly bool) (supported bool, err error) {
 	return true, nil
 }
 

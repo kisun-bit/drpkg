@@ -1,11 +1,14 @@
 package info
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/kisun-bit/drpkg/extend"
 )
+
+var ()
 
 type Volume struct {
 	// Name 卷的显示名称
@@ -58,42 +61,109 @@ type UsageInfo struct {
 	AvailBytes uint64 `json:"availBytes"`
 }
 
-func ContainsOSFileOrBootFile(dir string) bool {
+func EffectiveForBoot(dir string) bool {
+	return IsRootDir(dir) || IsBootDir(dir) || IsEfiDir(dir)
+}
+
+func IsWindowsRoot(dir string) bool {
+	if !extend.ContainAllSubDirs(dir, "Windows") {
+		return false
+	}
+	registryPath := filepath.Join(dir, "Windows", "System32", "config", "SYSTEM")
+	return extend.IsExisted(registryPath)
+}
+
+func IsLinuxRoot(dir string) bool {
+	// 必须目录（放宽）
+	if !extend.ContainAllSubDirs(dir, "etc", "usr") {
+		return false
+	}
+
+	// 至少存在一个关键文件
+	passwdPath := filepath.Join(dir, "etc", "passwd")
+	if !extend.IsExisted(passwdPath) {
+		return false
+	}
+
+	// systemd 或 init 存在一个
+	initPath := filepath.Join(dir, "sbin", "init")
+	if extend.IsExisted(initPath) {
+		return true
+	}
+	sysmdPath := filepath.Join(dir, "lib", "systemd", "systemd")
+	if extend.IsExisted(sysmdPath) {
+		return true
+	}
+
+	return false
+}
+
+func IsEfiBoot(dir string) bool {
+	if !extend.ContainAllSubDirs(dir, "EFI") {
+		return false
+	}
+
+	entries, _ := os.ReadDir(dir)
+	if len(entries) == 0 {
+		return false
+	}
+
+	return true
+}
+
+func IsLinuxBoot(dir string) bool {
+	if extend.ContainAnySubDirs(dir, "grub", "grub2") {
+		return true
+	}
+
+	if extend.ContainAnySubPrefixFiles(dir, "vmlinuz", "initrd", "initramfs") {
+		return true
+	}
+
+	return false
+}
+
+func IsWindowsBoot(dir string) bool {
+	if !extend.ContainAllSubFiles(dir, "bootmgr") {
+		return false
+	}
+
+	bcdPath := filepath.Join(dir, "Boot", "BCD")
+	if extend.IsExisted(bcdPath) {
+		return true
+	}
+	return false
+}
+
+func IsRootDir(dir string) bool {
 	switch runtime.GOOS {
 	case "windows":
-		if strings.HasSuffix(dir, ":") {
-			dir += "\\"
-		}
-		if strings.ToLower(dir) == "x:\\" && IsMemoryOS() {
-			return true
-		}
-		if extend.ContainFiles(dir, "Windows", "Users", "Program Files") {
-			return true
-		}
-		if extend.ContainFiles(dir, "bootmgr", "Boot") {
-			return true
-		}
+		dir = extend.NormalizeWindowsRoot(dir)
+		return IsWindowsRoot(dir)
 	case "linux":
-		if dir == "/" {
-			return true
-		}
-		if strings.HasSuffix(dir, "/boot") {
-			return true
-		}
-		if strings.HasSuffix(dir, "/boot/efi") {
-			return true
-		}
-		if strings.HasSuffix(dir, "/var") {
-			return true
-		}
-		if strings.HasSuffix(dir, "/usr") {
-			return true
-		}
-		if extend.ContainFiles(dir, "boot", "var", "home", "sys", "usr", "root") {
-			return true
-		}
+		return IsLinuxRoot(dir)
 	default:
 		return false
 	}
-	return false
+}
+
+func IsEfiDir(dir string) bool {
+	if runtime.GOOS == "windows" {
+		dir = extend.NormalizeWindowsRoot(dir)
+	}
+	return IsEfiBoot(dir)
+}
+
+func IsBootDir(dir string) bool {
+	switch runtime.GOOS {
+	case "windows":
+		dir = extend.NormalizeWindowsRoot(dir)
+		return IsWindowsBoot(dir)
+
+	case "linux":
+		return IsLinuxBoot(dir)
+
+	default:
+		return false
+	}
 }

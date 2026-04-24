@@ -4,180 +4,28 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/logger"
+	"github.com/kisun-bit/drpkg/ps/info"
 	"github.com/pkg/errors"
 )
 
-// IsRoot 若为系统根盘则返回true
-func IsRoot(ctx context.Context, device string) bool {
-	logger.Debugf("IsRoot(%s) ++", device)
-	defer logger.Debugf("IsRoot(%s) --", device)
-
-	switch runtime.GOOS {
-
-	case "windows":
-		rootFlagDirNames := []string{
-			"Windows",
-			"Users",
-			"Program Files",
-		}
-
-		if !strings.HasSuffix(device, ":") {
-			return false
-		}
-
-		mountpoint := device + "\\"
-		return ContainDirs(mountpoint, rootFlagDirNames)
-
-	case "linux":
-		rootFlagDirNames := []string{
-			"etc",
-			"bin",
-			"usr",
-			"var",
-			"boot",
-		}
-
-		mountpointTmpDir, err := os.MkdirTemp("", "isroot-*")
-		if err != nil {
-			logger.Warnf("IsRoot mkdir temp failed: %v", err)
-			return false
-		}
-		defer os.RemoveAll(mountpointTmpDir)
-
-		//mountCmd := fmt.Sprintf("mount -o ro %s %s", device, mountpointTmpDir)
-		//
-		//_, output, err := command.ExecuteWithContext(ctx, mountCmd)
-		//if err != nil {
-		//	logger.Warnf("IsRoot mount failed: dev=%s out=%s err=%v",
-		//		device, output, err)
-		//	return false
-		//}
-
-		support, err := Mount(ctx, device, mountpointTmpDir)
-		if err != nil {
-			logger.Warnf("IsRoot mount failed: dev=%s err=%v",
-				device, err)
-			return false
-		}
-		if !support {
-			return false
-		}
-
-		defer func() {
-			if err = Umount(mountpointTmpDir); err != nil {
-				logger.Warnf("IsRoot umount failed: %v", err)
-			}
-		}()
-
-		return ContainDirs(mountpointTmpDir, rootFlagDirNames)
-
-	default:
-		return false
-	}
+// IsRootDevice 是否为系统根盘
+func IsRootDevice(ctx context.Context, device string) bool {
+	return withMount(ctx, device, "IsRootDevice", info.IsRootDir)
 }
 
-// IsEfi 若为EFI盘则返回true
-func IsEfi(device string) bool {
-	logger.Debugf("IsEfi(%s) ++", device)
-	defer logger.Debugf("IsEfi(%s) --", device)
-
-	if runtime.GOOS != "linux" {
-		return false
-	}
-
-	mountpoint, err := os.MkdirTemp("", "isefi-*")
-	if err != nil {
-		logger.Warnf("IsEfi mkdir temp failed: %v", err)
-		return false
-	}
-	defer os.RemoveAll(mountpoint)
-
-	cmd := fmt.Sprintf("mount -o ro -t vfat %s %s", device, mountpoint)
-	_, output, err := command.Execute(cmd)
-	if err != nil {
-		logger.Debugf("IsEfi mount failed dev=%s out=%s err=%v", device, output, err)
-		return false
-	}
-
-	defer func() {
-		_ = Umount(mountpoint)
-	}()
-
-	efiDir := filepath.Join(mountpoint, "EFI")
-	if stat, err := os.Stat(efiDir); err == nil && stat.IsDir() {
-		return true
-	}
-
-	return false
+// IsEfiDevice 是否为 EFI 分区
+func IsEfiDevice(ctx context.Context, device string) bool {
+	return withMount(ctx, device, "IsEfiDevice", info.IsEfiDir)
 }
 
-// IsBoot 若为启动盘则返回true
-func IsBoot(ctx context.Context, device string) bool {
-	logger.Debugf("IsBoot(%s) ++", device)
-	defer logger.Debugf("IsBoot(%s) --", device)
-
-	if runtime.GOOS != "linux" {
-		return false
-	}
-
-	// 常见 boot 目录特征
-	rootFlagFiles := []string{
-		"vmlinuz",
-		"initrd",
-		"initramfs",
-		"grub",
-		"grub2",
-	}
-
-	mountpoint, err := os.MkdirTemp("", "isboot-*")
-	if err != nil {
-		logger.Warnf("IsBoot mkdir temp failed: %v", err)
-		return false
-	}
-	defer os.RemoveAll(mountpoint)
-
-	//// 只读挂载（避免写盘）
-	//cmd := fmt.Sprintf("mount -o ro %s %s", device, mountpoint)
-	//_, output, err := command.Execute(cmd)
-	//if err != nil {
-	//	logger.Debugf("IsBoot mount failed dev=%s out=%s err=%v", device, output, err)
-	//	return false
-	//}
-	support, err := Mount(ctx, device, mountpoint)
-	if err != nil {
-		logger.Warnf("IsBoot mount failed: dev=%s err=%v",
-			device, err)
-		return false
-	}
-	if !support {
-		return false
-	}
-
-	defer func() {
-		_ = Umount(mountpoint)
-	}()
-
-	// 判断 boot 特征
-	for _, name := range rootFlagFiles {
-		path := filepath.Join(mountpoint, name)
-		if _, err := os.Stat(path); err == nil {
-			return true
-		}
-	}
-
-	// 额外判断：/boot/grub
-	grubDir := filepath.Join(mountpoint, "grub")
-	if stat, err := os.Stat(grubDir); err == nil && stat.IsDir() {
-		return true
-	}
-
-	return false
+// IsBootDevice 是否为启动分区
+func IsBootDevice(ctx context.Context, device string) bool {
+	return withMount(ctx, device, "IsBootDevice", info.IsBootDir)
 }
 
 // DetectFSTypeByBlkid 使用 blkid 探测文件系统类型
@@ -251,22 +99,58 @@ func DetectFSRepairCmdline(device string) (cmdline string, ok bool) {
 	}
 }
 
-func ContainDirs(dir string, subDirNames []string) (ok bool) {
-	dirs_, ed := os.ReadDir(dir)
-	subFileNames := make([]string, 0)
-	if ed == nil {
-		for _, d := range dirs_ {
-			subFileNames = append(subFileNames, d.Name())
-		}
-		logger.Debugf("containDirs() sub filenames of %s: %#v", dir, subFileNames)
-	}
+func withMount(
+	ctx context.Context,
+	device string,
+	tag string,
+	check func(string) bool,
+) bool {
 
-	for _, flagDirName := range subDirNames {
-		flagDirPath := filepath.Join(dir, flagDirName)
-		if _, e := os.Stat(flagDirPath); e != nil {
-			logger.Debugf("containDirs() subDirNames=%v path=%v existed=false", subDirNames, flagDirPath)
+	logger.Debugf("%s(%s) ++", tag, device)
+	defer logger.Debugf("%s(%s) --", tag, device)
+
+	var mountpoint string
+
+	switch runtime.GOOS {
+
+	case "windows":
+		if !strings.HasSuffix(device, ":") {
 			return false
 		}
+		mountpoint = device + "\\"
+
+	case "linux":
+		var err error
+
+		mountpoint, err = os.MkdirTemp("", strings.ToLower(tag)+"-*")
+		if err != nil {
+			logger.Warnf("%s mkdir temp failed: %v", tag, err)
+			return false
+		}
+		defer os.RemoveAll(mountpoint)
+
+		support, err := Mount(ctx, device, mountpoint, true)
+		if err != nil {
+			logger.Warnf("%s mount failed: dev=%s err=%v", tag, device, err)
+			return false
+		}
+		if !support {
+			return false
+		}
+
+		defer func() {
+			if err := Umount(mountpoint); err != nil {
+				logger.Warnf("%s umount failed: %v", tag, err)
+			}
+		}()
+
+	default:
+		return false
 	}
-	return true
+
+	if mountpoint == "" {
+		return false
+	}
+
+	return check(mountpoint)
 }
