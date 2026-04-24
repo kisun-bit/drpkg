@@ -31,11 +31,11 @@ func QueryDisks() (disks []Disk, err error) {
 		} else {
 			// 经测试，在win2k8r2上，IOCTL_STORAGE_QUERY_PROPERTY不受支持，
 			// 因此我们以DISK_GEOMETRY数据为准即可
-			if errors.Is(err, windows.ERROR_NOT_SUPPORTED) {
+			if errors.Is(e, windows.ERROR_NOT_SUPPORTED) {
 				d.LogicalSectorSize = 512
 				d.PhysicalSectorSize = 512
 			} else {
-				return nil, errors.Wrapf(err, "DiskAlignmentStorage for %s", diskPath)
+				return nil, errors.Wrapf(e, "DiskAlignmentStorage for %s", diskPath)
 			}
 		}
 

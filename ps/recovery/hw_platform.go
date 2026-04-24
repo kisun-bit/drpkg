@@ -32,7 +32,7 @@ type Platform struct {
 	// Arch OCI风格的架构标识
 	Arch string `json:"arch"`
 
-	// CpuVendorId CPU的制造商ID
+	// CpuVendor CPU的制造商ID
 	CpuVendor string `json:"cpuVendor"`
 
 	// Base 平台类型：virt / bare-metal

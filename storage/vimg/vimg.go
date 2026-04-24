@@ -23,6 +23,7 @@ const (
 	//   vimg_xxx.META
 	LayoutFile Layout = iota
 
+	// FIXME: 当前版本暂不实现
 	// LayoutDir 表示“目录布局”：
 	// 每个镜像为一个目录，目录名为 {guid}，内部包含：
 	//   DATA  数据文件
@@ -187,3 +188,5 @@ type IndexEntry struct {
 	// LengthInDATA 数据块在 DATA 文件中的长度（字节）。
 	LengthInDATA uint32
 }
+
+// TODO 实现创建、基于backing创建、commit合并、rebase变基、delete删除等接口
