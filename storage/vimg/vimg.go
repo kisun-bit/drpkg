@@ -100,7 +100,7 @@ type VImg struct {
 	// State 镜像状态，仅用于标识当前阶段。
 	State State `json:"state"`
 
-	// VirtualSize 虚拟磁盘大小（字节），必须 512 对齐。
+	// VirtualSize 虚拟磁盘大小（字节），支持任意正整数（字节粒度）。
 	VirtualSize uint64 `json:"virtualSize"`
 
 	// ClusterSize 数据块大小（字节），必须 512 对齐。
@@ -187,6 +187,37 @@ type IndexEntry struct {
 
 	// LengthInDATA 数据块在 DATA 文件中的长度（字节）。
 	LengthInDATA uint32
+}
+
+// MapSource 表示 Map 结果中某段数据的来源。
+type MapSource uint8
+
+const (
+	// MapSourceData 表示该区间数据由当前镜像本层提供（IDX 命中）。
+	MapSourceData MapSource = iota
+
+	// MapSourceBacking 表示该区间数据来自 backing 链中的某一层。
+	MapSourceBacking
+
+	// MapSourceZero 表示该区间没有任何层提供数据，读取结果应为全 0。
+	MapSourceZero
+)
+
+// MapSegment 表示一个连续字节区间在逻辑上的数据来源映射。
+type MapSegment struct {
+	Offset uint64    `json:"offset"`
+	Length uint64    `json:"length"`
+	Source MapSource `json:"source"`
+
+	// OwnerGuid 为提供数据的镜像 GUID。
+	// 当 Source=MapSourceZero 时为空字符串。
+	OwnerGuid string `json:"ownerGuid,omitempty"`
+}
+
+// BackingRef 表示当前镜像关联的 backing 信息。
+type BackingRef struct {
+	Guid     string `json:"guid"`
+	MetaPath string `json:"metaPath"`
 }
 
 // TODO 实现创建、基于backing创建、commit合并、rebase变基、delete删除等接口

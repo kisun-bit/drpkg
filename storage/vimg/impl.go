@@ -14,6 +14,8 @@ type Image interface {
 
 	WriteAt(p []byte, off uint64) error
 	ReadAt(p []byte, off uint64) error
+	Map(off, length uint64) ([]MapSegment, error)
+	Backing() (*BackingRef, error)
 
 	Commit() error // merge 到 backing
 	Rebase(newBacking string) error
@@ -27,7 +29,7 @@ type CreateOptions struct {
 	Dir string
 
 	// VirtualSize 虚拟磁盘大小（字节）
-	// 必须 512 对齐
+	// 支持任意正整数（字节粒度）
 	VirtualSize uint64
 
 	// ClusterSize 数据块大小（字节）
@@ -40,6 +42,11 @@ type CreateOptions struct {
 
 	// Encryption 加密算法
 	Encryption Encryption
+
+	// EncryptionKey 可选加密密钥（仅在 EncryptionAES256 时使用）
+	// 支持 32 字节原文、64 字符 hex 或 base64 编码的 32 字节密钥
+	// 为空时会自动生成随机密钥并写入 META 的 StoragePrivateInfo
+	EncryptionKey string
 
 	// Preallocate 是否预分配空间（可选）
 	// true  → 预分配 DATA 文件（提升顺序写性能）
