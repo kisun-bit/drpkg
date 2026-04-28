@@ -439,6 +439,9 @@ func IsNormalDiskDevice(device string) (bool, error) {
 	if strings.HasPrefix(filepath.Base(diskName), "sr") {
 		return false, nil
 	}
+	if strings.HasPrefix(filepath.Base(diskName), "fd") {
+		return false, nil
+	}
 
 	ro, _ := IsDiskReadonly(path)
 	removable, _ := IsDiskRemovable(path)
