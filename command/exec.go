@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"sync"
 
+	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
@@ -18,6 +19,10 @@ import (
 )
 
 func ExecuteWithContext(ctx context.Context, cmdline string, options ...CmdOption) (exit int, output string, err error) {
+	defer func() {
+		err = errors.Wrapf(err, "execute `%s`", cmdline)
+	}()
+
 	if ctx == nil {
 		return 1, "", errors.New("nil context")
 	}
@@ -44,6 +49,13 @@ func ExecuteWithContext(ctx context.Context, cmdline string, options ...CmdOptio
 	callerPath, err := exec.LookPath(opt.caller)
 	if err != nil {
 		return 1, "", err
+	}
+
+	if opt.debug {
+		defer func() {
+			logger.Debugf("ExecuteWithContext: exec `%s`\nreturn:%v\noutput:\n%s\nerror:%v",
+				cmdline, exit, output, err)
+		}()
 	}
 
 	cmdProc := exec.CommandContext(cmdCtx, callerPath, argList...)
