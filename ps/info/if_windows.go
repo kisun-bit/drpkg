@@ -6,9 +6,49 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/extend"
+	"github.com/pkg/errors"
+	netpsutil "github.com/shirou/gopsutil/v3/net"
 	wmi_ "github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows/registry"
 )
+
+func QueryIFList() ([]IF, error) {
+	interfaces, err := netpsutil.Interfaces()
+	if err != nil {
+		return nil, errors.Errorf("failed to query network info, %v", err)
+	}
+	is := make([]IF, 0)
+
+	adapters, err := NetworkAdapters()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, i := range interfaces {
+		ie := IFExtra{}
+		neti, e := net.InterfaceByName(i.Name)
+		if e == nil {
+			ie.Linked = neti.Flags&net.FlagUp != 0
+		}
+
+		pnpDeviceId := ""
+		for _, a := range adapters {
+			if a.NetConnectionID == i.Name {
+				pnpDeviceId = a.PNPDeviceID
+				break
+			}
+		}
+
+		ie.Physical = IsPhysicalIFByPnpDeviceId(pnpDeviceId)
+
+		f := IF{}
+		f.IFExtra = ie
+		f.InterfaceStat = i
+		is = append(is, f)
+	}
+
+	return is, nil
+}
 
 func QueryIFExtra(ifName string) IFExtra {
 	ie := IFExtra{}
@@ -75,17 +115,17 @@ type Win32_NetworkAdapter struct {
 	PNPDeviceID     string
 }
 
-func IsPhysicalIF(name string) bool {
+func NetworkAdapters() ([]Win32_NetworkAdapter, error) {
 	var adapters []Win32_NetworkAdapter
-	query := fmt.Sprintf("SELECT Name, NetConnectionID, PhysicalAdapter, Description, PNPDeviceID FROM Win32_NetworkAdapter WHERE NetConnectionID='%s'", name)
+	query := "SELECT Name, NetConnectionID, PhysicalAdapter, Description, PNPDeviceID FROM Win32_NetworkAdapter"
 	err := wmi_.Query(query, &adapters)
 	if err != nil {
-		return false
+		return nil, errors.Wrapf(err, "failed to query network adapters")
 	}
-	if len(adapters) == 0 {
-		return false
-	}
+	return adapters, nil
+}
 
+func IsPhysicalIFByPnpDeviceId(pnpDeviceId string) bool {
 	// 实际环境中发现，启用调试模式后，会基于物理网卡生成一个虚拟适配器，如下：
 	// PS C:\WINDOWS\system32> Get-NetAdapter | Select Name, PnPDeviceID, PermanentAddress
 	//
@@ -97,17 +137,37 @@ func IsPhysicalIF(name string) bool {
 	// 可以看出，Mac地址一模一样的，且`以太网 2`并不会出现在资源管理器的`网络`中，那么我们将`以太网(内核调试器)`视为物理网卡即可
 
 	// 通用PCI物理网卡
-	if strings.Contains(adapters[0].PNPDeviceID, "PCI") {
+	if strings.Contains(pnpDeviceId, "PCI") {
 		return true
 	}
 	// Hyper-V虚拟机适配器
-	if strings.HasPrefix(adapters[0].PNPDeviceID, "VMBUS") {
+	if strings.HasPrefix(pnpDeviceId, "VMBUS") {
 		return true
 	}
 	// Xen虚拟机
-	if strings.HasPrefix(adapters[0].PNPDeviceID, "XEN") {
+	if strings.HasPrefix(pnpDeviceId, "XEN") {
 		return true
 	}
-
 	return false
+}
+
+func IsPhysicalIF(name string) bool {
+	var adapters []Win32_NetworkAdapter
+	adapters, err := NetworkAdapters()
+	if err != nil {
+		return false
+	}
+	if len(adapters) == 0 {
+		return false
+	}
+
+	adapter := Win32_NetworkAdapter{}
+	for _, a := range adapters {
+		if a.NetConnectionID == name {
+			adapter = a
+			break
+		}
+	}
+
+	return IsPhysicalIFByPnpDeviceId(adapter.PNPDeviceID)
 }

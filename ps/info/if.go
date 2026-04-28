@@ -1,7 +1,6 @@
 package info
 
 import (
-	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v3/net"
 )
 
@@ -23,19 +22,4 @@ type IFExtra struct {
 	//
 	//// IfCfgPath 网卡配置文件，Linux特有
 	//IfCfgPath string `json:"ifcfg_path"`
-}
-
-func QueryIFList() ([]IF, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil, errors.Errorf("failed to query network info, %v", err)
-	}
-	is := make([]IF, 0)
-	for _, i := range interfaces {
-		f := IF{}
-		f.IFExtra = QueryIFExtra(i.Name)
-		f.InterfaceStat = i
-		is = append(is, f)
-	}
-	return is, nil
 }
