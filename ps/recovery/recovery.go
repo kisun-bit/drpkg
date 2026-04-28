@@ -153,8 +153,10 @@ const (
 type RecoveryParameter struct {
 	Source Platform `json:"sourcePlatform"`
 	Target Platform `json:"targetPlatform"`
-}
 
-type RecoveryManager struct {
-	Parameter RecoveryParameter `json:"parameter"`
+	// FsckFs 强制修复文件系统
+	FsckFs bool `json:"fsckFs"`
+
+	// FsckFsTimeout 修复文件系统的超时时间
+	FsckFsTimeout int `json:"fsckFsTimeout"`
 }

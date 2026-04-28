@@ -27,8 +27,19 @@ const (
 	HPVTHyperV  HPVirtType = "hyper-v"
 )
 
+// BootMode 启动模式
+type BootMode string
+
+const (
+	BootModeUEFI BootMode = "uefi"
+	BootModeBIOS BootMode = "bios"
+)
+
 // Platform 表示一个运行环境（源或目标）
 type Platform struct {
+	// BootMode 启动模式
+	BootMode BootMode `json:"bootMode"`
+
 	// Arch OCI风格的架构标识
 	Arch string `json:"arch"`
 
@@ -70,13 +81,18 @@ func RuntimePlatform() (pf Platform, err error) {
 		case pci.VendorId() == 0x15ad && pf.Base == HPUnknown: // 检查是否是vmware环境
 			pf.Base = HPVirt
 			pf.Virt = HPVTVmware
+			continue
 		case pci.VendorId() == 0x5853 && pf.Base == HPUnknown: // 检查是否是xen环境
 			pf.Base = HPVirt
 			pf.Virt = HPVTXen
+			continue
 		case pci.VendorId() == 0x1af4 && pf.Base == HPUnknown: // 检查是否是qemu/kvm环境
 			pf.Base = HPVirt
 			pf.Virt = HPVTQemuKvm
+			continue
 		}
+
+		// 非虚拟硬件将其添加到pci列表中
 
 		pf.PciList = append(pf.PciList, pci.String())
 	}
