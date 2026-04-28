@@ -374,6 +374,9 @@ func BytesPerSector(dev string) (int, error) {
 
 func DiskLogicalSectorSize(dev string) (int, error) {
 	base := filepath.Base(dev)
+	if linkTarget, err := filepath.EvalSymlinks(dev); err == nil {
+		base = filepath.Base(linkTarget)
+	}
 	p := fmt.Sprintf("/sys/class/block/%s/queue/logical_block_size", base)
 	i, err := ReadIntFromFile(p)
 	if err != nil {
@@ -384,6 +387,9 @@ func DiskLogicalSectorSize(dev string) (int, error) {
 
 func DiskPhysicalSectorSize(dev string) (int, error) {
 	base := filepath.Base(dev)
+	if linkTarget, err := filepath.EvalSymlinks(dev); err == nil {
+		base = filepath.Base(linkTarget)
+	}
 	p := fmt.Sprintf("/sys/class/block/%s/queue/physical_block_size", base)
 	i, err := ReadIntFromFile(p)
 	if err != nil {
