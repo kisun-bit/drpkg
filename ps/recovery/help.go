@@ -13,6 +13,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+var SupportedFsTypes = []string{"ext4", "ext3", "ext2", "xfs", "fat", "vfat", "ntfs", "cramfs", "gfs2", "hfs", "hfsplus", "zfs", "jfs", "minix", "msdos", "reiserfs"}
+
 // IsRootDevice 是否为系统根盘
 func IsRootDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsRootDevice", extend.IsRootDir)
