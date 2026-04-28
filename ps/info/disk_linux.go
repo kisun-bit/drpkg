@@ -27,10 +27,16 @@ func QueryDisks() (disks []Disk, err error) {
 		if ok {
 			d.PathId = name
 		} else {
+			// 兼容VIRTIO总线
 			name, ok = extend.FindSymlinkByDeviceName("/dev/disk/by-id", diskPath)
 			if ok {
 				d.PathId = name
 			}
+		}
+
+		// 兼容XEN总线
+		if d.PathId == "" {
+			d.PathId = filepath.Base(diskPath)
 		}
 
 		d.LogicalSectorSize, err = extend.DiskLogicalSectorSize(diskPath)
