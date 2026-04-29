@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/logger"
@@ -141,4 +144,164 @@ func vmbusExisted() (bool, error) {
 		return false, err
 	}
 	return len(items) > 0, nil
+}
+
+func DetectGrub(root string) (int, string) {
+	globs := []string{
+		"boot/*/grub.cfg",
+		"boot/*/grub.conf",
+		"boot/*/menu.lst",
+		"boot/efi/EFI/*/grub.cfg",
+		"boot/efi/EFI/*/elilo.conf",
+		"etc/grub2.cfg",
+		"etc/grub2-efi.cfg",
+		"etc/grub.conf",
+		"etc/grub.cfg",
+	}
+
+	type result struct {
+		ver  int
+		path string
+	}
+	var found []result
+
+	for _, g := range globs {
+		paths, _ := filepath.Glob(filepath.Join(root, g))
+
+		for _, p := range paths {
+			absPath := resolve(p)
+			content, err := readFileHead(absPath, 512<<10)
+			if err != nil {
+				continue
+			}
+
+			// EFI stub 跟踪
+			if strings.Contains(content, "configfile ") {
+				if next := parseConfigfile(content, root); next != "" {
+					if v, rp := detectSingle(next); v != -1 {
+						return v, rp
+					}
+				}
+			}
+
+			if v := detectContent(content); v != -1 {
+				found = append(found, result{v, absPath})
+			}
+		}
+	}
+
+	// 优先 grub2
+	for _, r := range found {
+		if r.ver == 2 {
+			return r.ver, r.path
+		}
+	}
+	for _, r := range found {
+		if r.ver == 1 {
+			return r.ver, r.path
+		}
+	}
+
+	return -1, ""
+}
+
+func resolve(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}
+
+func detectContent(content string) int {
+	if strings.Contains(content, "menuentry ") {
+		return 2
+	}
+	if strings.Contains(content, "title ") {
+		return 1
+	}
+	return -1
+}
+
+func detectSingle(path string) (int, string) {
+	absPath := resolve(path)
+
+	content, err := readFileHead(absPath, 512<<10)
+	if err != nil {
+		return -1, ""
+	}
+
+	return detectContent(content), absPath
+}
+
+func readFileHead(path string, n int) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	buf := make([]byte, n)
+	nr, err := f.Read(buf)
+	if err != nil && nr == 0 {
+		return "", err
+	}
+
+	return string(buf[:nr]), nil
+}
+
+// 从 grub.cfg 内容中解析 configfile 指向的真实路径
+func parseConfigfile(content, root string) string {
+	var prefix string
+
+	lines := strings.Split(content, "\n")
+
+	// 先解析 prefix（如果有）
+	// 例如：set prefix=($root)/grub2
+	rePrefix := regexp.MustCompile(`set\s+prefix\s*=\s*\([^)]+\)(.*)`)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "set prefix") {
+			if m := rePrefix.FindStringSubmatch(line); len(m) == 2 {
+				prefix = strings.TrimSpace(m[1])
+			}
+		}
+	}
+
+	// 解析 configfile
+	reConfig := regexp.MustCompile(`configfile\s+(.+)`)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "configfile") {
+			continue
+		}
+
+		m := reConfig.FindStringSubmatch(line)
+		if len(m) != 2 {
+			continue
+		}
+
+		path := strings.TrimSpace(m[1])
+
+		// 去掉变量
+		path = strings.ReplaceAll(path, "$prefix", prefix)
+
+		// 去掉可能的变量残留（简单处理）
+		if strings.Contains(path, "$") {
+			continue
+		}
+
+		// 绝对路径
+		if strings.HasPrefix(path, "/") {
+			return filepath.Join(root, path)
+		}
+
+		// 相对路径（基于 prefix）
+		if prefix != "" {
+			return filepath.Join(root, prefix, path)
+		}
+	}
+
+	return ""
 }

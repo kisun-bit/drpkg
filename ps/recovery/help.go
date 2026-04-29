@@ -44,6 +44,20 @@ func DetectFSTypeByBlkid(device string) (string, error) {
 	}
 }
 
+// DetectUuidByBlkid 使用 blkid 探测设备的UUID
+func DetectUuidByBlkid(device string) (string, error) {
+	switch runtime.GOOS {
+	case "linux":
+		_, output, err := command.Execute(fmt.Sprintf("blkid -o value -s UUID %s", device))
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(output), nil
+	default:
+		return "", errors.Errorf("unsupported platform %s", runtime.GOOS)
+	}
+}
+
 // DetectFSRepairCmdline 探测设备的修复命令
 func DetectFSRepairCmdline(device string) (cmdline string, ok bool) {
 	switch runtime.GOOS {
