@@ -182,20 +182,25 @@ func (fixer *linuxSystemFixer) mountSys() error {
 	chrootDevPath := filepath.Join(rootDir, "dev")
 	chrootProcPath := filepath.Join(rootDir, "proc")
 	chrootSysPath := filepath.Join(rootDir, "sys")
+	chrootRunPath := filepath.Join(rootDir, "run")
 
 	releatedMounts := map[string]string{
 		chrootDevPath:  fmt.Sprintf("mount --bind /dev %s", chrootDevPath),
 		chrootProcPath: fmt.Sprintf("mount -t proc procfs %s", chrootProcPath),
 		chrootSysPath:  fmt.Sprintf("mount -t sysfs sysfs %s", chrootSysPath),
+		chrootRunPath:  fmt.Sprintf("mount --bind /run %s", chrootRunPath),
 	}
 
+	// NOTE: 不要使用--rbind和--make-rslave，会造成卸载rootDir时vg资源释放不干净
+
 	for mp, cmdline := range releatedMounts {
-		if extend.IsExisted(mp) {
+		if !extend.IsExisted(mp) {
 			_ = os.MkdirAll(mp, 0755)
 		}
 		if _, _, e := command.Execute(cmdline, command.WithDebug()); e != nil {
 			return e
 		}
+
 		fixer.mountPoints = append(fixer.mountPoints, mp)
 	}
 
@@ -209,6 +214,7 @@ func (fixer *linuxSystemFixer) umountSys() error {
 
 	for _, mp := range funk.ReverseStrings(fixer.mountPoints) {
 		if err := Umount(mp, false); err != nil {
+			logger.Warnf("umountSys: umount %s failed: %s", mp, err)
 			return err
 		}
 	}
