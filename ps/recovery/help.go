@@ -155,7 +155,7 @@ func withMount(
 		}
 
 		defer func() {
-			if err := Umount(mountpoint); err != nil {
+			if err := Umount(mountpoint, false); err != nil {
 				logger.Warnf("%s umount failed: %v", tag, err)
 			}
 		}()

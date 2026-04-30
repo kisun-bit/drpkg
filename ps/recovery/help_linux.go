@@ -15,9 +15,6 @@ import (
 
 // Mount 挂载设备到指定挂载点
 func Mount(ctx context.Context, device string, mountpoint string, readonly bool) (supported bool, err error) {
-	logger.Debugf("Mount() ++")
-	defer logger.Debugf("Mount() --")
-
 	logger.Debugf("Mount() Mount %s at %s (readonly=%v)", device, mountpoint, readonly)
 
 	mountCmd := fmt.Sprintf("mount %s %s", device, mountpoint)
@@ -51,21 +48,24 @@ func Mount(ctx context.Context, device string, mountpoint string, readonly bool)
 }
 
 // Mount 取消设备的挂载
-func Umount(deviceOrMountpoint string) error {
-	logger.Debugf("Umount() ++")
-	defer logger.Debugf("Umount() --")
-
+func Umount(deviceOrMountpoint string, recursive bool) error {
 	logger.Debugf("Umount() target=%s", deviceOrMountpoint)
 
 	// 1. 普通卸载
 	cmd := fmt.Sprintf("umount %s", deviceOrMountpoint)
+	if recursive {
+		cmd = fmt.Sprintf("umount -R %s", deviceOrMountpoint)
+	}
 	_, output, err := command.Execute(cmd)
-	if err == nil {
-		return nil
+	if err != nil {
+		if strings.Contains(output, "not mounted") {
+			return nil
+		}
+		return errors.Wrapf(err, "umount %s", deviceOrMountpoint)
 	}
 
-	logger.Warnf("Umount() normal failed target=%s output=%s err=%v",
-		deviceOrMountpoint, output, err)
+	//logger.Warnf("Umount() normal failed target=%s output=%s err=%v",
+	//	deviceOrMountpoint, output, err)
 
 	//// 2. 尝试 lazy umount（避免 busy 卡死）
 	//cmd = fmt.Sprintf("umount -l %s", deviceOrMountpoint)
@@ -78,33 +78,35 @@ func Umount(deviceOrMountpoint string) error {
 	//logger.Warnf("Umount() lazy failed target=%s output=%s err=%v",
 	//	deviceOrMountpoint, output, err)
 
-	// 3. 尝试 force（主要用于 NFS / 某些异常情况）
-	cmd = fmt.Sprintf("umount -f %s", deviceOrMountpoint)
-	_, output, err = command.Execute(cmd)
-	if err == nil {
-		logger.Warnf("Umount() force umount success target=%s", deviceOrMountpoint)
-		return nil
-	}
+	//// 3. 尝试 force（主要用于 NFS / 某些异常情况）
+	//cmd = fmt.Sprintf("umount -f %s", deviceOrMountpoint)
+	//_, output, err = command.Execute(cmd)
+	//if err == nil {
+	//	logger.Warnf("Umount() force umount success target=%s", deviceOrMountpoint)
+	//	return nil
+	//}
+	//
+	//logger.Warnf("Umount() force failed target=%s output=%s err=%v",
+	//	deviceOrMountpoint, output, err)
+	//
+	//// 4. 尝试杀占用进程（谨慎使用）
+	//// fuser -km 会 kill 所有占用该挂载点的进程
+	//killCmd := fmt.Sprintf("fuser -km %s", deviceOrMountpoint)
+	//_, killOut, killErr := command.Execute(killCmd)
+	//logger.Warnf("Umount() fuser kill target=%s output=%s err=%v",
+	//	deviceOrMountpoint, killOut, killErr)
+	//
+	//// 再尝试一次卸载
+	//cmd = fmt.Sprintf("umount %s", deviceOrMountpoint)
+	//_, output, err = command.Execute(cmd)
+	//if err == nil {
+	//	logger.Warnf("Umount() success after kill target=%s", deviceOrMountpoint)
+	//	return nil
+	//}
+	//
+	//return errors.Wrapf(err, "umount failed target=%s output=%s", deviceOrMountpoint, output)
 
-	logger.Warnf("Umount() force failed target=%s output=%s err=%v",
-		deviceOrMountpoint, output, err)
-
-	// 4. 尝试杀占用进程（谨慎使用）
-	// fuser -km 会 kill 所有占用该挂载点的进程
-	killCmd := fmt.Sprintf("fuser -km %s", deviceOrMountpoint)
-	_, killOut, killErr := command.Execute(killCmd)
-	logger.Warnf("Umount() fuser kill target=%s output=%s err=%v",
-		deviceOrMountpoint, killOut, killErr)
-
-	// 再尝试一次卸载
-	cmd = fmt.Sprintf("umount %s", deviceOrMountpoint)
-	_, output, err = command.Execute(cmd)
-	if err == nil {
-		logger.Warnf("Umount() success after kill target=%s", deviceOrMountpoint)
-		return nil
-	}
-
-	return errors.Wrapf(err, "umount failed target=%s output=%s", deviceOrMountpoint, output)
+	return nil
 }
 
 func DeactivateVgs() error {
@@ -304,4 +306,29 @@ func parseConfigfile(content, root string) string {
 	}
 
 	return ""
+}
+
+func IsMountPointByMountInfo(path string) (bool, error) {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false, err
+	}
+
+	path = filepath.Clean(path)
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+
+		mountPoint := fields[4]
+
+		if mountPoint == path {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

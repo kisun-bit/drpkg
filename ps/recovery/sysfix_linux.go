@@ -23,20 +23,31 @@ const (
 	InitrdToolMkinitrd        = "mkinitrd"
 )
 
+var (
+	rootDir = "/mnt/offline-sys"
+)
+
 type linuxSystemFixer struct {
-	ctx            context.Context
-	opts           *FixerCreateOptions
-	logs           <-chan LogEntry
-	psinfo         *info.PsInfo
-	fsDevices      []string
-	sysDevRoot     string
-	sysDevBoot     string
-	SysDevEfi      string
-	rootMountPoint string
-	initrdTool     string
-	kernels        []info.LinuxKernel
-	grubVer        int
-	grubCfg        string // 相对于/
+	ctx    context.Context
+	opts   *FixerCreateOptions // 恢复参数
+	logs   <-chan LogEntry     // 日志缓存通道
+	psinfo *info.PsInfo        // 修复虚机的系统信息（已附加离线系统）
+
+	//
+	// 离线系统私有信息
+	//
+
+	fsList      []string           // 文件系统设备集合
+	devRoot     string             // root设备
+	devBoot     string             // boot设备
+	devEfi      string             // efi设备
+	mountPoints []string           // 挂载点（顺序：从顶层到最下层）
+	root        string             // root挂载点
+	initrdTl    string             // initrd生成工具
+	kernels     []info.LinuxKernel // 内核集合
+	grubVer     int                // grub版本
+	grubCfg     string             // grub配置文件，相对于/
+	distro      DistroInfo         // 发行版信息
 }
 
 func NewSysFixer(ctx context.Context, opts *FixerCreateOptions) (fixer SysFixer, err error) {
@@ -56,12 +67,12 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		return errors.Wrap(err, "active lvm")
 	}
 
-	fsDevs, e := enumFsDevice(fixer.opts.OfflineSysDisks)
+	fsDevs, e := enumFilesystem(fixer.opts.OfflineSysDisks)
 	if e != nil {
 		return errors.Wrap(e, "enum filesystem")
 	}
-	fixer.fsDevices = fsDevs
-	logger.Debugf("Prepare: fsDevices:\n%s", extend.Pretty(fixer.fsDevices))
+	fixer.fsList = fsDevs
+	logger.Debugf("Prepare: fsList:\n%s", extend.Pretty(fixer.fsList))
 
 	if err := fixer.cleanDattoSnapshot(); err != nil {
 		return errors.Wrap(err, "cleaning datto snapshot")
@@ -87,6 +98,10 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		return errors.Wrap(err, "detect grub")
 	}
 
+	if err := fixer.detectDistro(); err != nil {
+		return errors.Wrap(err, "detect distro")
+	}
+
 	return nil
 }
 
@@ -95,6 +110,10 @@ func (fixer *linuxSystemFixer) Repair() error {
 	logger.Debugf("Repair: ++")
 	defer logger.Debugf("Repair: --")
 
+	if err := fixer.fixFstab(); err != nil {
+		return errors.Wrap(err, "fix fstab")
+	}
+
 	// TODO
 
 	return errors.New("not implemented")
@@ -102,8 +121,14 @@ func (fixer *linuxSystemFixer) Repair() error {
 
 // Cleanup 清理修复环境（卸载/释放资源）
 func (fixer *linuxSystemFixer) Cleanup() error {
-	// TODO
-	return errors.New("implement me")
+	logger.Debugf("Cleanup: ++")
+	defer logger.Debugf("Cleanup: --")
+
+	if err := fixer.umountSys(); err != nil {
+		return errors.Wrap(err, "umount sys")
+	}
+
+	return nil
 }
 
 // GetLog 获取日志
@@ -121,64 +146,73 @@ func (fixer *linuxSystemFixer) mountSys() error {
 	logger.Debugf("mountSys: ++")
 	defer logger.Debugf("mountSys: --")
 
-	if fixer.sysDevRoot == "" {
+	if fixer.devRoot == "" {
 		return errors.New("root filesystem is empty")
 	}
 
-	//mountpoint, err := os.MkdirTemp("", "mountSys-*")
-	//if err != nil {
-	//	return err
-	//}
-
 	// 固定离线系统的挂载点
-	mountpoint := filepath.Join("/mnt/offline")
-	_ = os.MkdirAll(mountpoint, 0755)
+	_ = os.MkdirAll(rootDir, 0755)
+	_ = Umount(rootDir, true)
 
-	if _, err := Mount(fixer.ctx, fixer.sysDevRoot, mountpoint, false); err != nil {
+	if _, err := Mount(fixer.ctx, fixer.devRoot, rootDir, false); err != nil {
 		return err
 	}
+	fixer.root = rootDir
+	fixer.mountPoints = append(fixer.mountPoints, rootDir)
 
-	if fixer.sysDevBoot != "" {
+	if fixer.devBoot != "" {
 		// FIXME：项目上发现，未修复的Boot可能影响新的initrd文件生成
-		bootMountpoint := filepath.Join(mountpoint, "boot")
-		if _, err := Mount(fixer.ctx, bootMountpoint, mountpoint, false); err != nil {
+		bootMountpoint := filepath.Join(rootDir, "boot")
+		if _, err := Mount(fixer.ctx, fixer.devBoot, bootMountpoint, false); err != nil {
+			return err
+		}
+		fixer.mountPoints = append(fixer.mountPoints, bootMountpoint)
+	}
+
+	if fixer.devEfi != "" {
+		efiMountpoint := filepath.Join(rootDir, "boot", "efi")
+		if extend.IsExisted(efiMountpoint) {
+			if _, err := Mount(fixer.ctx, fixer.devEfi, efiMountpoint, false); err != nil {
+				return err
+			}
+			fixer.mountPoints = append(fixer.mountPoints, efiMountpoint)
+		}
+	}
+
+	chrootDevPath := filepath.Join(rootDir, "dev")
+	chrootProcPath := filepath.Join(rootDir, "proc")
+	chrootSysPath := filepath.Join(rootDir, "sys")
+
+	releatedMounts := map[string]string{
+		chrootDevPath:  fmt.Sprintf("mount --bind /dev %s", chrootDevPath),
+		chrootProcPath: fmt.Sprintf("mount -t proc procfs %s", chrootProcPath),
+		chrootSysPath:  fmt.Sprintf("mount -t sysfs sysfs %s", chrootSysPath),
+	}
+
+	for mp, cmdline := range releatedMounts {
+		if extend.IsExisted(mp) {
+			_ = os.MkdirAll(mp, 0755)
+		}
+		if _, _, e := command.Execute(cmdline, command.WithDebug()); e != nil {
+			return e
+		}
+		fixer.mountPoints = append(fixer.mountPoints, mp)
+	}
+
+	fixer.root = rootDir
+	return nil
+}
+
+func (fixer *linuxSystemFixer) umountSys() error {
+	logger.Debugf("umountSys: ++")
+	defer logger.Debugf("umountSys: --")
+
+	for _, mp := range funk.ReverseStrings(fixer.mountPoints) {
+		if err := Umount(mp, false); err != nil {
 			return err
 		}
 	}
 
-	if fixer.SysDevEfi != "" {
-		efiMountpoint := filepath.Join(mountpoint, "boot", "efi")
-		if extend.IsExisted(efiMountpoint) {
-			if _, err := Mount(fixer.ctx, efiMountpoint, mountpoint, false); err != nil {
-				return err
-			}
-		}
-	}
-
-	chrootDevPath := filepath.Join(mountpoint, "dev")
-	chrootDevPtsPath := filepath.Join(chrootDevPath, "pts")
-	chrootProcPath := filepath.Join(mountpoint, "proc")
-	chrootSysPath := filepath.Join(mountpoint, "sys")
-
-	if _, _, err := command.Execute(fmt.Sprintf("mount --rbind /dev %s", chrootDevPath)); err != nil {
-		return err
-	}
-	if _, _, err := command.Execute(fmt.Sprintf("mount --make-rslave %s", chrootDevPath)); err != nil {
-		return err
-	}
-	if _, _, err := command.Execute(fmt.Sprintf("mount -t proc proc %s", chrootProcPath)); err != nil {
-		return err
-	}
-	if _, _, err := command.Execute(fmt.Sprintf("mount -t sysfs sys %s", chrootSysPath)); err != nil {
-		return err
-	}
-
-	// 可选
-	if _, _, err := command.Execute(fmt.Sprintf("mount --rbind /dev/pts %s", chrootDevPtsPath)); err != nil {
-		return err
-	}
-
-	fixer.rootMountPoint = mountpoint
 	return nil
 }
 
@@ -191,20 +225,16 @@ func (fixer *linuxSystemFixer) activeLVM() error {
 	if e != nil {
 		return e
 	}
-	_, _, e = command.Execute("rm -f /etc/lvm/devices/system.devices", command.WithDebug())
-	if e != nil {
+	if _, _, e := command.Execute("rm -f /etc/lvm/devices/system.devices", command.WithDebug()); e != nil {
 		return e
 	}
-	_, _, e = command.Execute("pvscan", command.WithDebug())
-	if e != nil {
+	if _, _, e := command.Execute("pvscan", command.WithDebug()); e != nil {
 		return e
 	}
-	_, _, e = command.Execute("vgscan", command.WithDebug())
-	if e != nil {
+	if _, _, e := command.Execute("vgscan", command.WithDebug()); e != nil {
 		return e
 	}
-	_, _, e = command.Execute("vgchange -ay", command.WithDebug())
-	if e != nil {
+	if _, _, e := command.Execute("vgchange -ay", command.WithDebug()); e != nil {
 		return e
 	}
 	return nil
@@ -215,30 +245,30 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 	logger.Debugf("detectSysDevice ++")
 	defer logger.Debugf("detectSysDevice --")
 
-	if len(fixer.fsDevices) == 0 {
-		fsDevs, err := enumFsDevice(fixer.opts.OfflineSysDisks)
+	if len(fixer.fsList) == 0 {
+		fsDevs, err := enumFilesystem(fixer.opts.OfflineSysDisks)
 		if err != nil {
 			return err
 		}
-		fixer.fsDevices = fsDevs
+		fixer.fsList = fsDevs
 	}
 
-	for _, dev := range fixer.fsDevices {
+	for _, dev := range fixer.fsList {
 		switch {
 		case IsRootDevice(fixer.ctx, dev):
-			fixer.sysDevRoot = dev
+			fixer.devRoot = dev
 		case IsBootDevice(fixer.ctx, dev):
-			fixer.sysDevBoot = dev
+			fixer.devBoot = dev
 		case IsEfiDevice(fixer.ctx, dev):
-			fixer.SysDevEfi = dev
+			fixer.devEfi = dev
 		}
 	}
 
 	logger.Debugf("detectSysDevice: root=`%s`, boot=`%s`, efi=`%s`",
-		fixer.sysDevRoot, fixer.sysDevBoot, fixer.SysDevEfi)
+		fixer.devRoot, fixer.devBoot, fixer.devEfi)
 
-	if fixer.sysDevRoot == "" {
-		return errors.Errorf("no root filesystem device detected from candidates: %v", fixer.fsDevices)
+	if fixer.devRoot == "" {
+		return errors.Errorf("no root filesystem device detected from candidates: %v", fixer.fsList)
 	}
 
 	return nil
@@ -272,25 +302,21 @@ func (fixer *linuxSystemFixer) detectInitrdTool() error {
 	logger.Debugf("detectInitrdTool ++")
 	defer logger.Debugf("detectInitrdTool --")
 
-	if fixer.rootMountPoint == "" {
+	if fixer.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
 	for _, tool := range initrdTools {
 		// 1. feature file 检测（如果有）
 		if tool.featureFile != "" {
-			path := filepath.Join(fixer.rootMountPoint, tool.featureFile)
+			path := filepath.Join(fixer.root, tool.featureFile)
 			if !extend.IsExisted(path) {
 				continue
 			}
 		}
 
 		// 2. 命令探测
-		rc, stdout, err := fixer.executeWithChroot(tool.cmd)
-		if err != nil {
-			logger.Debugf("initrd tool %s exec error: %v", tool.name, err)
-			continue
-		}
+		rc, _, _ := fixer.executeWithChroot(tool.cmd)
 
 		// 3. 127 = not found
 		if rc == 127 {
@@ -299,8 +325,8 @@ func (fixer *linuxSystemFixer) detectInitrdTool() error {
 		}
 
 		// 4. 成功命中
-		logger.Debugf("initrd tool detected: %s, stdout=%s", tool.name, stdout)
-		fixer.initrdTool = tool.name
+		logger.Debugf("detectInitrdTool: initrd tool detected: %s", tool.name)
+		fixer.initrdTl = tool.name
 		return nil
 	}
 
@@ -312,11 +338,11 @@ func (fixer *linuxSystemFixer) detectKernels() error {
 	logger.Debugf("detectKernels: ++")
 	defer logger.Debugf("detectKernels: --")
 
-	if fixer.rootMountPoint == "" {
+	if fixer.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
-	ks, err := info.QueryLinuxKernels(fixer.rootMountPoint)
+	ks, err := info.QueryLinuxKernels(fixer.root)
 	if err != nil {
 		return err
 	}
@@ -331,7 +357,6 @@ func (fixer *linuxSystemFixer) detectKernels() error {
 	}
 
 	fixer.kernels = ks2
-
 	logger.Debugf("detectKernels: bootable kernels:\n%s", extend.Pretty(ks2))
 
 	return nil
@@ -342,27 +367,49 @@ func (fixer *linuxSystemFixer) detectGrub() error {
 	logger.Debugf("detectGrub: ++")
 	defer logger.Debugf("detectGrub: --")
 
-	if fixer.rootMountPoint == "" {
+	if fixer.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
-	ver, cfg := DetectGrub(fixer.rootMountPoint)
+	ver, cfg := DetectGrub(fixer.root)
 	if ver == -1 {
 		return errors.New("grub not found")
 	}
 
 	fixer.grubVer, fixer.grubCfg = ver, cfg
+	logger.Debugf("detectGrub: version=%d config=%s", ver, cfg)
+
+	return nil
+}
+
+// linuxSystemFixer 探测Linux发行版信息
+func (fixer *linuxSystemFixer) detectDistro() error {
+	logger.Debugf("detectDistro: ++")
+	defer logger.Debugf("detectDistro: --")
+
+	if fixer.root == "" {
+		return ErrorRootEnvNotMounted
+	}
+
+	distro, err := DetectDistro(fixer.root)
+	if err != nil {
+		return err
+	}
+
+	fixer.distro = *distro
+	logger.Debugf("detectDistro: distro=\n%s", extend.Pretty(distro))
+
 	return nil
 }
 
 // executeWithChroot 在chroot环境执行命令
 func (fixer *linuxSystemFixer) executeWithChroot(cmdline string) (exitcode int, output string, err error) {
-	if fixer.rootMountPoint == "" {
+	if fixer.root == "" {
 		return -1, "", ErrorRootEnvNotMounted
 	}
 
 	chrootCmdline := fmt.Sprintf(`chroot %s /bin/bash -c "export PATH=/sbin:/bin:/usr/sbin:/usr/bin:$PATH; %s"`,
-		fixer.rootMountPoint, cmdline)
+		fixer.root, cmdline)
 
 	return command.Execute(chrootCmdline, command.WithDebug())
 }
@@ -376,15 +423,20 @@ func (fixer *linuxSystemFixer) cleanDattoSnapshot() error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmpMp)
+	defer func() {
+		_ = Umount(tmpMp, false)
+		_ = os.RemoveAll(tmpMp)
+	}()
+
+	logger.Debugf("cleanDattoSnapshot: tmpMp=%s", tmpMp)
 
 	candDirs := []string{
 		filepath.Join(tmpMp, "lost+found"),
 		filepath.Join(tmpMp, ".runstorsnap"),
 	}
 
-	for _, dev := range fixer.fsDevices {
-		_ = Umount(tmpMp)
+	for _, dev := range fixer.fsList {
+		_ = Umount(tmpMp, false)
 
 		_, em := Mount(fixer.ctx, dev, tmpMp, false)
 		if em != nil {
@@ -424,13 +476,13 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 	logger.Debugf("fixFstab: ++")
 	defer logger.Debugf("fixFstab: --")
 
-	if fixer.rootMountPoint == "" {
+	if fixer.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
 	ts := time.Now().Unix()
-	fstabPath := filepath.Join(fixer.rootMountPoint, "etc/fstab")
-	fstabBkPath := filepath.Join(fixer.rootMountPoint, fmt.Sprintf("etc/fstab.bk.%d", ts))
+	fstabPath := filepath.Join(fixer.root, "etc/fstab")
+	fstabBkPath := filepath.Join(fixer.root, fmt.Sprintf("etc/fstab.bk.%d", ts))
 
 	//
 	// 备份
@@ -440,6 +492,7 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 	if e != nil {
 		return errors.Wrap(e, "backup /etc/fstab")
 	}
+	logger.Debugf("fixFstab: copy `etc/fstab` to `%s`", fstabBkPath)
 
 	//
 	// 编辑
@@ -452,8 +505,9 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 		return err
 	}
 	content := string(contentBin)
-	newContentLines := make([]string, 0)
+	logger.Debugf("fixFstab: history configuration:\n%s", content)
 
+	newContentLines := make([]string, 0)
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "#") {
@@ -484,15 +538,19 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 
 		if devUuid, e := DetectUuidByBlkid(items[0]); e == nil && devUuid != "" {
 			items[0] = fmt.Sprintf("UUID=%s", devUuid)
-			newContentLines = append(newContentLines, strings.Join(items, "    "))
+			newLine := strings.Join(items, "    ")
+			logger.Debugf("fixFstab: Change `%s` to `%s`", line, newLine)
+			newContentLines = append(newContentLines, newLine)
 			continue
 		}
 
 		// TODO 抛出警告，提示可能存在恢复后系统无法启动的情况
+		logger.Warnf("fixFstab: Warn-Config: `%s`", line)
 		newContentLines = append(newContentLines, line)
 	}
 
 	newContent := strings.Join(newContentLines, "\n")
+	logger.Debugf("fixFstab: new configuration:\n%s", newContent)
 
 	return os.WriteFile(fstabPath, []byte(newContent), 0644)
 }
@@ -502,7 +560,7 @@ func (fixer *linuxSystemFixer) fixEfiBootConf() error {
 	logger.Debugf("fixEfiBootConf: ++")
 	defer logger.Debugf("fixEfiBootConf: --")
 
-	if fixer.rootMountPoint == "" {
+	if fixer.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
@@ -521,18 +579,28 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 	return errors.New("fixEfiFirmware: not implemented yet")
 }
 
-func enumFsDevice(offline []string) ([]string, error) {
-	logger.Debugf("enumFsDevice: ++")
-	defer logger.Debugf("enumFsDevice: --")
+// fixGrub 修复Grub
+func (fixer *linuxSystemFixer) fixGrub() error {
+	logger.Debugf("fixGrub: ++")
+	defer logger.Debugf("fixGrub: --")
 
-	logger.Debugf("enumFsDevice: offline = %s", extend.Pretty(offline))
+	// 参考：https://blog.csdn.net/weixin_39833509/article/details/115633386
+
+	return errors.New("fixGrub: not implemented yet")
+}
+
+func enumFilesystem(offline []string) ([]string, error) {
+	logger.Debugf("enumFilesystem: ++")
+	defer logger.Debugf("enumFilesystem: --")
+
+	logger.Debugf("enumFilesystem: offline = %s", extend.Pretty(offline))
 
 	psinfo, err := info.QueryPsInfo()
 	if err != nil {
 		return nil, err
 	}
 
-	logger.Debugf("enumFsDevice: psinfo=\n%s", psinfo.Pretty())
+	logger.Debugf("enumFilesystem: psinfo=\n%s", psinfo.Pretty())
 
 	slaveSet := make(map[string]struct{})
 	addSlaves := func(slaves []string) {
