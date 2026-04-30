@@ -11,12 +11,45 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	LinuxFamilyRHEL   = "RHEL"
+	LinuxFamilyALT    = "ALT"
+	LinuxFamilySUSE   = "SUSE"
+	LinuxFamilyDebian = "DEBIAN"
+)
+
 type DistroInfo struct {
 	ID      string // centos, rhel, ubuntu, debian...
 	Version string // 7.9.2009
 	Major   int
 	Pretty  string // 原始字符串
 	Source  string // 来源文件
+	Family  string // 来源：RHEL、ALT、SUSE、DEBIAN
+}
+
+func GetFamilyByDistroId(distroId string) string {
+	switch distroId {
+	case "fedora",
+		"rhel",
+		"centos",
+		"circle",
+		"scientificlinux",
+		"redhat-based",
+		"oraclelinux",
+		"rocky",
+		"kylin",
+		"neokylin",
+		"anolis",
+		"openeuler":
+		return LinuxFamilyRHEL
+	case "altlinux":
+		return LinuxFamilyALT
+	case "sles", "suse-based", "opensuse":
+		return LinuxFamilySUSE
+	case "debian", "ubuntu", "linuxmint", "kalilinux":
+		return LinuxFamilyDebian
+	}
+	return ""
 }
 
 func DetectDistro(root string) (*DistroInfo, error) {
@@ -32,6 +65,7 @@ func DetectDistro(root string) (*DistroInfo, error) {
 
 	for _, fn := range try {
 		if info, err := fn(root); err == nil && info != nil {
+			info.Family = GetFamilyByDistroId(info.ID)
 			return info, nil
 		}
 	}
