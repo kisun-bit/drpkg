@@ -629,7 +629,7 @@ func (fixer *linuxSystemFixer) detectDeviceMaps() error {
 	// 2025-09-23T17:05:40.910399+08:00 localhost kernel: [    4.514460] BTRFS: device fsid b3334026-ccb6-4c25-82f4-e94e72dab24e devid 1 transid 63 /dev/dm-1
 	// 2026-05-12T14:27:56.262124+08:00 localhost kernel: [    6.154912] BTRFS info (device dm-0): device fsid b3334026-ccb6-4c25-82f4-e94e72dab24e devid 1 moved old:/dev/dm-0 new:/dev/mapper/system-root
 
-	syslogDetectBtrfsCmd := fmt.Sprintf(`grep -i "btrfs" %s/var/log/messages* | grep fsid`, fixer.offsys.devRoot)
+	syslogDetectBtrfsCmd := fmt.Sprintf(`grep -i "btrfs" %s/var/log/messages* | grep fsid`, fixer.offsys.root)
 	_, o, _ := command.Execute(syslogDetectBtrfsCmd)
 	btrfsUuids := make([]string, 0)
 	btrfsUuidRe := regexp.MustCompile(`fsid\s+([a-fA-F0-9-]+).*?(/dev/\S+)`)
@@ -649,6 +649,61 @@ func (fixer *linuxSystemFixer) detectDeviceMaps() error {
 				})
 			btrfsUuids = append(btrfsUuids, fsid)
 			logger.Debugf("detectDeviceMaps: Detecting btrfs by syslog. line=`%s` uuid=`%s` device=`%s`", line, fsid, dev)
+		}
+	}
+
+	// 文件系统：xfs
+	// 命令：grep -i "kernel: xfs" /var/log/* | grep -i mounting
+	// 结果：
+	// /var/log/messages-20260517:May  9 16:04:22 node1 kernel: XFS (dm-0): Mounting V5 Filesystem 48153c2d-a7a3-4f37-8998-dfe87705ebcb
+	// /var/log/messages-20260517:May  9 16:04:24 node1 kernel: XFS (sda2): Mounting V5 Filesystem 9d6bbc00-4ff1-42fd-8b34-5ffad8f2fbc8
+
+	syslogDetectXfsCmd := fmt.Sprintf(
+		`grep -i "kernel: xfs" %s/var/log/* | grep -i mounting`,
+		fixer.offsys.root,
+	)
+
+	_, o, _ = command.Execute(syslogDetectXfsCmd)
+
+	xfsUuids := make([]string, 0)
+
+	// 匹配：XFS (dm-0): Mounting V5 Filesystem UUID
+	xfsUuidRe := regexp.MustCompile(
+		`XFS\s+\(([^)]+)\):.*?Filesystem\s+([a-fA-F0-9-]+)`,
+	)
+
+	for _, line := range strings.Split(o, "\n") {
+		matches := xfsUuidRe.FindStringSubmatch(line)
+		if len(matches) == 3 {
+			dev := matches[1]
+			uuid := matches[2]
+
+			// 补齐 /dev/
+			if !strings.HasPrefix(dev, "/dev/") {
+				dev = "/dev/" + dev
+			}
+
+			if funk.InStrings(xfsUuids, uuid) {
+				continue
+			}
+
+			fixer.offsys.devMaps = append(
+				fixer.offsys.devMaps,
+				DeviceMap{
+					Origin:     dev,
+					Mountpoint: "",
+					UUID:       uuid,
+				},
+			)
+
+			xfsUuids = append(xfsUuids, uuid)
+
+			logger.Debugf(
+				"detectDeviceMaps: Detecting xfs by syslog. line=`%s` uuid=`%s` device=`%s`",
+				line,
+				uuid,
+				dev,
+			)
 		}
 	}
 
@@ -958,7 +1013,7 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 			uuid, _ = DetectUuidByBlkid(swapDev)
 		}
 
-		// 基于设备映射表及`挂载路径`进行`设备`的修复
+		// 基于匹配`挂载路径`进行`设备`的修复
 		if uuid == "" {
 			for _, dm := range fixer.offsys.devMaps {
 				if dm.Mountpoint == items[1] && strings.HasPrefix(dm.Mountpoint, "/") {
@@ -968,7 +1023,7 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 			}
 		}
 
-		// 基于设备映射表及`设备`进行`设备`的修复
+		// 基于匹配`设备`进行`设备`的修复
 		if uuid == "" {
 			for _, dm := range fixer.offsys.devMaps {
 				if dm.Origin == items[0] && dm.UUID != "" {
@@ -1035,6 +1090,100 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 	// TODO
 
 	return errors.New("fixEfiFirmware: not implemented yet")
+}
+
+func (fixer *linuxSystemFixer) disableSeLinux() error {
+	logger.Debugf("disableSeLinux: ++")
+	defer logger.Debugf("disableSeLinux: --")
+
+	// 1. 修改 /etc/selinux/config
+	configPath := filepath.Join(rootDir, "etc", "selinux", "config")
+
+	if _, err := os.Stat(configPath); err == nil {
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			return errors.Wrapf(err, "read selinux config failed")
+		}
+
+		content := string(data)
+
+		// 替换 SELINUX=
+		lines := strings.Split(content, "\n")
+		found := false
+
+		for i, line := range lines {
+			trimLine := strings.TrimSpace(line)
+
+			// 跳过注释
+			if strings.HasPrefix(trimLine, "#") {
+				continue
+			}
+
+			if strings.HasPrefix(trimLine, "SELINUX=") {
+				lines[i] = "SELINUX=disabled"
+				found = true
+			}
+		}
+
+		if !found {
+			lines = append(lines, "SELINUX=disabled")
+		}
+
+		newContent := strings.Join(lines, "\n")
+
+		if err := os.WriteFile(configPath, []byte(newContent), 0644); err != nil {
+			return fmt.Errorf("write selinux config failed: %w", err)
+		}
+
+		logger.Infof("DisableSELinux: updated %s", configPath)
+	}
+
+	// 2. 清理 grub cmdline 中的 selinux 参数
+
+	removeKernelArgs := func(content string) string {
+		reList := []*regexp.Regexp{
+			regexp.MustCompile(`\s+selinux=\S+`),
+			regexp.MustCompile(`\s+enforcing=\S+`),
+		}
+
+		for _, re := range reList {
+			content = re.ReplaceAllString(content, "")
+		}
+
+		return content
+	}
+
+	if _, err := os.Stat(fixer.offsys.grubCfg); err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(fixer.offsys.grubCfg)
+	if err != nil {
+		logger.Warnf("DisableSELinux: read grub file failed: %s err=%v",
+			fixer.offsys.grubCfg, err)
+		return nil
+	}
+
+	newContent := removeKernelArgs(string(data))
+
+	if err = os.WriteFile(fixer.offsys.grubCfg, []byte(newContent), 0644); err != nil {
+		logger.Warnf("DisableSELinux: write grub file failed: %s err=%v",
+			fixer.offsys.grubCfg, err)
+		return nil
+	}
+
+	logger.Infof("DisableSELinux: updated grub file %s", fixer.offsys.grubCfg)
+
+	// 3. 创建 autorelabel 标记（迁移后更安全）
+	autorelabelPath := filepath.Join(rootDir, ".autorelabel")
+
+	if err = os.WriteFile(autorelabelPath, []byte{}, 0644); err != nil {
+		logger.Warnf("DisableSELinux: create .autorelabel failed: %v", err)
+	} else {
+		logger.Infof("DisableSELinux: created %s", autorelabelPath)
+	}
+
+	return nil
 }
 
 func (fixer *linuxSystemFixer) disableMultipathModule() error {
@@ -1158,7 +1307,7 @@ func enumFilesystem(offline []string) ([]fsDevice, error) {
 	var devs []fsDevice
 	for _, dev := range fsDevList {
 		fsStr, _ := DetectFSTypeByBlkid(dev)
-		if funk.InStrings(SupportedFsTypes, fsStr) || fsStr == "swap" {
+		if funk.InStrings(MountSupportedFsTypes, fsStr) || fsStr == "swap" {
 			devs = append(devs, fsDevice{dev, fsStr})
 		}
 	}

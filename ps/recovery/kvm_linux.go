@@ -17,11 +17,20 @@ func (fixer *linuxSystemFixer) unconfigKvm() error {
 	logger.Debugf("unconfigKvm: ++")
 	defer logger.Debugf("unconfigKvm: --")
 
-	//
-	// TODO
-	//
+	logger.Debugf("unconfigKvm: do nothing")
 
-	return errors.New("unconfigKvm: not implemented yet")
+	return nil
+}
+
+func (fixer *linuxSystemFixer) configKvm() error {
+	logger.Debugf("configKvm: ++")
+	defer logger.Debugf("configKvm: --")
+
+	if err := fixer.patchVirtIO(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (fixer *linuxSystemFixer) patchVirtIO() error {
@@ -30,7 +39,9 @@ func (fixer *linuxSystemFixer) patchVirtIO() error {
 
 	for _, k := range fixer.offsys.kernels {
 		if err := fixer.patchOneKernelVirtIO(k); err != nil {
-			return err
+			// TODO 提示警告，此内核不兼容virtio硬件设备
+			logger.Warnf("patchVirtIO: patchOneKernelVirtIO: %v", err)
+			return nil
 		}
 	}
 

@@ -15,7 +15,7 @@ import (
 	"github.com/thoas/go-funk"
 )
 
-var SupportedFsTypes = []string{"ext4", "ext3", "ext2", "xfs", "fat", "vfat", "ntfs", "cramfs", "gfs2", "hfs", "hfsplus", "zfs", "jfs", "minix", "msdos", "reiserfs"}
+var MountSupportedFsTypes = []string{"ext4", "ext3", "ext2", "xfs", "fat", "vfat", "ntfs", "cramfs", "gfs2", "hfs", "hfsplus", "zfs", "jfs", "minix", "msdos", "reiserfs"}
 
 var reBlkidType = regexp.MustCompile(`TYPE="([^"]+)"`)
 
@@ -48,7 +48,7 @@ func SupportMount(device string) (ok bool, fsType string) {
 	if fsType == "" {
 		return false, ""
 	}
-	return funk.InStrings(SupportedFsTypes, fsType), fsType
+	return funk.InStrings(MountSupportedFsTypes, fsType), fsType
 }
 
 // DetectFSTypeByBlkid 使用 blkid 探测文件系统类型

@@ -4,6 +4,7 @@ import (
 	"runtime"
 
 	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"
 	"github.com/pkg/errors"
 )
 
@@ -31,6 +32,11 @@ type FixerCreateOptions struct {
 }
 
 func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
+
+	//
+	// 检查
+	//
+
 	if opts == nil {
 		return errors.New("FixerCreateOptions is nil")
 	}
@@ -67,5 +73,37 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 			return errors.New("FixerCreateOptions PciList is empty")
 		}
 	}
+
+	//
+	// 修正
+	//
+
+	plats := []*Platform{&opts.RecoveryParam.Source, &opts.RecoveryParam.Target}
+	for i := 0; i < len(plats); i++ {
+		plats[i].Base = HPBareMetal
+		plats[i].Virt = HPVTNone
+		for _, p := range plats[i].PciList {
+			uniPci, err := universal.UniPciFromString(p)
+			if err != nil {
+				return err
+			}
+			if uniPci.VendorId() == 0x1af4 {
+				plats[i].Base = HPVirt
+				plats[i].Virt = HPVTQemuKvm
+				break
+			}
+			if uniPci.VendorId() == 0x5853 {
+				plats[i].Base = HPVirt
+				plats[i].Virt = HPVTXen
+				break
+			}
+			if uniPci.VendorId() == 0x15ad {
+				plats[i].Base = HPVirt
+				plats[i].Virt = HPVTVmware
+				break
+			}
+		}
+	}
+
 	return nil
 }

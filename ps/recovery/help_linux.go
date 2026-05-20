@@ -208,6 +208,7 @@ func DetectGrub(root string) (int, string) {
 		"boot/*/grub.cfg",
 		"boot/*/grub.conf",
 		"boot/*/menu.lst",
+		"boot/burg/burg.cfg",
 		"boot/efi/EFI/*/grub.cfg",
 		"boot/efi/EFI/*/grub.conf",
 		"boot/efi/EFI/*/elilo.conf",
@@ -215,6 +216,7 @@ func DetectGrub(root string) (int, string) {
 		"etc/grub2-efi.cfg",
 		"etc/grub.conf",
 		"etc/grub.cfg",
+		"etc/elilo.conf",
 	}
 
 	type result struct {
