@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -15,36 +16,57 @@ import (
 
 // Mount 挂载设备到指定挂载点
 func Mount(ctx context.Context, device string, mountpoint string, readonly bool) (supported bool, err error) {
-	logger.Debugf("Mount() Mount %s at %s (readonly=%v)", device, mountpoint, readonly)
+	logger.Debugf("Mount() device=%s mountpoint=%s readonly=%v", device, mountpoint, readonly)
 
-	mountCmd := fmt.Sprintf("mount %s %s", device, mountpoint)
-	if readonly {
-		mountCmd = fmt.Sprintf("mount -o ro %s %s", device, mountpoint)
+	// 确保 mountpoint 存在
+	if err = os.MkdirAll(mountpoint, 0755); err != nil {
+		return false, fmt.Errorf("create mountpoint failed: %w", err)
 	}
 
-	_, output, err := command.ExecuteWithContext(ctx, mountCmd)
-	if err == nil {
-		return true, nil
-	}
-
-	logger.Warnf("Mount() Mount %s failed\noutput:\n%s\nerror:\n%s", device, output, err)
-
-	repairCmd, ok := DetectFSRepairCmdline(device)
-	if !ok {
-		logger.Warnf("Mount() Mount %s failed. No fix-cmd matched", device)
+	// 检测设备是否支持挂载
+	yes, fsType := SupportMount(device)
+	if !yes {
 		return false, nil
 	}
 
-	_, output, err = command.ExecuteWithContext(ctx, repairCmd)
-	logger.Debugf("Mount() Fix %s with `%s`\noutput:\n%s\nerror:\n%v", device, repairCmd, output, err)
-
-	logger.Debugf("Mount() Remount %s at %s", device, mountpoint)
-	_, output, err = command.ExecuteWithContext(ctx, mountCmd)
-	if err == nil {
+	// 检查是否已经挂载（幂等）
+	if isMounted(mountpoint) {
+		logger.Debugf("Mount() already mounted: %s", mountpoint)
 		return true, nil
 	}
 
-	return false, errors.Wrapf(err, "remount %s failed: %s", device, output)
+	// 尝试基础 mount
+	if ok := tryMount(ctx, device, mountpoint, "", readonly); ok {
+		return true, nil
+	}
+
+	// 带 fs-type 再试一次
+	if ok := tryMount(ctx, device, mountpoint, fsType, readonly); ok {
+		return true, nil
+	}
+
+	// 尝试修复文件系统
+	repairCmd, _ := DetectFSRepairCmdline(device)
+	if repairCmd != "" {
+		logger.Warnf("Mount() running fs repair: %s", repairCmd)
+
+		_, out, err := command.ExecuteWithContext(ctx, repairCmd)
+		if err != nil {
+			logger.Warnf("Mount() fs repair failed: %v output=%s", err, out)
+		}
+	}
+
+	// repair 后再次 mount（优先 fsType）
+	if ok := tryMount(ctx, device, mountpoint, fsType, readonly); ok {
+		return true, nil
+	}
+
+	// 最后 fallback mount
+	if ok := tryMount(ctx, device, mountpoint, "", readonly); ok {
+		return true, nil
+	}
+
+	return false, errors.Errorf("mount failed: device=%s mountpoint=%s", device, mountpoint)
 }
 
 // Mount 取消设备的挂载
@@ -140,6 +162,39 @@ func ActivateVgs() error {
 	return errors.Wrapf(err, "scan lvm failed: %s", output)
 }
 
+func Kconfig(kCfgPath string) (configs map[string]string, err error) {
+	f, err := os.Open(kCfgPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	configs = make(map[string]string)
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		items := strings.Split(line, "=")
+		if len(items) != 2 {
+			continue
+		}
+
+		key := strings.ToUpper(items[0])
+		value := strings.Trim(items[1], `"'`)
+		if value == "Y" || value == "M" || value == "N" {
+			value = strings.ToLower(value)
+		}
+		configs[key] = value
+	}
+
+	return configs, scanner.Err()
+}
+
 func vmbusExisted() (bool, error) {
 	items, err := os.ReadDir("/sys/bus/vmbus/devices")
 	if err != nil && !os.IsNotExist(err) {
@@ -154,6 +209,7 @@ func DetectGrub(root string) (int, string) {
 		"boot/*/grub.conf",
 		"boot/*/menu.lst",
 		"boot/efi/EFI/*/grub.cfg",
+		"boot/efi/EFI/*/grub.conf",
 		"boot/efi/EFI/*/elilo.conf",
 		"etc/grub2.cfg",
 		"etc/grub2-efi.cfg",
@@ -331,4 +387,37 @@ func IsMountPointByMountInfo(path string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func tryMount(ctx context.Context, device, mountpoint, fsType string, readonly bool) bool {
+	var cmd string
+
+	if fsType != "" {
+		cmd = fmt.Sprintf("mount -t %s %s %s", fsType, device, mountpoint)
+	} else {
+		cmd = fmt.Sprintf("mount %s %s", device, mountpoint)
+	}
+
+	if readonly {
+		if fsType != "" {
+			cmd = fmt.Sprintf("mount -o ro -t %s %s %s", fsType, device, mountpoint)
+		} else {
+			cmd = fmt.Sprintf("mount -o ro %s %s", device, mountpoint)
+		}
+	}
+
+	_, out, err := command.ExecuteWithContext(ctx, cmd)
+	if err != nil {
+		logger.Warnf("Mount failed cmd=%s err=%v out=%s", cmd, err, out)
+		return false
+	}
+
+	logger.Infof("Mount success: %s -> %s (fs=%s)", device, mountpoint, fsType)
+	return true
+}
+
+func isMounted(mountpoint string) bool {
+	cmd := fmt.Sprintf("mount | grep ' %s '", mountpoint)
+	_, out, err := command.ExecuteWithContext(context.Background(), cmd)
+	return err == nil && strings.Contains(out, mountpoint)
 }

@@ -454,6 +454,10 @@ func IsLinuxBoot(dir string) bool {
 	return false
 }
 
+func IsLinuxVar(dir string) bool {
+	return ContainAllSubDirs(dir, "log", "cache", "lib", "spool", "tmp", "run", "lock")
+}
+
 func IsWindowsBoot(dir string) bool {
 	if !ContainAllSubFiles(dir, "bootmgr") {
 		return false
@@ -494,6 +498,15 @@ func IsBootDir(dir string) bool {
 	case "linux":
 		return IsLinuxBoot(dir)
 
+	default:
+		return false
+	}
+}
+
+func IsVarDir(dir string) bool {
+	switch runtime.GOOS {
+	case "linux":
+		return IsLinuxVar(dir)
 	default:
 		return false
 	}

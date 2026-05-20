@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -11,9 +12,14 @@ import (
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
+	"github.com/thoas/go-funk"
 )
 
 var SupportedFsTypes = []string{"ext4", "ext3", "ext2", "xfs", "fat", "vfat", "ntfs", "cramfs", "gfs2", "hfs", "hfsplus", "zfs", "jfs", "minix", "msdos", "reiserfs"}
+
+var reBlkidType = regexp.MustCompile(`TYPE="([^"]+)"`)
+
+var reBlkidUuid = regexp.MustCompile(`UUID="([^"]+)"`)
 
 // IsRootDevice 是否为系统根盘
 func IsRootDevice(ctx context.Context, device string) bool {
@@ -25,9 +31,24 @@ func IsEfiDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsEfiDevice", extend.IsEfiDir)
 }
 
+func IsVarDevice(ctx context.Context, device string) bool {
+	return withMount(ctx, device, "IsVarDevice", extend.IsVarDir)
+}
+
 // IsBootDevice 是否为启动分区
 func IsBootDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsBootDevice", extend.IsBootDir)
+}
+
+func SupportMount(device string) (ok bool, fsType string) {
+	fsType, err := DetectFSTypeByBlkid(device)
+	if err != nil {
+		return false, ""
+	}
+	if fsType == "" {
+		return false, ""
+	}
+	return funk.InStrings(SupportedFsTypes, fsType), fsType
 }
 
 // DetectFSTypeByBlkid 使用 blkid 探测文件系统类型
@@ -37,6 +58,10 @@ func DetectFSTypeByBlkid(device string) (string, error) {
 		_, output, err := command.Execute(fmt.Sprintf("blkid -o value -s TYPE %s", device))
 		if err != nil {
 			return "", err
+		}
+		match := reBlkidType.FindStringSubmatch(output)
+		if len(match) > 1 {
+			return match[1], nil
 		}
 		return strings.TrimSpace(output), nil
 	default:
@@ -51,6 +76,10 @@ func DetectUuidByBlkid(device string) (string, error) {
 		_, output, err := command.Execute(fmt.Sprintf("blkid -o value -s UUID %s", device))
 		if err != nil {
 			return "", err
+		}
+		match := reBlkidUuid.FindStringSubmatch(output)
+		if len(match) > 1 {
+			return match[1], nil
 		}
 		return strings.TrimSpace(output), nil
 	default:

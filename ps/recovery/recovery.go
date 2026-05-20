@@ -154,9 +154,18 @@ type RecoveryParameter struct {
 	Source Platform `json:"sourcePlatform"`
 	Target Platform `json:"targetPlatform"`
 
+	// SourceDeviceMap 原机的设备映射信息
+	SourceDeviceMap []DeviceMap `json:"sourceDeviceMap"`
+
 	// FsckFs 强制修复文件系统
 	FsckFs bool `json:"fsckFs"`
 
 	// FsckFsTimeout 修复文件系统的超时时间
 	FsckFsTimeout int `json:"fsckFsTimeout"`
+}
+
+type DeviceMap struct {
+	Origin     string // 原机的设备名，如：/dev/sda1、/dev/nvme0n1等
+	Mountpoint string // 原机的挂载点，如：/、/boot等
+	UUID       string // 设备UUID
 }

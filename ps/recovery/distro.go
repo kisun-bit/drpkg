@@ -132,6 +132,10 @@ func parseLSBRelease(root string) (*DistroInfo, error) {
 		Source:  path,
 	}
 
+	if info.ID == "" {
+		return nil, errors.New("invalid lsb-release")
+	}
+
 	info.Major = extractMajor(info.Version)
 	return info, nil
 }
@@ -224,9 +228,15 @@ func parseSuseRelease(root string) (*DistroInfo, error) {
 	s := string(data)
 
 	info := &DistroInfo{
-		ID:     "suse",
+		ID:     "suse-based",
 		Pretty: strings.TrimSpace(s),
 		Source: path,
+	}
+
+	if strings.Contains(strings.ToLower(string(data)), "suse linux enterprise server") {
+		info.ID = "sles"
+	} else if strings.Contains(strings.ToLower(string(data)), "opensuse") {
+		info.ID = "opensuse"
 	}
 
 	re := regexp.MustCompile(`VERSION\s*=\s*(\d+)`)
@@ -328,6 +338,8 @@ func extractMajor(v string) int {
 	if v == "" {
 		return 0
 	}
+	// 麒麟v10
+	v = strings.TrimLeft(strings.ToLower(v), "v")
 	parts := strings.Split(v, ".")
 	n, _ := strconv.Atoi(parts[0])
 	return n

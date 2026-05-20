@@ -1,10 +1,12 @@
 package recovery
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,8 +25,13 @@ const (
 	InitrdToolMkinitrd        = "mkinitrd"
 )
 
+const (
+	ChipsetQ35    = "q35"
+	ChipsetI440fx = "i440fx"
+)
+
 var (
-	rootDir = "/mnt/offline-sys"
+	rootDir = "/mnt/sysroot"
 )
 
 type linuxSystemFixer struct {
@@ -32,22 +39,31 @@ type linuxSystemFixer struct {
 	opts   *FixerCreateOptions // 恢复参数
 	logs   <-chan LogEntry     // 日志缓存通道
 	psinfo *info.PsInfo        // 修复虚机的系统信息（已附加离线系统）
+	offsys offlineSystem       // 离线系统的私有信息
+}
 
-	//
-	// 离线系统私有信息
-	//
+type offlineSystem struct {
+	fsList      []fsDevice        // 文件系统设备集合
+	fsLastMount map[string]string // 文件系统设备最近一次的挂载点,map的key为fsDevice,val为最近一次挂载点
+	devRoot     string            // root设备
+	devBoot     string            // boot设备
+	devEfi      string            // efi设备
+	devVar      string            // var设备
+	devSwaps    []string          // swap设备
+	chipset     string            // 机器类型（即：主板芯片组模型），可取i440fx、q35等
+	devMaps     []DeviceMap       // 设备映射表
+	mounts      []string          // 挂载点（顺序：从顶层到最下层）
+	root        string            // root挂载点
+	initrdTl    string            // initrd生成工具
+	kernels     []kernel          // 内核集合
+	grubVer     int               // grub版本
+	grubCfg     string            // grub配置文件，相对于/
+	distro      DistroInfo        // 发行版信息
+}
 
-	fsList      []string           // 文件系统设备集合
-	devRoot     string             // root设备
-	devBoot     string             // boot设备
-	devEfi      string             // efi设备
-	mountPoints []string           // 挂载点（顺序：从顶层到最下层）
-	root        string             // root挂载点
-	initrdTl    string             // initrd生成工具
-	kernels     []info.LinuxKernel // 内核集合
-	grubVer     int                // grub版本
-	grubCfg     string             // grub配置文件，相对于/
-	distro      DistroInfo         // 发行版信息
+type kernel struct {
+	info.LinuxKernel
+	KConfigs map[string]string `json:"-"`
 }
 
 func NewSysFixer(ctx context.Context, opts *FixerCreateOptions) (fixer SysFixer, err error) {
@@ -71,8 +87,12 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	if e != nil {
 		return errors.Wrap(e, "enum filesystem")
 	}
-	fixer.fsList = fsDevs
-	logger.Debugf("Prepare: fsList:\n%s", extend.Pretty(fixer.fsList))
+	fixer.offsys.fsList = fsDevs
+	logger.Debugf("Prepare: fsList:\n%s", extend.Pretty(fixer.offsys.fsList))
+
+	if err := fixer.detectLastMount(); err != nil {
+		return errors.Wrap(err, "detect last mount")
+	}
 
 	if err := fixer.cleanDattoSnapshot(); err != nil {
 		return errors.Wrap(err, "cleaning datto snapshot")
@@ -86,10 +106,6 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		return errors.Wrap(err, "mounting offline system")
 	}
 
-	if err := fixer.detectInitrdTool(); err != nil {
-		return errors.Wrap(err, "detect initrd tool")
-	}
-
 	if err := fixer.detectKernels(); err != nil {
 		return errors.Wrap(err, "detect kernels")
 	}
@@ -101,6 +117,16 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	if err := fixer.detectDistro(); err != nil {
 		return errors.Wrap(err, "detect distro")
 	}
+
+	if err := fixer.detectInitrdTool(); err != nil {
+		return errors.Wrap(err, "detect initrd tool")
+	}
+
+	if err := fixer.detectDeviceMaps(); err != nil {
+		return errors.Wrap(err, "detect device uuid")
+	}
+
+	fixer.detectChipset()
 
 	return nil
 }
@@ -146,37 +172,47 @@ func (fixer *linuxSystemFixer) mountSys() error {
 	logger.Debugf("mountSys: ++")
 	defer logger.Debugf("mountSys: --")
 
-	if fixer.devRoot == "" {
+	if fixer.offsys.devRoot == "" {
 		return errors.New("root filesystem is empty")
 	}
 
 	// 固定离线系统的挂载点
-	_ = os.MkdirAll(rootDir, 0755)
+	if e := os.MkdirAll(rootDir, 0755); e != nil {
+		return errors.Wrapf(e, "mkdir %s", rootDir)
+	}
 	_ = Umount(rootDir, true)
 
-	if _, err := Mount(fixer.ctx, fixer.devRoot, rootDir, false); err != nil {
+	if _, err := Mount(fixer.ctx, fixer.offsys.devRoot, rootDir, false); err != nil {
 		return err
 	}
-	fixer.root = rootDir
-	fixer.mountPoints = append(fixer.mountPoints, rootDir)
+	fixer.offsys.root = rootDir
+	fixer.offsys.mounts = append(fixer.offsys.mounts, rootDir)
 
-	if fixer.devBoot != "" {
+	if fixer.offsys.devBoot != "" {
 		// FIXME：项目上发现，未修复的Boot可能影响新的initrd文件生成
 		bootMountpoint := filepath.Join(rootDir, "boot")
-		if _, err := Mount(fixer.ctx, fixer.devBoot, bootMountpoint, false); err != nil {
+		if _, err := Mount(fixer.ctx, fixer.offsys.devBoot, bootMountpoint, false); err != nil {
 			return err
 		}
-		fixer.mountPoints = append(fixer.mountPoints, bootMountpoint)
+		fixer.offsys.mounts = append(fixer.offsys.mounts, bootMountpoint)
 	}
 
-	if fixer.devEfi != "" {
+	if fixer.offsys.devEfi != "" {
 		efiMountpoint := filepath.Join(rootDir, "boot", "efi")
 		if extend.IsExisted(efiMountpoint) {
-			if _, err := Mount(fixer.ctx, fixer.devEfi, efiMountpoint, false); err != nil {
+			if _, err := Mount(fixer.ctx, fixer.offsys.devEfi, efiMountpoint, false); err != nil {
 				return err
 			}
-			fixer.mountPoints = append(fixer.mountPoints, efiMountpoint)
+			fixer.offsys.mounts = append(fixer.offsys.mounts, efiMountpoint)
 		}
+	}
+
+	if fixer.offsys.devVar != "" {
+		varMountpoint := filepath.Join(rootDir, "var")
+		if _, err := Mount(fixer.ctx, fixer.offsys.devVar, varMountpoint, false); err != nil {
+			return err
+		}
+		fixer.offsys.mounts = append(fixer.offsys.mounts, varMountpoint)
 	}
 
 	chrootDevPath := filepath.Join(rootDir, "dev")
@@ -201,10 +237,10 @@ func (fixer *linuxSystemFixer) mountSys() error {
 			return e
 		}
 
-		fixer.mountPoints = append(fixer.mountPoints, mp)
+		fixer.offsys.mounts = append(fixer.offsys.mounts, mp)
 	}
 
-	fixer.root = rootDir
+	fixer.offsys.root = rootDir
 	return nil
 }
 
@@ -212,7 +248,7 @@ func (fixer *linuxSystemFixer) umountSys() error {
 	logger.Debugf("umountSys: ++")
 	defer logger.Debugf("umountSys: --")
 
-	for _, mp := range funk.ReverseStrings(fixer.mountPoints) {
+	for _, mp := range funk.ReverseStrings(fixer.offsys.mounts) {
 		if err := Umount(mp, false); err != nil {
 			logger.Warnf("umountSys: umount %s failed: %s", mp, err)
 			return err
@@ -227,8 +263,7 @@ func (fixer *linuxSystemFixer) activeLVM() error {
 	logger.Debugf("activeLVM ++")
 	defer logger.Debugf("activeLVM --")
 
-	_, _, e := command.Execute("vgchange -an", command.WithDebug())
-	if e != nil {
+	if _, _, e := command.Execute("vgchange -an", command.WithDebug()); e != nil {
 		return e
 	}
 	if _, _, e := command.Execute("rm -f /etc/lvm/devices/system.devices", command.WithDebug()); e != nil {
@@ -251,30 +286,44 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 	logger.Debugf("detectSysDevice ++")
 	defer logger.Debugf("detectSysDevice --")
 
-	if len(fixer.fsList) == 0 {
+	if len(fixer.offsys.fsList) == 0 {
 		fsDevs, err := enumFilesystem(fixer.opts.OfflineSysDisks)
 		if err != nil {
 			return err
 		}
-		fixer.fsList = fsDevs
+		fixer.offsys.fsList = fsDevs
 	}
 
-	for _, dev := range fixer.fsList {
+	for _, dev := range fixer.offsys.fsList {
+		if dev.fsType == "swap" {
+			continue
+		}
 		switch {
-		case IsRootDevice(fixer.ctx, dev):
-			fixer.devRoot = dev
-		case IsBootDevice(fixer.ctx, dev):
-			fixer.devBoot = dev
-		case IsEfiDevice(fixer.ctx, dev):
-			fixer.devEfi = dev
+		case IsRootDevice(fixer.ctx, dev.device):
+			fixer.offsys.devRoot = dev.device
+		case IsBootDevice(fixer.ctx, dev.device):
+			fixer.offsys.devBoot = dev.device
+		case IsEfiDevice(fixer.ctx, dev.device):
+			fixer.offsys.devEfi = dev.device
+		case IsVarDevice(fixer.ctx, dev.device):
+			fixer.offsys.devVar = dev.device
 		}
 	}
 
-	logger.Debugf("detectSysDevice: root=`%s`, boot=`%s`, efi=`%s`",
-		fixer.devRoot, fixer.devBoot, fixer.devEfi)
+	logger.Debugf("detectSysDevice: root=`%s`, boot=`%s`, efi=`%s`, var=`%s`",
+		fixer.offsys.devRoot, fixer.offsys.devBoot, fixer.offsys.devEfi, fixer.offsys.devVar)
 
-	if fixer.devRoot == "" {
-		return errors.Errorf("no root filesystem device detected from candidates: %v", fixer.fsList)
+	fixer.offsys.devSwaps = make([]string, 0)
+	for _, dev := range fixer.offsys.fsList {
+		if dev.fsType == "swap" {
+			fixer.offsys.devSwaps = append(fixer.offsys.devSwaps, dev.device)
+			continue
+		}
+	}
+	logger.Debugf("detectSysDevice: swap=`%s`", strings.Join(fixer.offsys.devSwaps, ","))
+
+	if fixer.offsys.devRoot == "" {
+		return errors.Errorf("no root filesystem device detected from candidates: %v", fixer.offsys.fsList)
 	}
 
 	return nil
@@ -308,21 +357,21 @@ func (fixer *linuxSystemFixer) detectInitrdTool() error {
 	logger.Debugf("detectInitrdTool ++")
 	defer logger.Debugf("detectInitrdTool --")
 
-	if fixer.root == "" {
+	if fixer.offsys.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
 	for _, tool := range initrdTools {
 		// 1. feature file 检测（如果有）
 		if tool.featureFile != "" {
-			path := filepath.Join(fixer.root, tool.featureFile)
+			path := filepath.Join(fixer.offsys.root, tool.featureFile)
 			if !extend.IsExisted(path) {
 				continue
 			}
 		}
 
 		// 2. 命令探测
-		rc, _, _ := fixer.executeWithChroot(tool.cmd)
+		rc, _, _ := fixer.executeWithChroot(tool.cmd + " --e1y728ety172eg")
 
 		// 3. 127 = not found
 		if rc == 127 {
@@ -332,11 +381,354 @@ func (fixer *linuxSystemFixer) detectInitrdTool() error {
 
 		// 4. 成功命中
 		logger.Debugf("detectInitrdTool: initrd tool detected: %s", tool.name)
-		fixer.initrdTl = tool.name
+		fixer.offsys.initrdTl = tool.name
+
 		return nil
 	}
 
-	return errors.Errorf("no initramfs tool detected")
+	return errors.New("no initramfs tool detected")
+}
+
+// detectLastMount 探测文件系统最近一次挂载点
+func (fixer *linuxSystemFixer) detectLastMount() error {
+	logger.Debugf("detectLastMount ++")
+	defer logger.Debugf("detectLastMount --")
+
+	fixer.offsys.fsLastMount = make(map[string]string)
+
+	for _, fdev := range fixer.offsys.fsList {
+		ft, _ := DetectFSTypeByBlkid(fdev.device)
+
+		switch ft {
+		case "ext2", "ext3", "ext4":
+
+			logger.Debugf(
+				"detectLastMount: ext filesystem detected: %s, start to query last mountpoint",
+				fdev,
+			)
+
+			_, output, err := command.Execute("dumpe2fs -h " + fdev.device)
+			if err != nil {
+				logger.Warnf(
+					"detectLastMount: dumpe2fs failed for %s: %v",
+					fdev,
+					err,
+				)
+				continue
+			}
+
+			var (
+				volumeName string
+				lastMount  string
+			)
+
+			scanner := bufio.NewScanner(strings.NewReader(output))
+
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+
+				// Filesystem volume name:   /boot
+				if strings.HasPrefix(line, "Filesystem volume name:") {
+					v := strings.TrimSpace(
+						strings.TrimPrefix(
+							line,
+							"Filesystem volume name:",
+						),
+					)
+
+					if strings.HasPrefix(v, "/") &&
+						v != "<none>" &&
+						v != "<not available>" {
+						volumeName = v
+					}
+
+					continue
+				}
+
+				// Last mounted on:          /
+				if strings.HasPrefix(line, "Last mounted on:") {
+					v := strings.TrimSpace(
+						strings.TrimPrefix(
+							line,
+							"Last mounted on:",
+						),
+					)
+
+					if strings.HasPrefix(v, "/") &&
+						v != "<none>" &&
+						v != "<not available>" {
+						lastMount = v
+					}
+
+					continue
+				}
+			}
+
+			if err = scanner.Err(); err != nil {
+				logger.Warnf(
+					"detectLastMount: scanner failed for %s: %v",
+					fdev,
+					err,
+				)
+			}
+
+			// 原则：
+			// 优先 Filesystem volume name
+			// 其次 Last mounted on
+			if volumeName != "" {
+				fixer.offsys.fsLastMount[fdev.device] = volumeName
+
+				logger.Debugf(
+					"detectLastMount: %s -> %s (from `volume name`)",
+					fdev,
+					volumeName,
+				)
+			} else if lastMount != "" {
+				fixer.offsys.fsLastMount[fdev.device] = lastMount
+
+				logger.Debugf(
+					"detectLastMount: %s -> %s (from `last mounted on`)",
+					fdev,
+					lastMount,
+				)
+			} else {
+				logger.Debugf(
+					"detectLastMount: %s no valid mountpoint found",
+					fdev,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
+// detectDeviceMaps 探测设备映射表
+func (fixer *linuxSystemFixer) detectDeviceMaps() error {
+	logger.Debugf("detectDeviceMaps ++")
+	defer logger.Debugf("detectDeviceMaps --")
+
+	if fixer.offsys.root == "" {
+		return ErrorRootEnvNotMounted
+	}
+
+	if len(fixer.opts.RecoveryParam.SourceDeviceMap) != 0 {
+		logger.Debugf("detectDeviceMaps: source device map detected")
+		fixer.offsys.devMaps = fixer.opts.RecoveryParam.SourceDeviceMap
+		return nil
+	}
+
+	fixer.offsys.devMaps = make([]DeviceMap, 0)
+
+	//
+	// 基于文件系统最近一次挂载点进行补充
+	//
+
+	for fsDev, lastMount := range fixer.offsys.fsLastMount {
+		uuidStr, _ := DetectUuidByBlkid(fsDev)
+		fixer.offsys.devMaps = append(fixer.offsys.devMaps,
+			DeviceMap{
+				Origin:     "",
+				Mountpoint: lastMount,
+				UUID:       uuidStr,
+			},
+		)
+	}
+
+	//
+	// 基于探测的系统卷设备进行补充
+	//
+
+	if fixer.offsys.devRoot != "" {
+		uuidStr, _ := DetectUuidByBlkid(fixer.offsys.devRoot)
+		fixer.offsys.devMaps = append(fixer.offsys.devMaps,
+			DeviceMap{
+				Origin:     "",
+				Mountpoint: "/",
+				UUID:       uuidStr,
+			},
+		)
+	}
+	if fixer.offsys.devBoot != "" {
+		uuidStr, _ := DetectUuidByBlkid(fixer.offsys.devBoot)
+		fixer.offsys.devMaps = append(fixer.offsys.devMaps,
+			DeviceMap{
+				Origin:     "",
+				Mountpoint: "/boot",
+				UUID:       uuidStr,
+			},
+		)
+	}
+	if fixer.offsys.devEfi != "" {
+		uuidStr, _ := DetectUuidByBlkid(fixer.offsys.devEfi)
+		fixer.offsys.devMaps = append(fixer.offsys.devMaps,
+			DeviceMap{
+				Origin:     "",
+				Mountpoint: "/boot/efi",
+				UUID:       uuidStr,
+			},
+		)
+	}
+	if fixer.offsys.devVar != "" {
+		uuidStr, _ := DetectUuidByBlkid(fixer.offsys.devVar)
+		fixer.offsys.devMaps = append(fixer.offsys.devMaps,
+			DeviceMap{
+				Origin:     "",
+				Mountpoint: "/var",
+				UUID:       uuidStr,
+			},
+		)
+	}
+
+	//
+	// 基于blkid的缓存文件进行探测
+	//
+
+	//
+	// /run/blkid/blkid.tab：新版 Linux（systemd / util-linux 新版本），处于内存文件系统不可作为探测文件
+	// /etc/blkid.tab：老系统，可作为探测文件
+	// /dev/.blkid.tab：老系统，处于内存文件系统不可作为探测文件
+	//
+
+	blkidCacheFile := filepath.Join(fixer.offsys.root, "etc/blkid.tab")
+	if extend.IsExisted(blkidCacheFile) {
+		// <device DEVNO="0xfd01" TIME="1779244003" PRI="45" TYPE="swap">/dev/mapper/VolGroup00-LogVol01</device>
+		// <device DEVNO="0xfd00" TIME="1779244003" PRI="45" UUID="c007fd05-8d6d-47ee-bf30-7bffb2fc2896" TYPE="ext3">/dev/mapper/VolGroup00-LogVol00</device>
+		// <device DEVNO="0x0801" TIME="1779244003" LABEL="/boot" UUID="60a80797-2810-48e7-93ed-599c3648c5d7" TYPE="ext3" SEC_TYPE="ext2">/dev/sda1</device>
+		// <device DEVNO="0x0300" TIME="1631714685" LABEL="VMware Tools" TYPE="iso9660">/dev/hda</device>
+		// <device DEVNO="0xfd00" TIME="1779244003" UUID="c007fd05-8d6d-47ee-bf30-7bffb2fc2896" TYPE="ext3">/dev/VolGroup00/LogVol00</device>
+		// <device DEVNO="0xfd01" TIME="1779244003" TYPE="swap">/dev/VolGroup00/LogVol01</device>
+		// <device DEVNO="0x0300" TIME="1669787575" LABEL="CentOS_5.6_Final" TYPE="iso9660">/dev/cdrom</device>
+		blkidContent, err := os.ReadFile(blkidCacheFile)
+		if err != nil {
+			logger.Warnf("detectDeviceMaps: failed to read blkid.tab: %v", err)
+		}
+		logger.Debugf("detectDeviceMaps: blkid.tab: %s", string(blkidContent))
+		blkidCacheRe := regexp.MustCompile(`UUID="([0-9a-fA-F-]+)".*?>(/dev/[^<]+)</device>`)
+		matches := blkidCacheRe.FindAllStringSubmatch(string(blkidContent), -1)
+		for _, m := range matches {
+			uuid := m[1]
+			dev := m[2]
+			fixer.offsys.devMaps = append(fixer.offsys.devMaps,
+				DeviceMap{
+					Origin:     dev,
+					Mountpoint: "",
+					UUID:       uuid,
+				})
+			logger.Debugf("detectDeviceMaps: Detecting blkid.tab. uuid=%s device=%s ", uuid, dev)
+		}
+	}
+
+	//
+	// 基于系统启动日志进行补充
+	//
+
+	// 文件系统：btrfs
+	// 命令：grep -i "btrfs" /var/log/messages* | grep fsid
+	// 结果：
+	// 2025-09-23T17:05:40.910399+08:00 localhost kernel: [    4.514460] BTRFS: device fsid b3334026-ccb6-4c25-82f4-e94e72dab24e devid 1 transid 63 /dev/dm-1
+	// 2026-05-12T14:27:56.262124+08:00 localhost kernel: [    6.154912] BTRFS info (device dm-0): device fsid b3334026-ccb6-4c25-82f4-e94e72dab24e devid 1 moved old:/dev/dm-0 new:/dev/mapper/system-root
+
+	syslogDetectBtrfsCmd := fmt.Sprintf(`grep -i "btrfs" %s/var/log/messages* | grep fsid`, fixer.offsys.devRoot)
+	_, o, _ := command.Execute(syslogDetectBtrfsCmd)
+	btrfsUuids := make([]string, 0)
+	btrfsUuidRe := regexp.MustCompile(`fsid\s+([a-fA-F0-9-]+).*?(/dev/\S+)`)
+	for _, line := range strings.Split(o, "\n") {
+		matches := btrfsUuidRe.FindStringSubmatch(line)
+		if len(matches) == 3 {
+			fsid := matches[1]
+			dev := matches[2]
+			if funk.InStrings(btrfsUuids, fsid) {
+				continue
+			}
+			fixer.offsys.devMaps = append(fixer.offsys.devMaps,
+				DeviceMap{
+					Origin:     dev,
+					Mountpoint: "",
+					UUID:       fsid,
+				})
+			btrfsUuids = append(btrfsUuids, fsid)
+			logger.Debugf("detectDeviceMaps: Detecting btrfs by syslog. line=`%s` uuid=`%s` device=`%s`", line, fsid, dev)
+		}
+	}
+
+	logger.Debugf("detectDeviceMaps: Device map:\n%s", extend.Pretty(fixer.offsys.devMaps))
+
+	return nil
+}
+
+// detectChipset 探测主板芯片组的兼容类型
+func (fixer *linuxSystemFixer) detectChipset() {
+	logger.Debugf("detectChipset ++")
+	defer logger.Debugf("detectChipset --")
+
+	// virt-v2v 的 machine type 原则：
+	//
+	// "以 2007 为分界时间线，早于 2007 发布的 Linux 使用 i440fx，
+	// 2007 及之后发布的 Linux 使用 q35。"
+
+	chipset := ChipsetQ35
+
+	switch fixer.offsys.distro.ID {
+	case "fedora":
+		break
+	case "rhel", "centos", "circle", "scientificlinux", "redhat-based", "oraclelinux", "rocky":
+		//if fixer.offlineSystem.distro.Major <= 4 {
+		//	chipset = ChipsetI440fx
+		//}
+		if fixer.offsys.distro.Major <= 6 {
+			chipset = ChipsetI440fx
+		}
+	case "sles", "suse-based", "opensuse":
+		//if fixer.offlineSystem.distro.Major <= 10 {
+		//	chipset = ChipsetI440fx
+		//}
+		if fixer.offsys.distro.Major <= 12 {
+			chipset = ChipsetI440fx
+		}
+	case "debian", "ubuntu", "linuxmint", "kaillinux":
+		if fixer.offsys.distro.Major <= 4 {
+			chipset = ChipsetI440fx
+		}
+	}
+
+	logger.Debugf("detectChipset: chipset detected: %s", chipset)
+
+	fixer.offsys.chipset = chipset
+
+	// FIXME:
+	// 但在实际测试中发现，SUSE11 SP4（kernel 3.0.101）是一个例外：
+	//
+	// 当 initrd 已包含 VirtIO 驱动：
+	//   virtio
+	//   virtio_ring
+	//   virtio_pci
+	//   virtio_blk
+	//   virtio_scsi
+	//   virtio_net
+	//
+	// 启动兼容性如下：
+	//
+	// 1. root disk 使用 virtio-blk / virtio-scsi：
+	//    - i440fx：可正常启动
+	//    - q35：无法启动
+	//
+	//    原因：
+	//    SUSE11 SP4 的 virtio 驱动较旧，对 q35 (PCIe +
+	//    modern virtio) 兼容性较差，表现为：
+	//      - lspci 可见 virtio-scsi controller
+	//      - virtio_scsi 驱动无法 bind controller
+	//      - root disk 无法枚举
+	//      - initrd 无法找到 root device
+	//
+	// 2. root disk 使用 IDE / SATA（AHCI）：
+	//    - i440fx：可正常启动
+	//    - q35：可正常启动
+	//
+	// 因此：
+	// 对于 SUSE11 SP4，如果 root disk bus 为
+	// virtio / virtio-scsi，建议强制使用 i440fx。
+	// 若使用 IDE/SATA，则可允许 q35。
 }
 
 // detectKernels 探测离线系统的内核
@@ -344,25 +736,39 @@ func (fixer *linuxSystemFixer) detectKernels() error {
 	logger.Debugf("detectKernels: ++")
 	defer logger.Debugf("detectKernels: --")
 
-	if fixer.root == "" {
+	if fixer.offsys.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
-	ks, err := info.QueryLinuxKernels(fixer.root)
+	ks, err := info.QueryLinuxKernels(fixer.offsys.root)
 	if err != nil {
 		return err
 	}
 
 	// 过滤掉非启动内核
-	ks2 := make([]info.LinuxKernel, 0)
+	ks2 := make([]kernel, 0)
 	for _, k := range ks {
 		if !k.Bootable {
 			continue
 		}
-		ks2 = append(ks2, k)
+
+		k2 := kernel{}
+		k2.LinuxKernel = k
+		k2.KConfigs = make(map[string]string)
+
+		if k.Config != "" {
+			cfgs, ec := Kconfig(filepath.Join(fixer.offsys.root, "boot", k.Config))
+			if ec != nil {
+				logger.Warnf("detectKernels: failed to parse kernel configs for %s: %v", k.Name, ec)
+			} else {
+				k2.KConfigs = cfgs
+			}
+		}
+
+		ks2 = append(ks2, k2)
 	}
 
-	fixer.kernels = ks2
+	fixer.offsys.kernels = ks2
 	logger.Debugf("detectKernels: bootable kernels:\n%s", extend.Pretty(ks2))
 
 	return nil
@@ -373,16 +779,16 @@ func (fixer *linuxSystemFixer) detectGrub() error {
 	logger.Debugf("detectGrub: ++")
 	defer logger.Debugf("detectGrub: --")
 
-	if fixer.root == "" {
+	if fixer.offsys.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
-	ver, cfg := DetectGrub(fixer.root)
+	ver, cfg := DetectGrub(fixer.offsys.root)
 	if ver == -1 {
 		return errors.New("grub not found")
 	}
 
-	fixer.grubVer, fixer.grubCfg = ver, cfg
+	fixer.offsys.grubVer, fixer.offsys.grubCfg = ver, cfg
 	logger.Debugf("detectGrub: version=%d config=%s", ver, cfg)
 
 	return nil
@@ -393,16 +799,16 @@ func (fixer *linuxSystemFixer) detectDistro() error {
 	logger.Debugf("detectDistro: ++")
 	defer logger.Debugf("detectDistro: --")
 
-	if fixer.root == "" {
+	if fixer.offsys.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
-	distro, err := DetectDistro(fixer.root)
+	distro, err := DetectDistro(fixer.offsys.root)
 	if err != nil {
 		return err
 	}
 
-	fixer.distro = *distro
+	fixer.offsys.distro = *distro
 	logger.Debugf("detectDistro: distro=\n%s", extend.Pretty(distro))
 
 	return nil
@@ -410,12 +816,13 @@ func (fixer *linuxSystemFixer) detectDistro() error {
 
 // executeWithChroot 在chroot环境执行命令
 func (fixer *linuxSystemFixer) executeWithChroot(cmdline string) (exitcode int, output string, err error) {
-	if fixer.root == "" {
+	if fixer.offsys.root == "" {
 		return -1, "", ErrorRootEnvNotMounted
 	}
 
-	chrootCmdline := fmt.Sprintf(`chroot %s /bin/bash -c "export PATH=/sbin:/bin:/usr/sbin:/usr/bin:$PATH; %s"`,
-		fixer.root, cmdline)
+	chrootCmdline := fmt.Sprintf(
+		`chroot %s /bin/bash -c "export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin:$PATH; %s"`,
+		fixer.offsys.root, cmdline)
 
 	return command.Execute(chrootCmdline, command.WithDebug())
 }
@@ -441,10 +848,13 @@ func (fixer *linuxSystemFixer) cleanDattoSnapshot() error {
 		filepath.Join(tmpMp, ".runstorsnap"),
 	}
 
-	for _, dev := range fixer.fsList {
+	for _, dev := range fixer.offsys.fsList {
+		if dev.fsType == "swap" {
+			continue
+		}
 		_ = Umount(tmpMp, false)
 
-		_, em := Mount(fixer.ctx, dev, tmpMp, false)
+		_, em := Mount(fixer.ctx, dev.device, tmpMp, false)
 		if em != nil {
 			logger.Warnf("cleanDattoSnapshot: Mount %s failed: %v", dev, em)
 			continue
@@ -482,23 +892,11 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 	logger.Debugf("fixFstab: ++")
 	defer logger.Debugf("fixFstab: --")
 
-	if fixer.root == "" {
+	if fixer.offsys.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
-	ts := time.Now().Unix()
-	fstabPath := filepath.Join(fixer.root, "etc/fstab")
-	fstabBkPath := filepath.Join(fixer.root, fmt.Sprintf("etc/fstab.bk.%d", ts))
-
-	//
-	// 备份
-	//
-
-	_, _, e := command.Execute("cp " + fstabPath + " " + fstabBkPath)
-	if e != nil {
-		return errors.Wrap(e, "backup /etc/fstab")
-	}
-	logger.Debugf("fixFstab: copy `etc/fstab` to `%s`", fstabBkPath)
+	fstabPath := filepath.Join(fixer.offsys.root, "etc/fstab")
 
 	//
 	// 编辑
@@ -514,6 +912,7 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 	logger.Debugf("fixFstab: history configuration:\n%s", content)
 
 	newContentLines := make([]string, 0)
+	changed := false
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "#") {
@@ -536,17 +935,57 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 			strings.HasPrefix(strings.ToUpper(items[0]), "PARTUUID=") ||
 			strings.HasPrefix(strings.ToUpper(items[0]), "UUID=") ||
 			strings.HasPrefix(strings.ToUpper(items[0]), "LABEL=") ||
-			funk.InStrings([]string{"tmpfs", "devpts", "sysfs", "proc"}, items[2]) ||
+			funk.InStrings([]string{"tmpfs", "devpts", "sysfs", "proc", "debugfs"}, items[2]) ||
 			strings.HasPrefix(items[0], "/dev/mapper") {
 			newContentLines = append(newContentLines, line)
 			continue
 		}
 
-		if devUuid, e := DetectUuidByBlkid(items[0]); e == nil && devUuid != "" {
-			items[0] = fmt.Sprintf("UUID=%s", devUuid)
+		if strings.HasPrefix(items[0], "/dev/") {
+			r, _, e := command.Execute("lvdisplay " + items[0])
+			if e == nil || r == 0 {
+				newContentLines = append(newContentLines, line)
+				continue
+			}
+		}
+
+		uuid := ""
+
+		// 修复swap
+		if len(fixer.offsys.devSwaps) == 1 && items[2] == "swap" {
+			logger.Debugf("fixFstab: Prepare to fix `%s`", line)
+			swapDev := fixer.offsys.devSwaps[0]
+			uuid, _ = DetectUuidByBlkid(swapDev)
+		}
+
+		// 基于设备映射表及`挂载路径`进行`设备`的修复
+		if uuid == "" {
+			for _, dm := range fixer.offsys.devMaps {
+				if dm.Mountpoint == items[1] && strings.HasPrefix(dm.Mountpoint, "/") {
+					uuid = dm.UUID
+					break
+				}
+			}
+		}
+
+		// 基于设备映射表及`设备`进行`设备`的修复
+		if uuid == "" {
+			for _, dm := range fixer.offsys.devMaps {
+				if dm.Origin == items[0] && dm.UUID != "" {
+					uuid = dm.UUID
+					break
+				}
+			}
+		}
+
+		if uuid != "" {
+			logger.Debugf("fixFstab: Old configuration: `%s`", line)
+			items[0] = fmt.Sprintf("/dev/disk/by-uuid/%s", uuid)
 			newLine := strings.Join(items, "    ")
-			logger.Debugf("fixFstab: Change `%s` to `%s`", line, newLine)
+			logger.Debugf("fixFstab: New configuration: `%s`", newLine)
+			newContentLines = append(newContentLines, "# "+line)
 			newContentLines = append(newContentLines, newLine)
+			changed = true
 			continue
 		}
 
@@ -554,6 +993,19 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 		logger.Warnf("fixFstab: Warn-Config: `%s`", line)
 		newContentLines = append(newContentLines, line)
 	}
+
+	if !changed {
+		logger.Debugf("fixFstab: No changes detected")
+		return nil
+	}
+
+	// 备份历史配置
+	fstabBkPath := filepath.Join(fixer.offsys.root, fmt.Sprintf("etc/fstab.bk.%d", time.Now().Unix()))
+	_, _, e := command.Execute("cp " + fstabPath + " " + fstabBkPath)
+	if e != nil {
+		return errors.Wrap(e, "backup /etc/fstab")
+	}
+	logger.Debugf("fixFstab: copy `etc/fstab` to `%s`", fstabBkPath)
 
 	newContent := strings.Join(newContentLines, "\n")
 	logger.Debugf("fixFstab: new configuration:\n%s", newContent)
@@ -566,7 +1018,7 @@ func (fixer *linuxSystemFixer) fixEfiBootConf() error {
 	logger.Debugf("fixEfiBootConf: ++")
 	defer logger.Debugf("fixEfiBootConf: --")
 
-	if fixer.root == "" {
+	if fixer.offsys.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
@@ -585,6 +1037,15 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 	return errors.New("fixEfiFirmware: not implemented yet")
 }
 
+func (fixer *linuxSystemFixer) disableMultipathModule() error {
+	logger.Debugf("disableMultipathModule: ++")
+	defer logger.Debugf("disableMultipathModule: --")
+
+	// TODO
+
+	return errors.New("disableMultipathModule: not implemented yet")
+}
+
 // fixGrub 修复Grub
 func (fixer *linuxSystemFixer) fixGrub() error {
 	logger.Debugf("fixGrub: ++")
@@ -592,10 +1053,17 @@ func (fixer *linuxSystemFixer) fixGrub() error {
 
 	// 参考：https://blog.csdn.net/weixin_39833509/article/details/115633386
 
+	// TODO
+
 	return errors.New("fixGrub: not implemented yet")
 }
 
-func enumFilesystem(offline []string) ([]string, error) {
+type fsDevice struct {
+	device string
+	fsType string
+}
+
+func enumFilesystem(offline []string) ([]fsDevice, error) {
 	logger.Debugf("enumFilesystem: ++")
 	defer logger.Debugf("enumFilesystem: --")
 
@@ -687,11 +1155,11 @@ func enumFilesystem(offline []string) ([]string, error) {
 	fsDevList = funk.UniqString(fsDevList)
 
 	// 过滤文件系统类型
-	var devs []string
+	var devs []fsDevice
 	for _, dev := range fsDevList {
 		fsStr, _ := DetectFSTypeByBlkid(dev)
-		if funk.InStrings(SupportedFsTypes, fsStr) {
-			devs = append(devs, dev)
+		if funk.InStrings(SupportedFsTypes, fsStr) || fsStr == "swap" {
+			devs = append(devs, fsDevice{dev, fsStr})
 		}
 	}
 

@@ -45,4 +45,9 @@ func main() {
 		logger.Errorf("Prepare: %v\n", err)
 		return
 	}
+
+	if err = fixer.Repair(); err != nil {
+		logger.Errorf("Repair: %v\n", err)
+		return
+	}
 }
