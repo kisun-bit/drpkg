@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -43,22 +44,47 @@ type linuxSystemFixer struct {
 }
 
 type offlineSystem struct {
-	fsList      []fsDevice        // 文件系统设备集合
-	fsLastMount map[string]string // 文件系统设备最近一次的挂载点,map的key为fsDevice,val为最近一次挂载点
-	devRoot     string            // root设备
-	devBoot     string            // boot设备
-	devEfi      string            // efi设备
-	devVar      string            // var设备
-	devSwaps    []string          // swap设备
-	chipset     string            // 机器类型（即：主板芯片组模型），可取i440fx、q35等
-	devMaps     []DeviceMap       // 设备映射表
-	mounts      []string          // 挂载点（顺序：从顶层到最下层）
-	root        string            // root挂载点
-	initrdTl    string            // initrd生成工具
-	kernels     []kernel          // 内核集合
-	grubVer     int               // grub版本
-	grubCfg     string            // grub配置文件，相对于/
-	distro      DistroInfo        // 发行版信息
+	fsList []fsDevice // 探测到的文件系统设备列表（如 ext4/xfs/btrfs/swap 等）
+
+	// 文件系统最近一次挂载点映射
+	// key: 文件系统设备（fsDevice）
+	// val: 最近一次挂载路径（如 "/", "/boot", "/var"）
+	fsLastMount map[string]string
+
+	devRoot  string   // 根文件系统设备（/）
+	devBoot  string   // /boot 文件系统设备
+	devEfi   string   // EFI System Partition（ESP）设备（/boot/efi）
+	devVar   string   // /var 文件系统设备
+	devSwaps []string // swap 设备列表
+
+	// 虚拟机主板芯片组模型（machine type）
+	// 常见值：i440fx、q35
+	chipset string
+
+	// 启动模式
+	// 常见值：bios、uefi
+	bootMode BootMode
+
+	// 磁盘设备映射关系（源设备 -> 目标设备）
+	// 用于恢复后设备名变化映射（如 sda -> vda）
+	devMaps []DeviceMap
+
+	// 系统挂载顺序（从顶层到叶子节点）
+	// 例如：["/", "/boot", "/boot/efi"]
+	mounts []string
+
+	root string // 离线系统根目录挂载点（如 /mnt/sysroot）
+
+	// initrd/initramfs 生成工具
+	// 常见值：dracut、mkinitrd、update-initramfs
+	initrdTl string
+
+	kernels []kernel // 系统已安装的内核列表
+
+	grubVer int    // grub 主版本（1: grub legacy, 2: grub2）
+	grubCfg string // grub 配置文件路径（相对于系统根目录）
+
+	distro DistroInfo // 发行版信息（名称、版本、架构等）
 }
 
 type kernel struct {
@@ -127,6 +153,7 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	}
 
 	fixer.detectChipset()
+	fixer.detectBootMode()
 
 	return nil
 }
@@ -295,18 +322,18 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 	}
 
 	for _, dev := range fixer.offsys.fsList {
-		if dev.fsType == "swap" {
+		if dev.FsType == "swap" {
 			continue
 		}
 		switch {
-		case IsRootDevice(fixer.ctx, dev.device):
-			fixer.offsys.devRoot = dev.device
-		case IsBootDevice(fixer.ctx, dev.device):
-			fixer.offsys.devBoot = dev.device
-		case IsEfiDevice(fixer.ctx, dev.device):
-			fixer.offsys.devEfi = dev.device
-		case IsVarDevice(fixer.ctx, dev.device):
-			fixer.offsys.devVar = dev.device
+		case IsRootDevice(fixer.ctx, dev.Device):
+			fixer.offsys.devRoot = dev.Device
+		case IsBootDevice(fixer.ctx, dev.Device):
+			fixer.offsys.devBoot = dev.Device
+		case IsEfiDevice(fixer.ctx, dev.Device):
+			fixer.offsys.devEfi = dev.Device
+		case IsVarDevice(fixer.ctx, dev.Device):
+			fixer.offsys.devVar = dev.Device
 		}
 	}
 
@@ -315,8 +342,8 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 
 	fixer.offsys.devSwaps = make([]string, 0)
 	for _, dev := range fixer.offsys.fsList {
-		if dev.fsType == "swap" {
-			fixer.offsys.devSwaps = append(fixer.offsys.devSwaps, dev.device)
+		if dev.FsType == "swap" {
+			fixer.offsys.devSwaps = append(fixer.offsys.devSwaps, dev.Device)
 			continue
 		}
 	}
@@ -397,7 +424,7 @@ func (fixer *linuxSystemFixer) detectLastMount() error {
 	fixer.offsys.fsLastMount = make(map[string]string)
 
 	for _, fdev := range fixer.offsys.fsList {
-		ft, _ := DetectFSTypeByBlkid(fdev.device)
+		ft, _ := DetectFSTypeByBlkid(fdev.Device)
 
 		switch ft {
 		case "ext2", "ext3", "ext4":
@@ -407,7 +434,7 @@ func (fixer *linuxSystemFixer) detectLastMount() error {
 				fdev,
 			)
 
-			_, output, err := command.Execute("dumpe2fs -h " + fdev.device)
+			_, output, err := command.Execute("dumpe2fs -h " + fdev.Device)
 			if err != nil {
 				logger.Warnf(
 					"detectLastMount: dumpe2fs failed for %s: %v",
@@ -476,7 +503,7 @@ func (fixer *linuxSystemFixer) detectLastMount() error {
 			// 优先 Filesystem volume name
 			// 其次 Last mounted on
 			if volumeName != "" {
-				fixer.offsys.fsLastMount[fdev.device] = volumeName
+				fixer.offsys.fsLastMount[fdev.Device] = volumeName
 
 				logger.Debugf(
 					"detectLastMount: %s -> %s (from `volume name`)",
@@ -484,7 +511,7 @@ func (fixer *linuxSystemFixer) detectLastMount() error {
 					volumeName,
 				)
 			} else if lastMount != "" {
-				fixer.offsys.fsLastMount[fdev.device] = lastMount
+				fixer.offsys.fsLastMount[fdev.Device] = lastMount
 
 				logger.Debugf(
 					"detectLastMount: %s -> %s (from `last mounted on`)",
@@ -786,6 +813,39 @@ func (fixer *linuxSystemFixer) detectChipset() {
 	// 若使用 IDE/SATA，则可允许 q35。
 }
 
+func (fixer *linuxSystemFixer) detectBootMode() {
+	logger.Debugf("detectBootMode: ++")
+	defer logger.Debugf("detectBootMode: --")
+
+	if fixer.offsys.root == "" {
+		return
+	}
+
+	fixer.offsys.bootMode = BootModeBIOS
+
+	efiDir := filepath.Join(fixer.offsys.root, "boot/efi")
+	if extend.IsExisted(efiDir) {
+		_ = filepath.WalkDir(efiDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if extend.IsNilType(d) {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if filename := strings.ToLower(filepath.Base(path)); strings.HasSuffix(filename, ".efi") {
+				fixer.offsys.bootMode = BootModeUEFI
+				return filepath.SkipAll
+			}
+			return nil
+		})
+	}
+
+	logger.Debugf("detectBootMode: boot mode is `%s`", fixer.offsys.bootMode)
+}
+
 // detectKernels 探测离线系统的内核
 func (fixer *linuxSystemFixer) detectKernels() error {
 	logger.Debugf("detectKernels: ++")
@@ -904,12 +964,12 @@ func (fixer *linuxSystemFixer) cleanDattoSnapshot() error {
 	}
 
 	for _, dev := range fixer.offsys.fsList {
-		if dev.fsType == "swap" {
+		if dev.FsType == "swap" {
 			continue
 		}
 		_ = Umount(tmpMp, false)
 
-		_, em := Mount(fixer.ctx, dev.device, tmpMp, false)
+		_, em := Mount(fixer.ctx, dev.Device, tmpMp, false)
 		if em != nil {
 			logger.Warnf("cleanDattoSnapshot: Mount %s failed: %v", dev, em)
 			continue
@@ -1087,9 +1147,171 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 	logger.Debugf("fixEfiFirmware: ++")
 	defer logger.Debugf("fixEfiFirmware: --")
 
+	// 修复原则：
+	// 若/boot/efi/EFI/BOOT/BOOT*.EFI缺失，则进行补充：
+	//     情况1：若目标平台未开启secure boot，那么将\EFI\*\grub*.efi写入EFI/BOOT/startup.nsh
+	//     情况2：若目标平台已开启secure boot，那么将\EFI\*\shim*.efi写入EFI/BOOT/startup.nsh
+	// 若/boot/efi/EFI/BOOT/BOOT*.EFI存在，则进行修正：
+	//     情况1：若目标平台未开启secure boot，那么将grub*.efi覆盖拷贝至BOOT*.EFI
+	//     情况2：若目标平台已开启secure boot，那么将shim*.efi覆盖拷贝至BOOT*.EFI
+
+	// 实际测试中发现：
+	// 欧拉24系统，在未开启secure boot的情况下，使用shimx64.efi启动，系统能够正常启动
+	// 麒麟v10系统，在未开启secure boot的情况下，使用shimaa64.efi启动，启动无法启动，但是grubaa64.efi能够启动
+	// 因为国产信创系统会对shim进行魔改，那么针对非国产信创系统（如麒麟v10，统信），我们就忽略BOOT*.EFI的覆盖拷贝操作
+
+	efiImgName, ok := getEfiImageName()
+	if !ok {
+		return errors.New("no matched efi image name")
+	}
+	logger.Debugf("fixEfiFirmware: efiImgName:\n%s", extend.Pretty(efiImgName))
+
 	// TODO
 
-	return errors.New("fixEfiFirmware: not implemented yet")
+	return nil
+}
+
+func (fixer *linuxSystemFixer) fixPamLogin() error {
+	// 实际测试环境中发现
+	// [root@restoremachine home]# cat /etc/pam.d/login
+	// #%PAM-1.0
+	// auth [user_unknown=ignore success=ok ignore=ignore default=bad] pam_securetty.so
+	// auth       include      system-auth
+	// account    required     pam_nologin.so
+	// account    include      system-auth
+	// password   include      system-auth
+	// # pam_selinux.so close should be the first session rule
+	// session    required     pam_selinux.so close
+	// session    required     pam_loginuid.so
+	// session    optional     pam_console.so
+	// # pam_selinux.so open should only be followed by sessions to be executed in the user context
+	// session    required     pam_selinux.so open
+	// session    required     pam_namespace.so
+	// session    optional     pam_keyinit.so force revoke
+	// session    include      system-auth
+	// -session   optional     pam_ck_connector.so
+	//
+	// session required /lib/security/pam_limits.so
+	// session required pam_limits.so
+	// [root@restoremachine home]#
+	// [root@restoremachine home]#
+	// [root@restoremachine home]# ll /lib/security/pam_limits.so
+	// ls: cannot access /lib/security/pam_limits.so: No such file or directory
+	// [root@restoremachine home]# ll /lib64/security/pam_limits.so
+	// -rwxr-xr-x. 1 root root 18592 Oct  7  2013 /lib64/security/pam_limits.so
+	// 这里可以看到，用户配置了一条`session required /lib/security/pam_limits.so`，但是`/lib/security/pam_limits.so`是不存在的，
+	// 只有`/lib64/security/pam_limits.so`存在，改成`/lib64/security/pam_limits.so`后就正常了。
+
+	// 检查手段：
+	// 遍历/etc/pam.d下所有的绝对路径so文件，若此文件不存在，那么就将其换成文件名即可
+
+	if fixer.offsys.root == "" {
+		return ErrorRootEnvNotMounted
+	}
+
+	pamDir := filepath.Join(fixer.offsys.root, "etc", "pam.d")
+
+	entries, err := os.ReadDir(pamDir)
+	if err != nil {
+		return fmt.Errorf("read pam dir failed: %w", err)
+	}
+
+	// 匹配绝对路径 so
+	//
+	// 例如：
+	// session required /lib/security/pam_limits.so
+	// auth optional /usr/lib64/security/xxx.so
+	//
+	// 捕获：
+	// 1: 前半部分
+	// 2: 绝对路径
+	// 3: 后半部分（参数）
+	soRegexp := regexp.MustCompile(
+		`^(\s*\S+\s+\S+\s+)(/[^ \t]+\.so)(.*)$`,
+	)
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		filePath := filepath.Join(pamDir, entry.Name())
+
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			logger.Warnf(
+				"fixPamLogin: read file failed: %s, err=%v",
+				filePath,
+				err,
+			)
+			continue
+		}
+
+		lines := strings.Split(string(content), "\n")
+
+		modified := false
+
+		for i, line := range lines {
+			trimLine := strings.TrimSpace(line)
+
+			// 跳过空行和注释
+			if trimLine == "" || strings.HasPrefix(trimLine, "#") {
+				continue
+			}
+
+			matches := soRegexp.FindStringSubmatch(line)
+			if len(matches) != 4 {
+				continue
+			}
+
+			absSoPath := matches[2]
+
+			// 离线系统路径
+			offlineSoPath := filepath.Join(
+				fixer.offsys.root,
+				strings.TrimPrefix(absSoPath, "/"),
+			)
+
+			// 文件存在则不处理
+			if _, err := os.Stat(offlineSoPath); err == nil {
+				continue
+			}
+
+			// 文件不存在，替换为 basename
+			soName := filepath.Base(absSoPath)
+
+			newLine := matches[1] + soName + matches[3]
+
+			logger.Infof(
+				"fixPamLogin: fix pam module path: file=%s line=%d old=%q new=%q",
+				filePath,
+				i+1,
+				line,
+				newLine,
+			)
+
+			lines[i] = newLine
+			modified = true
+		}
+
+		if modified {
+			newContent := strings.Join(lines, "\n")
+
+			if err := os.WriteFile(
+				filePath,
+				[]byte(newContent),
+				0644,
+			); err != nil {
+				return fmt.Errorf(
+					"write pam file failed: %s, err=%w",
+					filePath,
+					err,
+				)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (fixer *linuxSystemFixer) disableSeLinux() error {
@@ -1208,8 +1430,8 @@ func (fixer *linuxSystemFixer) fixGrub() error {
 }
 
 type fsDevice struct {
-	device string
-	fsType string
+	Device string
+	FsType string
 }
 
 func enumFilesystem(offline []string) ([]fsDevice, error) {

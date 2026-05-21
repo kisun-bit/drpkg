@@ -7,12 +7,46 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 )
+
+type efiImageName struct {
+	Default string
+	Grub    string
+	Shim    string
+}
+
+func getEfiImageName() (efiImageName, bool) {
+	tag := ""
+
+	switch runtime.GOARCH {
+	case "amd64":
+		tag = "x64"
+	case "arm64":
+		tag = "aa64"
+	case "386":
+		tag = "ia32"
+	case "loong64":
+		tag = "loongarch64"
+	case "riscv64":
+		tag = "riscv64"
+	}
+
+	if tag == "" {
+		return efiImageName{}, false
+	}
+
+	return efiImageName{
+			fmt.Sprintf("boot%s.efi", tag),
+			fmt.Sprintf("grub%s.efi", tag),
+			fmt.Sprintf("shim%s.efi", tag)},
+		true
+}
 
 // Mount 挂载设备到指定挂载点
 func Mount(ctx context.Context, device string, mountpoint string, readonly bool) (supported bool, err error) {

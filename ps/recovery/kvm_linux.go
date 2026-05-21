@@ -27,7 +27,7 @@ func (fixer *linuxSystemFixer) configKvm() error {
 	defer logger.Debugf("configKvm: --")
 
 	if err := fixer.patchVirtIO(); err != nil {
-		return err
+		return nil
 	}
 
 	return nil

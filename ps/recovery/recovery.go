@@ -162,6 +162,9 @@ type RecoveryParameter struct {
 
 	// FsckFsTimeout 修复文件系统的超时时间
 	FsckFsTimeout int `json:"fsckFsTimeout"`
+
+	// SecureBoot 目标平台启用Secure Boot
+	SecureBoot bool `json:"secureBoot"`
 }
 
 type DeviceMap struct {
