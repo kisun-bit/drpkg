@@ -163,6 +163,14 @@ func (fixer *linuxSystemFixer) Repair() error {
 	logger.Debugf("Repair: ++")
 	defer logger.Debugf("Repair: --")
 
+	if err := fixer.fixPamLogin(); err != nil {
+		return errors.Wrap(err, "fix pam login")
+	}
+
+	if err := fixer.fixEfiFirmware(); err != nil {
+		return errors.Wrap(err, "fix efi-firmware")
+	}
+
 	if err := fixer.fixFstab(); err != nil {
 		return errors.Wrap(err, "fix fstab")
 	}
@@ -1147,18 +1155,35 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 	logger.Debugf("fixEfiFirmware: ++")
 	defer logger.Debugf("fixEfiFirmware: --")
 
-	// 修复原则：
-	// 若/boot/efi/EFI/BOOT/BOOT*.EFI缺失，则进行补充：
-	//     情况1：若目标平台未开启secure boot，那么将\EFI\*\grub*.efi写入EFI/BOOT/startup.nsh
-	//     情况2：若目标平台已开启secure boot，那么将\EFI\*\shim*.efi写入EFI/BOOT/startup.nsh
-	// 若/boot/efi/EFI/BOOT/BOOT*.EFI存在，则进行修正：
-	//     情况1：若目标平台未开启secure boot，那么将grub*.efi覆盖拷贝至BOOT*.EFI
-	//     情况2：若目标平台已开启secure boot，那么将shim*.efi覆盖拷贝至BOOT*.EFI
+	if fixer.offsys.bootMode != BootModeUEFI {
+		logger.Debugf("fixEfiFirmware: Ignored when bootmode is `%s`", fixer.offsys.bootMode)
+		return nil
+	}
+
+	// 已知规则：
+	// 若 EFI/BOOT/BOOT{ARCH}.EFI 缺失，则进行补充：
+	//   情况1：未开启 Secure Boot
+	//     - 将 \EFI\{distro}\grub{arch}.efi 拷贝至 EFI/BOOT/BOOT{ARCH}.EFI
+	//     - 或创建 startup.nsh，内容为引导该 grub.efi 的路径
+	//   情况2：已开启 Secure Boot
+	//     - 将 \EFI\{distro}\shim{arch}.efi 拷贝至 EFI/BOOT/BOOT{ARCH}.EFI
+	//     - 同时确保同目录下有对应的 grub.efi（shim 需要）
+	//
+	// 若 EFI/BOOT/BOOT{ARCH}.EFI 存在，则进行修正：
+	//   情况1：未开启 Secure Boot
+	//     - 用 \EFI\{distro}\grub{arch}.efi 覆盖 BOOT{ARCH}.EFI
+	//   情况2：已开启 Secure Boot
+	//     - 用 \EFI\{distro}\shim{arch}.efi 覆盖 BOOT{ARCH}.EFI
+	//     - 确保 grub.efi 也更新到 shim 期望的位置
 
 	// 实际测试中发现：
 	// 欧拉24系统，在未开启secure boot的情况下，使用shimx64.efi启动，系统能够正常启动
-	// 麒麟v10系统，在未开启secure boot的情况下，使用shimaa64.efi启动，启动无法启动，但是grubaa64.efi能够启动
+	// 麒麟v10系统，在未开启secure boot的情况下，使用默认的bootaa64.efi无法启动，使用grubaa64.efi能够启动
 	// 因为国产信创系统会对shim进行魔改，那么针对非国产信创系统（如麒麟v10，统信），我们就忽略BOOT*.EFI的覆盖拷贝操作
+
+	// 修复原则：
+	// 若 EFI/BOOT/BOOT{ARCH}.EFI 缺失，则使用shim*.efi、grub*.efi路径写入start.nsh
+	// 若 EFI/BOOT/BOOT{ARCH}.EFI 存在，则使用shim*.efi、grub*.efi进行覆盖
 
 	efiImgName, ok := getEfiImageName()
 	if !ok {
@@ -1166,7 +1191,120 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 	}
 	logger.Debugf("fixEfiFirmware: efiImgName:\n%s", extend.Pretty(efiImgName))
 
-	// TODO
+	findFirstEfi := func(globs []string) string {
+		for _, fglob := range globs {
+			logger.Debugf("fixEfiFirmware: Glob `%s`", fglob)
+
+			files, err := filepath.Glob(fglob)
+			if err != nil {
+				logger.Warnf("fixEfiFirmware: Glob error: `%s`", err)
+				continue
+			}
+
+			logger.Debugf(
+				"fixEfiFirmware: Glob `%s`:\n%s",
+				fglob,
+				strings.Join(files, "\n"),
+			)
+
+			for _, f := range files {
+				efiDirName := filepath.Base(filepath.Dir(f))
+				if strings.EqualFold(efiDirName, "boot") {
+					continue
+				}
+				return f
+			}
+		}
+
+		return ""
+	}
+
+	efiRoot := filepath.Join(fixer.offsys.root, "boot/efi/EFI")
+	uefiFallbackDir := filepath.Join(efiRoot, "BOOT")
+	uefiFallbackPath := filepath.Join(uefiFallbackDir, efiImgName.Default)
+
+	defaultEfiPath := ""
+	if extend.IsExisted(uefiFallbackPath) {
+		defaultEfiPath = uefiFallbackPath
+	}
+
+	grubEfiPath := findFirstEfi([]string{
+		filepath.Join(efiRoot, "*", efiImgName.Grub),
+		filepath.Join(efiRoot, "*", "grub.efi"),
+		filepath.Join(efiRoot, "*", "elilo.efi"),
+	})
+
+	shimEfiPath := findFirstEfi([]string{
+		filepath.Join(efiRoot, "*", efiImgName.Shim),
+	})
+
+	//
+	// 注意：
+	// UEFI 安全启动（Secure Boot）的设计初衷是防范底层恶意软件，其信任根源掌握在主板厂商（OEM）手中，绝非仅限微软。
+	// shim*.efi 说明：持有微软签名
+	// grub*.efi 说明：通常无签名（或由发行版自签名））
+	//
+
+	logger.Debugf("fixEfiFirmware: defaultEfiPath=`%s`", defaultEfiPath)
+	logger.Debugf("fixEfiFirmware: grubEfiPath=`%s`", grubEfiPath)
+	logger.Debugf("fixEfiFirmware: shimEfiPath=`%s`", shimEfiPath)
+
+	if defaultEfiPath == "" && grubEfiPath == "" && shimEfiPath == "" {
+		return nil
+	}
+
+	if defaultEfiPath == "" {
+		logger.Debugf("fixEfiFirmware: create startup.nsh")
+		// [root@localhost ~]# ll /boot/efi/EFI/
+		// 总计 8
+		// drwx------ 2 root root 4096  5月11日 23:34 BOOT
+		_ = os.MkdirAll(uefiFallbackDir, 0o700)
+		startupScript := filepath.Join(uefiFallbackDir, "startup.nsh")
+		startupContent := ""
+		// 保证优先使用shim*.efi
+		for _, p := range []string{shimEfiPath, grubEfiPath} {
+			if startupContent = strings.TrimPrefix(p, uefiFallbackDir); startupContent != "" {
+				break
+			}
+		}
+		if startupContent == "" {
+			// TODO 警告无efi，启动后需要在uefi shell中手动选择efi固件
+			return nil
+		}
+		logger.Debugf("fixEfiFirmware: Write `%s` to %s", startupContent, startupScript)
+		if err := os.WriteFile(startupScript, []byte(startupContent), 0o700); err != nil {
+			return errors.Wrapf(err, "write startup.nsh")
+		}
+		return nil
+	}
+
+	defaultEfiBackupPath := defaultEfiPath + fmt.Sprintf(".%d.backup.efi", time.Now().Unix())
+	if err := os.Rename(defaultEfiPath, defaultEfiBackupPath); err != nil {
+		return errors.Wrapf(err, "rename default efi")
+	}
+
+	// FIXME：测试shim*.efi优先的情况下，是否所有系统都能成功引导
+
+	efiSource := ""
+
+	// 优先 shim
+	if shimEfiPath != "" {
+		efiSource = shimEfiPath
+	}
+
+	// 没有 shim 时用 grub
+	if efiSource == "" && grubEfiPath != "" {
+		efiSource = grubEfiPath
+	}
+
+	if efiSource == "" {
+		return errors.New("no available shim/grub efi")
+	}
+
+	cmdline := fmt.Sprintf("cp -f '%s' '%s'", efiSource, defaultEfiPath)
+	if _, _, err := command.Execute(cmdline, command.WithDebug()); err != nil {
+		return errors.Wrapf(err, "copy %s to %s", efiSource, defaultEfiPath)
+	}
 
 	return nil
 }
