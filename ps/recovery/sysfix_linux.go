@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/kisun-bit/drpkg/command"
-	"github.com/kisun-bit/drpkg/disk/table"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/info"
@@ -29,6 +28,13 @@ const (
 const (
 	ChipsetQ35    = "q35"
 	ChipsetI440fx = "i440fx"
+)
+
+const (
+	VideoBochs  = "bochs"
+	VideoVGA    = "vga"
+	VideoVirtio = "virtio"
+	VideoRamfb  = "ramfb"
 )
 
 var (
@@ -60,6 +66,10 @@ type offlineSystem struct {
 	// 虚拟机主板芯片组模型（machine type）
 	// 常见值：i440fx、q35
 	chipset string
+
+	// 显卡类型
+	// 常见值：bochs、vga、virtio、ramfb
+	video string
 
 	// 启动模式
 	// 常见值：bios、uefi
@@ -152,7 +162,7 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		return errors.Wrap(err, "detect device uuid")
 	}
 
-	fixer.detectChipset()
+	fixer.detectKvmCfg()
 	fixer.detectBootMode()
 
 	return nil
@@ -162,6 +172,10 @@ func (fixer *linuxSystemFixer) Prepare() error {
 func (fixer *linuxSystemFixer) Repair() error {
 	logger.Debugf("Repair: ++")
 	defer logger.Debugf("Repair: --")
+
+	if err := fixer.disableSeLinux(); err != nil {
+		return errors.Wrap(err, "disable seLinux")
+	}
 
 	if err := fixer.fixPamLogin(); err != nil {
 		return errors.Wrap(err, "fix pam login")
@@ -173,6 +187,10 @@ func (fixer *linuxSystemFixer) Repair() error {
 
 	if err := fixer.fixFstab(); err != nil {
 		return errors.Wrap(err, "fix fstab")
+	}
+
+	if err := fixer.fixGrub(); err != nil {
+		return errors.Wrap(err, "fix grub")
 	}
 
 	// TODO
@@ -747,10 +765,10 @@ func (fixer *linuxSystemFixer) detectDeviceMaps() error {
 	return nil
 }
 
-// detectChipset 探测主板芯片组的兼容类型
-func (fixer *linuxSystemFixer) detectChipset() {
-	logger.Debugf("detectChipset ++")
-	defer logger.Debugf("detectChipset --")
+// detectKvmCfg 探测KVM虚机的推荐配置
+func (fixer *linuxSystemFixer) detectKvmCfg() {
+	logger.Debugf("detectKvmCfg ++")
+	defer logger.Debugf("detectKvmCfg --")
 
 	// virt-v2v 的 machine type 原则：
 	//
@@ -782,9 +800,14 @@ func (fixer *linuxSystemFixer) detectChipset() {
 		}
 	}
 
+	fixer.offsys.chipset = chipset
 	logger.Debugf("detectChipset: chipset detected: %s", chipset)
 
-	fixer.offsys.chipset = chipset
+	fixer.offsys.video = VideoBochs
+	// FIXME: 后续不要根据主板去决定显卡类型
+	if fixer.offsys.chipset == ChipsetQ35 {
+		fixer.offsys.chipset = VideoVGA
+	}
 
 	// FIXME:
 	// 但在实际测试中发现，SUSE11 SP4（kernel 3.0.101）是一个例外：
@@ -1136,20 +1159,6 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 	return os.WriteFile(fstabPath, []byte(newContent), 0644)
 }
 
-// fixEfiBootConf 修复Efi的启动配置
-func (fixer *linuxSystemFixer) fixEfiBootConf() error {
-	logger.Debugf("fixEfiBootConf: ++")
-	defer logger.Debugf("fixEfiBootConf: --")
-
-	if fixer.offsys.root == "" {
-		return ErrorRootEnvNotMounted
-	}
-
-	// TODO
-
-	return errors.New("fixEfiBootConf: not implemented yet")
-}
-
 // fixEfiFirmware 修复Efi固件
 func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 	logger.Debugf("fixEfiFirmware: ++")
@@ -1254,16 +1263,34 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 	}
 
 	if defaultEfiPath == "" {
+		startupScript := filepath.Join(uefiFallbackDir, "startup.nsh")
+		if extend.IsExisted(startupScript) {
+			startupHistoryBin, _ := os.ReadFile(startupScript)
+			startupHistoryContent := strings.TrimSpace(string(startupHistoryBin))
+			if strings.HasPrefix(startupHistoryContent, "\\") {
+				logger.Debugf("fixEfiFirmware: startupHistoryContent=`%s`", startupHistoryContent)
+				return nil
+			}
+			_ = os.RemoveAll(startupScript)
+		}
+
 		logger.Debugf("fixEfiFirmware: create startup.nsh")
 		// [root@localhost ~]# ll /boot/efi/EFI/
 		// 总计 8
 		// drwx------ 2 root root 4096  5月11日 23:34 BOOT
 		_ = os.MkdirAll(uefiFallbackDir, 0o700)
-		startupScript := filepath.Join(uefiFallbackDir, "startup.nsh")
+
 		startupContent := ""
 		// 保证优先使用shim*.efi
 		for _, p := range []string{shimEfiPath, grubEfiPath} {
-			if startupContent = strings.TrimPrefix(p, uefiFallbackDir); startupContent != "" {
+			if rel, err := filepath.Rel(filepath.Dir(efiRoot), p); err == nil &&
+				rel != "." &&
+				!strings.HasPrefix(rel, "..") {
+				rel = strings.ReplaceAll(rel, "/", "\\")
+				startupContent = rel
+				if !strings.HasPrefix(startupContent, "\\") {
+					startupContent = "\\" + startupContent
+				}
 				break
 			}
 		}
@@ -1374,6 +1401,7 @@ func (fixer *linuxSystemFixer) fixPamLogin() error {
 		}
 
 		filePath := filepath.Join(pamDir, entry.Name())
+		logger.Debugf("fixPamLogin: Prepare to repair `%s`", filePath)
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {
@@ -1489,13 +1517,17 @@ func (fixer *linuxSystemFixer) disableSeLinux() error {
 			lines = append(lines, "SELINUX=disabled")
 		}
 
+		logger.Debugf("disableSeLinux: `%s` [before]:\n----------------------------------------\n%s\n----------------------------------------\n",
+			configPath, string(data))
+
 		newContent := strings.Join(lines, "\n")
 
 		if err := os.WriteFile(configPath, []byte(newContent), 0644); err != nil {
 			return fmt.Errorf("write selinux config failed: %w", err)
 		}
 
-		logger.Infof("DisableSELinux: updated %s", configPath)
+		logger.Debugf("disableSeLinux: `%s` [modified]:\n----------------------------------------\n%s\n----------------------------------------\n",
+			configPath, string(data))
 	}
 
 	// 2. 清理 grub cmdline 中的 selinux 参数
@@ -1519,28 +1551,32 @@ func (fixer *linuxSystemFixer) disableSeLinux() error {
 
 	data, err := os.ReadFile(fixer.offsys.grubCfg)
 	if err != nil {
-		logger.Warnf("DisableSELinux: read grub file failed: %s err=%v",
+		logger.Warnf("disableSeLinux: read grub file failed: %s err=%v",
 			fixer.offsys.grubCfg, err)
 		return nil
 	}
+
+	logger.Debugf("disableSeLinux: `%s` [before]:\n--------------------\n%s\n--------------------",
+		fixer.offsys.grubCfg, string(data))
 
 	newContent := removeKernelArgs(string(data))
 
 	if err = os.WriteFile(fixer.offsys.grubCfg, []byte(newContent), 0644); err != nil {
-		logger.Warnf("DisableSELinux: write grub file failed: %s err=%v",
+		logger.Warnf("disableSeLinux: write grub file failed: %s err=%v",
 			fixer.offsys.grubCfg, err)
 		return nil
 	}
 
-	logger.Infof("DisableSELinux: updated grub file %s", fixer.offsys.grubCfg)
+	logger.Infof("disableSeLinux: `%s` [modified]:\n--------------------\n%s\n--------------------",
+		fixer.offsys.grubCfg, newContent)
 
 	// 3. 创建 autorelabel 标记（迁移后更安全）
 	autorelabelPath := filepath.Join(rootDir, ".autorelabel")
 
 	if err = os.WriteFile(autorelabelPath, []byte{}, 0644); err != nil {
-		logger.Warnf("DisableSELinux: create .autorelabel failed: %v", err)
+		logger.Warnf("disableSeLinux: create .autorelabel failed: %v", err)
 	} else {
-		logger.Infof("DisableSELinux: created %s", autorelabelPath)
+		logger.Infof("disableSeLinux: created %s", autorelabelPath)
 	}
 
 	return nil
@@ -1560,135 +1596,16 @@ func (fixer *linuxSystemFixer) fixGrub() error {
 	logger.Debugf("fixGrub: ++")
 	defer logger.Debugf("fixGrub: --")
 
-	// 参考：https://blog.csdn.net/weixin_39833509/article/details/115633386
+	// 修复原则：
+	// s1. root/resume设备名使用UUID形式
+	// s2. 删除无效的resume
+	// s3. 自动加rootdelay=15
+	// s4. 修复 console 参数（xvc0/hvc0）
+	// s5. 删除物理机 multipath/san 参数
+	// s6. ......
 
-	// TODO
+	// 其他：
+	// 1. https://blog.csdn.net/weixin_39833509/article/details/115633386
 
-	return errors.New("fixGrub: not implemented yet")
-}
-
-type fsDevice struct {
-	Device string
-	FsType string
-}
-
-func enumFilesystem(offline []string) ([]fsDevice, error) {
-	logger.Debugf("enumFilesystem: ++")
-	defer logger.Debugf("enumFilesystem: --")
-
-	logger.Debugf("enumFilesystem: offline = %s", extend.Pretty(offline))
-
-	psinfo, err := info.QueryPsInfo()
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Debugf("enumFilesystem: psinfo=\n%s", psinfo.Pretty())
-
-	slaveSet := make(map[string]struct{})
-	addSlaves := func(slaves []string) {
-		for _, s := range slaves {
-			slaveSet[s] = struct{}{}
-		}
-	}
-
-	for _, mp := range psinfo.Private.Linux.Multipath {
-		addSlaves(mp.Slaves)
-	}
-	for _, rd := range psinfo.Private.Linux.Raid {
-		addSlaves(rd.Slaves)
-	}
-
-	var fsDevList []string
-
-	// 统一处理函数
-	handleDevice := func(device string, dt info.DiskTable) {
-		switch dt.Type {
-		case table.TableTypeMBR, table.TableTypeGPT:
-			for _, p := range dt.Partitions {
-				if isInvalidPartition(p.Type) {
-					continue
-				}
-				fsDevList = append(fsDevList, p.Device)
-			}
-		default:
-			fsDevList = append(fsDevList, device)
-		}
-	}
-
-	// 1. 普通磁盘
-	for _, d := range psinfo.Public.Disks {
-		if !funk.InStrings(offline, d.Device) {
-			continue
-		}
-		if _, ok := slaveSet[d.Device]; ok {
-			continue
-		}
-		handleDevice(d.Device, d.Table)
-	}
-
-	// 2. multipath
-	for _, mp := range psinfo.Private.Linux.Multipath {
-		if !allInOffline(mp.Slaves, offline) {
-			continue
-		}
-		handleDevice(mp.Device, mp.Table)
-	}
-
-	// 3. raid
-	for _, rd := range psinfo.Private.Linux.Raid {
-		if !allInOffline(rd.Slaves, offline) {
-			continue
-		}
-		handleDevice(rd.Device, rd.Table)
-	}
-
-	// 4. lvm
-	for _, vg := range psinfo.Private.Linux.LVM.VGList {
-		for _, lv := range vg.LVList {
-			// 非标准卷
-			if len(lv.Segments) == 0 {
-				continue
-			}
-			lvDisks := make([]string, 0)
-			for _, seg := range lv.Segments {
-				lvDisks = append(lvDisks, seg.Device)
-			}
-			if !allInOffline(lvDisks, offline) {
-				continue
-			}
-			fsDevList = append(fsDevList, lv.Device)
-		}
-	}
-
-	fsDevList = funk.UniqString(fsDevList)
-
-	// 过滤文件系统类型
-	var devs []fsDevice
-	for _, dev := range fsDevList {
-		fsStr, _ := DetectFSTypeByBlkid(dev)
-		if funk.InStrings(MountSupportedFsTypes, fsStr) || fsStr == "swap" {
-			devs = append(devs, fsDevice{dev, fsStr})
-		}
-	}
-
-	return devs, nil
-}
-
-func isInvalidPartition(ptype string) bool {
-	return funk.InStrings(table.MBRExtendPartTypes, ptype) ||
-		ptype == table.GPT_LINUX_LVM ||
-		ptype == table.MBR_LINUX_LVM_PARTITION
-}
-
-func allInOffline(slaves []string, offline []string) bool {
-	if len(slaves) == 0 {
-		return false
-	}
-	for _, s := range slaves {
-		if !funk.InStrings(offline, s) {
-			return false
-		}
-	}
-	return true
+	return nil
 }

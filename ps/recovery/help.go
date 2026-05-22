@@ -9,8 +9,10 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
+	"github.com/kisun-bit/drpkg/disk/table"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
+	"github.com/kisun-bit/drpkg/ps/info"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 )
@@ -198,4 +200,130 @@ func withMount(
 	}
 
 	return check(mountpoint)
+}
+
+type fsDevice struct {
+	Device string
+	FsType string
+}
+
+func enumFilesystem(offline []string) ([]fsDevice, error) {
+	logger.Debugf("enumFilesystem: ++")
+	defer logger.Debugf("enumFilesystem: --")
+
+	logger.Debugf("enumFilesystem: offline = %s", extend.Pretty(offline))
+
+	psinfo, err := info.QueryPsInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Debugf("enumFilesystem: psinfo=\n%s", psinfo.Pretty())
+
+	slaveSet := make(map[string]struct{})
+	addSlaves := func(slaves []string) {
+		for _, s := range slaves {
+			slaveSet[s] = struct{}{}
+		}
+	}
+
+	for _, mp := range psinfo.Private.Linux.Multipath {
+		addSlaves(mp.Slaves)
+	}
+	for _, rd := range psinfo.Private.Linux.Raid {
+		addSlaves(rd.Slaves)
+	}
+
+	var fsDevList []string
+
+	// 统一处理函数
+	handleDevice := func(device string, dt info.DiskTable) {
+		switch dt.Type {
+		case table.TableTypeMBR, table.TableTypeGPT:
+			for _, p := range dt.Partitions {
+				if isInvalidPartition(p.Type) {
+					continue
+				}
+				fsDevList = append(fsDevList, p.Device)
+			}
+		default:
+			fsDevList = append(fsDevList, device)
+		}
+	}
+
+	// 1. 普通磁盘
+	for _, d := range psinfo.Public.Disks {
+		if !funk.InStrings(offline, d.Device) {
+			continue
+		}
+		if _, ok := slaveSet[d.Device]; ok {
+			continue
+		}
+		handleDevice(d.Device, d.Table)
+	}
+
+	// 2. multipath
+	for _, mp := range psinfo.Private.Linux.Multipath {
+		if !allInOffline(mp.Slaves, offline) {
+			continue
+		}
+		handleDevice(mp.Device, mp.Table)
+	}
+
+	// 3. raid
+	for _, rd := range psinfo.Private.Linux.Raid {
+		if !allInOffline(rd.Slaves, offline) {
+			continue
+		}
+		handleDevice(rd.Device, rd.Table)
+	}
+
+	// 4. lvm
+	for _, vg := range psinfo.Private.Linux.LVM.VGList {
+		for _, lv := range vg.LVList {
+			// 非标准卷
+			if len(lv.Segments) == 0 {
+				continue
+			}
+			lvDisks := make([]string, 0)
+			for _, seg := range lv.Segments {
+				lvDisks = append(lvDisks, seg.Device)
+			}
+			if !allInOffline(lvDisks, offline) {
+				continue
+			}
+			fsDevList = append(fsDevList, lv.Device)
+		}
+	}
+
+	fsDevList = funk.UniqString(fsDevList)
+
+	// 过滤文件系统类型
+	var devs []fsDevice
+	for _, dev := range fsDevList {
+		fsStr, _ := DetectFSTypeByBlkid(dev)
+		if funk.InStrings(MountSupportedFsTypes, fsStr) || fsStr == "swap" {
+			devs = append(devs, fsDevice{dev, fsStr})
+		}
+	}
+
+	return devs, nil
+}
+
+func isInvalidPartition(ptype string) bool {
+	return funk.InStrings(table.MBRExtendPartTypes, ptype) ||
+		ptype == table.GPT_LINUX_LVM ||
+		ptype == table.MBR_LINUX_LVM_PARTITION
+}
+
+func allInOffline(slaves []string, offline []string) bool {
+	if len(slaves) == 0 {
+		return false
+	}
+	for _, s := range slaves {
+		if !funk.InStrings(offline, s) {
+			return false
+		}
+	}
+	return true
 }
