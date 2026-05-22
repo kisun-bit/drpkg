@@ -1075,24 +1075,10 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 		// 一般而言稳定性如下：
 		// 安全：by-partuuid、by-uuid、by-label、tmpfs/proc/sysfs/devpts、lv
 
-		if strings.HasPrefix(items[0], "/dev/disk/by-partuuid") ||
-			strings.HasPrefix(items[0], "/dev/disk/by-uuid") ||
-			strings.HasPrefix(items[0], "/dev/disk/by-label") ||
-			strings.HasPrefix(strings.ToUpper(items[0]), "PARTUUID=") ||
-			strings.HasPrefix(strings.ToUpper(items[0]), "UUID=") ||
-			strings.HasPrefix(strings.ToUpper(items[0]), "LABEL=") ||
-			funk.InStrings([]string{"tmpfs", "devpts", "sysfs", "proc", "debugfs"}, items[2]) ||
-			strings.HasPrefix(items[0], "/dev/mapper") {
+		if isValidFstabDevice(items[0]) ||
+			funk.InStrings([]string{"tmpfs", "devpts", "sysfs", "proc", "debugfs"}, items[2]) {
 			newContentLines = append(newContentLines, line)
 			continue
-		}
-
-		if strings.HasPrefix(items[0], "/dev/") {
-			r, _, e := command.Execute("lvdisplay " + items[0])
-			if e == nil || r == 0 {
-				newContentLines = append(newContentLines, line)
-				continue
-			}
 		}
 
 		uuid := ""
@@ -1517,7 +1503,8 @@ func (fixer *linuxSystemFixer) disableSeLinux() error {
 			lines = append(lines, "SELINUX=disabled")
 		}
 
-		logger.Debugf("disableSeLinux: `%s` [before]:\n----------------------------------------\n%s\n----------------------------------------\n",
+		logger.Debugf("disableSeLinux: `%s` [before]:"+
+			"\n----------------------------------------\n%s\n----------------------------------------\n",
 			configPath, string(data))
 
 		newContent := strings.Join(lines, "\n")
@@ -1526,7 +1513,8 @@ func (fixer *linuxSystemFixer) disableSeLinux() error {
 			return fmt.Errorf("write selinux config failed: %w", err)
 		}
 
-		logger.Debugf("disableSeLinux: `%s` [modified]:\n----------------------------------------\n%s\n----------------------------------------\n",
+		logger.Debugf("disableSeLinux: `%s` [modified]:"+
+			"\n----------------------------------------\n%s\n----------------------------------------\n",
 			configPath, string(data))
 	}
 
@@ -1556,7 +1544,8 @@ func (fixer *linuxSystemFixer) disableSeLinux() error {
 		return nil
 	}
 
-	logger.Debugf("disableSeLinux: `%s` [before]:\n--------------------\n%s\n--------------------",
+	logger.Debugf("disableSeLinux: `%s` [before]:"+
+		"\n----------------------------------------\n%s\n----------------------------------------\n",
 		fixer.offsys.grubCfg, string(data))
 
 	newContent := removeKernelArgs(string(data))
@@ -1567,7 +1556,8 @@ func (fixer *linuxSystemFixer) disableSeLinux() error {
 		return nil
 	}
 
-	logger.Infof("disableSeLinux: `%s` [modified]:\n--------------------\n%s\n--------------------",
+	logger.Infof("disableSeLinux: `%s` [modified]:"+
+		"\n----------------------------------------\n%s\n----------------------------------------\n",
 		fixer.offsys.grubCfg, newContent)
 
 	// 3. 创建 autorelabel 标记（迁移后更安全）
@@ -1600,12 +1590,139 @@ func (fixer *linuxSystemFixer) fixGrub() error {
 	// s1. root/resume设备名使用UUID形式
 	// s2. 删除无效的resume
 	// s3. 自动加rootdelay=15
-	// s4. 修复 console 参数（xvc0/hvc0）
-	// s5. 删除物理机 multipath/san 参数
+	// s4. 修复 console 参数（xvc0/hvc0）, FIXME：后续实现
+	// s5. 删除物理机 multipath/san 参数，FIXME：后续实现
 	// s6. ......
 
 	// 其他：
 	// 1. https://blog.csdn.net/weixin_39833509/article/details/115633386
+
+	rootUUID, _ := DetectUuidByBlkid(fixer.offsys.devRoot)
+	resumeUUID := ""
+	if len(fixer.offsys.devSwaps) == 1 {
+		resumeUUID, _ = DetectUuidByBlkid(fixer.offsys.devSwaps[0])
+	}
+
+	if rootUUID == "" {
+		logger.Warnf("fixGrub: uuid of %s is empty", fixer.offsys.devRoot)
+		return nil
+	}
+
+	logger.Debugf("fixGrub: uuid of `%s` is `%s`", fixer.offsys.devRoot, rootUUID)
+	logger.Debugf("fixGrub: uuid of SWAP is `%s`", resumeUUID)
+
+	uuidCandFiles := []string{
+		filepath.Join(fixer.offsys.root, "etc", "sysconfig", "bootloader"),
+		fixer.offsys.grubCfg,
+	}
+	for _, f := range uuidCandFiles {
+		if err := fixer.fixOneGrub(f, rootUUID, resumeUUID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) fixOneGrub(
+	file string,
+	rootUUID string,
+	resumeUUID string,
+) error {
+	logger.Debugf("fixOneGrub: ++")
+	defer logger.Debugf("fixOneGrub: --")
+
+	if rootUUID == "" {
+		return nil
+	}
+
+	if extend.IsDir(file) || !extend.IsExisted(file) {
+		return nil
+	}
+
+	logger.Debugf("fixOneGrub: Prepare to repair `%s`", file)
+
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+
+	before := string(data)
+
+	logger.Debugf(
+		"fixOneGrub: `%s` [before]:"+
+			"\n----------------------------------------\n%s\n----------------------------------------\n",
+		file,
+		before,
+	)
+
+	content := before
+
+	// root=
+	rootRe := regexp.MustCompile(`(^|\s+)root=\S+`)
+	content = rootRe.ReplaceAllString(
+		content,
+		`${1}root=UUID=`+rootUUID,
+	)
+
+	// resume=
+	if resumeUUID != "" {
+		resumeRe := regexp.MustCompile(`(^|\s+)resume=\S+`)
+		content = resumeRe.ReplaceAllString(
+			content,
+			`${1}resume=UUID=`+resumeUUID,
+		)
+	}
+
+	// rootdelay=10
+	rootDelayRe := regexp.MustCompile(`(^|\s+)rootdelay=\d+`)
+	if rootDelayRe.MatchString(content) {
+		content = rootDelayRe.ReplaceAllString(
+			content,
+			`${1}rootdelay=10`,
+		)
+	} else {
+		// 只加到 kernel/linux 行
+		lineRe := regexp.MustCompile(
+			`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
+		)
+
+		content = lineRe.ReplaceAllString(
+			content,
+			`${1} rootdelay=10`,
+		)
+	}
+
+	// rootwait 避免重复
+	rootWaitRe := regexp.MustCompile(`(^|\s+)rootwait(\s|$)`)
+	if !rootWaitRe.MatchString(content) {
+		lineRe := regexp.MustCompile(
+			`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
+		)
+
+		content = lineRe.ReplaceAllString(
+			content,
+			`${1} rootwait`,
+		)
+	}
+
+	if content == before {
+		logger.Debugf("fixOneGrub: `%s` no change", file)
+		return nil
+	}
+
+	logger.Debugf(
+		"fixOneGrub: `%s` [after]:"+
+			"\n----------------------------------------\n%s\n----------------------------------------\n",
+		file,
+		content,
+	)
+
+	if err = os.WriteFile(file, []byte(content), 0644); err != nil {
+		return err
+	}
+
+	logger.Infof("fixOneGrub: repaired `%s`", file)
 
 	return nil
 }

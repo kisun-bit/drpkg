@@ -457,3 +457,22 @@ func isMounted(mountpoint string) bool {
 	_, out, err := command.ExecuteWithContext(context.Background(), cmd)
 	return err == nil && strings.Contains(out, mountpoint)
 }
+
+func isValidFstabDevice(device string) bool {
+	if strings.HasPrefix(device, "/dev/disk/by-partuuid") ||
+		strings.HasPrefix(device, "/dev/disk/by-uuid") ||
+		strings.HasPrefix(device, "/dev/disk/by-label") ||
+		strings.HasPrefix(strings.ToUpper(device), "PARTUUID=") ||
+		strings.HasPrefix(strings.ToUpper(device), "UUID=") ||
+		strings.HasPrefix(strings.ToUpper(device), "LABEL=") ||
+		strings.HasPrefix(device, "/dev/mapper") {
+		return true
+	}
+	if strings.HasPrefix(device, "/dev/") {
+		r, _, e := command.Execute("lvdisplay " + device)
+		if e == nil || r == 0 {
+			return true
+		}
+	}
+	return false
+}
