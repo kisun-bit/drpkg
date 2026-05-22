@@ -3,10 +3,9 @@ package command
 import (
 	"bytes"
 	"context"
-	"io"
 	"os"
 	"os/exec"
-	"sync"
+	"strings"
 
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
@@ -65,65 +64,40 @@ func ExecuteWithContext(ctx context.Context, cmdline string, options ...CmdOptio
 	stdoutBuf := bytes.NewBuffer(nil)
 	stderrBuf := bytes.NewBuffer(nil)
 
-	stdoutPipe, err := cmdProc.StdoutPipe()
-	if err != nil {
-		return 1, "", errors.Wrapf(err, "failed to get pipe of stdout")
-	}
-	defer closeCmdPipe(stdoutPipe)
+	cmdProc.Stdout = stdoutBuf
+	cmdProc.Stderr = stderrBuf
 
-	stderrPipe, err := cmdProc.StderrPipe()
-	if err != nil {
-		return 1, "", errors.Wrapf(err, "failed to get pipe of stderr")
-	}
-	defer closeCmdPipe(stderrPipe)
-
-	wg := sync.WaitGroup{}
-	err = cmdProc.Start()
-
-	copyCmdPipe(&wg, stdoutPipe, stdoutBuf)
-	copyCmdPipe(&wg, stderrPipe, stderrBuf)
 	defer func() {
-		// 保证输出缓存区数据读取完毕，按照进程退出的机制，进程退出前会先关闭持有的句柄
-		errOutput := ""
-		output, errOutput = waitCmdOutput(&wg, stdoutBuf, stderrBuf)
+		exit = 1
+		if cmdProc.ProcessState != nil {
+			exit = cmdProc.ProcessState.ExitCode()
+		} else if err == nil {
+			exit = 0
+		}
+
+		output = stdoutBuf.String()
+
 		if err != nil {
-			err = errors.Wrapf(err, "stderr: %v", errOutput)
+			stderr := strings.TrimSpace(stderrBuf.String())
+			if stderr != "" {
+				err = errors.Wrapf(err, "stderr: %s", stderr)
+			}
 		}
 	}()
 
-	if err != nil {
-		return cmdProc.ProcessState.ExitCode(), "", err
+	if err = cmdProc.Start(); err != nil {
+		return
 	}
 
-	err = cmdProc.Wait()
-
-	if err != nil {
-		return cmdProc.ProcessState.ExitCode(), "", err
+	if err = cmdProc.Wait(); err != nil {
+		return
 	}
-	return cmdProc.ProcessState.ExitCode(), "", nil
+
+	return
 }
 
 func Execute(cmdline string, options ...CmdOption) (exit int, output string, err error) {
 	return ExecuteWithContext(context.Background(), cmdline, options...)
-}
-
-func copyCmdPipe(wg *sync.WaitGroup, pipe io.Reader, buf io.Writer) {
-	if wg == nil {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if _, e := io.Copy(buf, pipe); e != nil {
-			// logger.Warnf("copyCmdPipe() io.copy: %v", e)
-		}
-	}()
-}
-
-func closeCmdPipe(pipe io.ReadCloser) {
-	if e := pipe.Close(); e != nil {
-		// logger.Warnf("closeCmdPipe() Close: %v", e)
-	}
 }
 
 func checkOptions(opt cmdConfig) error {
