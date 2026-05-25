@@ -31,7 +31,7 @@ func main() {
 				BootMode: "bios",
 				Arch:     "amd64",
 				Base:     "virtual",
-				Virt:     "vmware",
+				Virt:     "qemu/kvm",
 			},
 		},
 	})

@@ -80,6 +80,9 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 
 	plats := []*Platform{&opts.RecoveryParam.Source, &opts.RecoveryParam.Target}
 	for i := 0; i < len(plats); i++ {
+		if plats[i].Base != "" {
+			continue
+		}
 		plats[i].Base = HPBareMetal
 		plats[i].Virt = HPVTNone
 		for _, p := range plats[i].PciList {

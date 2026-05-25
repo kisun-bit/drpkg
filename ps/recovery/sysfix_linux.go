@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,11 +67,11 @@ type offlineSystem struct {
 
 	// 虚拟机主板芯片组模型（machine type）
 	// 常见值：i440fx、q35
-	chipset string
+	kvmChipset string
 
 	// 显卡类型
 	// 常见值：bochs、vga、virtio、ramfb
-	video string
+	kvmVideo string
 
 	// 启动模式
 	// 常见值：bios、uefi
@@ -87,7 +89,8 @@ type offlineSystem struct {
 
 	// initrd/initramfs 生成工具
 	// 常见值：dracut、mkinitrd、update-initramfs
-	initrdTl string
+	initrdTl    string
+	initrdTlVer string
 
 	kernels []kernel // 系统已安装的内核列表
 
@@ -95,6 +98,8 @@ type offlineSystem struct {
 	grubCfg string // grub 配置文件路径（相对于系统根目录）
 
 	distro DistroInfo // 发行版信息（名称、版本、架构等）
+
+	pkgMgrType PackageManager // 包管理器
 }
 
 type kernel struct {
@@ -154,6 +159,10 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		return errors.Wrap(err, "detect distro")
 	}
 
+	if err := fixer.detectPkgMgr(); err != nil {
+		return errors.Wrap(err, "detect package manager")
+	}
+
 	if err := fixer.detectInitrdTool(); err != nil {
 		return errors.Wrap(err, "detect initrd tool")
 	}
@@ -174,11 +183,11 @@ func (fixer *linuxSystemFixer) Repair() error {
 	defer logger.Debugf("Repair: --")
 
 	if err := fixer.disableSeLinux(); err != nil {
-		return errors.Wrap(err, "disable seLinux")
+		return errors.Wrap(err, "disable selinux")
 	}
 
 	if err := fixer.fixPamLogin(); err != nil {
-		return errors.Wrap(err, "fix pam login")
+		return errors.Wrap(err, "fix pam")
 	}
 
 	if err := fixer.fixEfiFirmware(); err != nil {
@@ -191,6 +200,16 @@ func (fixer *linuxSystemFixer) Repair() error {
 
 	if err := fixer.fixGrub(); err != nil {
 		return errors.Wrap(err, "fix grub")
+	}
+
+	logger.Debugf("Repair: %s-%s", fixer.opts.RecoveryParam.Target.Base, fixer.opts.RecoveryParam.Target.Virt)
+	if fixer.opts.RecoveryParam.Target.Base == HPVirt {
+		switch fixer.opts.RecoveryParam.Target.Virt {
+		case HPVTQemuKvm:
+			if err := fixer.configKvm(); err != nil {
+				return errors.Wrap(err, "config kvm")
+			}
+		}
 	}
 
 	// TODO
@@ -436,6 +455,27 @@ func (fixer *linuxSystemFixer) detectInitrdTool() error {
 		logger.Debugf("detectInitrdTool: initrd tool detected: %s", tool.name)
 		fixer.offsys.initrdTl = tool.name
 
+		initrdTlVerCmdline := ""
+		switch tool.name {
+		case InitrdToolMkinitrd:
+			if fixer.offsys.pkgMgrType == PackageManagerRPM {
+				initrdTlVerCmdline = `rpm -q mkinitrd`
+				break
+			}
+		case InitrdToolDracut:
+			// TODO
+		case InitrdToolUpdateInitramfs:
+			// TODO
+		}
+
+		if initrdTlVerCmdline != "" {
+			_, o, e := fixer.executeWithChroot(initrdTlVerCmdline)
+			if e == nil && strings.TrimSpace(o) != "" {
+				fixer.offsys.initrdTlVer = strings.TrimSpace(o)
+				logger.Debugf("detectInitrdTool: initrdTlVer=`%s`", fixer.offsys.initrdTlVer)
+			}
+		}
+
 		return nil
 	}
 
@@ -659,16 +699,19 @@ func (fixer *linuxSystemFixer) detectDeviceMaps() error {
 		logger.Debugf("detectDeviceMaps: blkid.tab: %s", string(blkidContent))
 		blkidCacheRe := regexp.MustCompile(`UUID="([0-9a-fA-F-]+)".*?>(/dev/[^<]+)</device>`)
 		matches := blkidCacheRe.FindAllStringSubmatch(string(blkidContent), -1)
-		for _, m := range matches {
-			uuid := m[1]
-			dev := m[2]
-			fixer.offsys.devMaps = append(fixer.offsys.devMaps,
-				DeviceMap{
-					Origin:     dev,
-					Mountpoint: "",
-					UUID:       uuid,
-				})
-			logger.Debugf("detectDeviceMaps: Detecting blkid.tab. uuid=%s device=%s ", uuid, dev)
+		if len(matches) != 0 {
+			for i := len(matches) - 1; i >= 0; i-- {
+				m := matches[i]
+				uuid := m[1]
+				dev := m[2]
+				fixer.offsys.devMaps = append(fixer.offsys.devMaps,
+					DeviceMap{
+						Origin:     dev,
+						Mountpoint: "",
+						UUID:       uuid,
+					})
+				logger.Debugf("detectDeviceMaps: Detecting blkid.tab. uuid=%s device=%s ", uuid, dev)
+			}
 		}
 	}
 
@@ -686,7 +729,8 @@ func (fixer *linuxSystemFixer) detectDeviceMaps() error {
 	_, o, _ := command.Execute(syslogDetectBtrfsCmd)
 	btrfsUuids := make([]string, 0)
 	btrfsUuidRe := regexp.MustCompile(`fsid\s+([a-fA-F0-9-]+).*?(/dev/\S+)`)
-	for _, line := range strings.Split(o, "\n") {
+	btrfsOutputLines := funk.ReverseStrings(strings.Split(o, "\n"))
+	for _, line := range btrfsOutputLines {
 		matches := btrfsUuidRe.FindStringSubmatch(line)
 		if len(matches) == 3 {
 			fsid := matches[1]
@@ -724,8 +768,9 @@ func (fixer *linuxSystemFixer) detectDeviceMaps() error {
 	xfsUuidRe := regexp.MustCompile(
 		`XFS\s+\(([^)]+)\):.*?Filesystem\s+([a-fA-F0-9-]+)`,
 	)
+	xfsOutputLines := funk.ReverseStrings(strings.Split(o, "\n"))
 
-	for _, line := range strings.Split(o, "\n") {
+	for _, line := range xfsOutputLines {
 		matches := xfsUuidRe.FindStringSubmatch(line)
 		if len(matches) == 3 {
 			dev := matches[1]
@@ -800,13 +845,13 @@ func (fixer *linuxSystemFixer) detectKvmCfg() {
 		}
 	}
 
-	fixer.offsys.chipset = chipset
+	fixer.offsys.kvmChipset = chipset
 	logger.Debugf("detectChipset: chipset detected: %s", chipset)
 
-	fixer.offsys.video = VideoBochs
+	fixer.offsys.kvmVideo = VideoBochs
 	// FIXME: 后续不要根据主板去决定显卡类型
-	if fixer.offsys.chipset == ChipsetQ35 {
-		fixer.offsys.chipset = VideoVGA
+	if fixer.offsys.kvmChipset == ChipsetQ35 {
+		fixer.offsys.kvmChipset = VideoVGA
 	}
 
 	// FIXME:
@@ -957,6 +1002,21 @@ func (fixer *linuxSystemFixer) detectDistro() error {
 	fixer.offsys.distro = *distro
 	logger.Debugf("detectDistro: distro=\n%s", extend.Pretty(distro))
 
+	return nil
+}
+
+func (fixer *linuxSystemFixer) detectPkgMgr() error {
+	logger.Debugf("detectPkgMgr: ++")
+	defer logger.Debugf("detectPkgMgr: --")
+
+	if fixer.offsys.root == "" {
+		return ErrorRootEnvNotMounted
+	}
+
+	pm := DetectPackageManager(fixer.offsys.root)
+	logger.Debugf("detectPkgMgr: pkgmgr=`%s`", pm)
+
+	fixer.offsys.pkgMgrType = pm
 	return nil
 }
 
@@ -1706,6 +1766,31 @@ func (fixer *linuxSystemFixer) fixOneGrub(
 		)
 	}
 
+	// 去掉 quiet 启动参数
+	quietRe := regexp.MustCompile(`(^|\s+)quiet(\s|$)`)
+	if quietRe.MatchString(content) {
+		lineRe := regexp.MustCompile(
+			`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
+		)
+
+		content = lineRe.ReplaceAllStringFunc(
+			content,
+			func(line string) string {
+				line = quietRe.ReplaceAllString(
+					line,
+					" ",
+				)
+
+				line = strings.Join(
+					strings.Fields(line),
+					" ",
+				)
+
+				return line
+			},
+		)
+	}
+
 	if content == before {
 		logger.Debugf("fixOneGrub: `%s` no change", file)
 		return nil
@@ -1723,6 +1808,462 @@ func (fixer *linuxSystemFixer) fixOneGrub(
 	}
 
 	logger.Infof("fixOneGrub: repaired `%s`", file)
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) initrdAddModule(k kernel, modules ...string) error {
+	logger.Debugf("initrdAddModule: ++")
+	defer logger.Debugf("initrdAddModule: --")
+
+	logger.Debugf("initrdAddModule: kernel:\n%s\nmodules:\n%v\n", extend.Pretty(k), modules)
+
+	if fixer.offsys.root == "" {
+		return ErrorRootEnvNotMounted
+	}
+
+	if !k.Bootable {
+		return nil
+	}
+
+	switch fixer.offsys.initrdTl {
+	case InitrdToolMkinitrd:
+		return fixer.initrdAddModuleByMkinitrd(k, modules...)
+	case InitrdToolDracut:
+		return fixer.initrdAddModuleByDracut(k, modules...)
+	case InitrdToolUpdateInitramfs:
+		return fixer.initrdAddModuleByUpdateInitramfs(k, modules...)
+	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) initrdAddModuleByMkinitrd(
+	k kernel,
+	modules ...string,
+) error {
+	logger.Debugf("initrdAddModuleByMkinitrd: ++")
+	defer logger.Debugf("initrdAddModuleByMkinitrd: --")
+
+	if len(modules) == 0 {
+		return nil
+	}
+
+	majVer := 0
+	if fixer.offsys.initrdTlVer != "" {
+		verItems := strings.Split(
+			strings.TrimPrefix(
+				fixer.offsys.initrdTlVer,
+				InitrdToolMkinitrd+"-",
+			),
+			".",
+		)
+
+		v, _ := strconv.Atoi(verItems[0])
+		majVer = v
+	}
+
+	// mkinitrd <= 2:
+	// 修改 /etc/sysconfig/kernel 的 INITRD_MODULES
+	if majVer <= 2 {
+		cfgFile := filepath.Join(
+			fixer.offsys.root,
+			"etc/sysconfig/kernel",
+		)
+
+		content, err := os.ReadFile(cfgFile)
+		if err != nil {
+			//if os.IsNotExist(err) {
+			//	return nil
+			//}
+			return errors.Wrapf(
+				err,
+				"read `%s` failed",
+				cfgFile,
+			)
+		}
+
+		s := string(content)
+
+		re := regexp.MustCompile(
+			`(?m)^(\s*INITRD_MODULES\s*=\s*")([^"]*)(".*)$`,
+		)
+
+		found := false
+
+		s = re.ReplaceAllStringFunc(s, func(line string) string {
+			found = true
+
+			m := re.FindStringSubmatch(line)
+			if len(m) != 4 {
+				return line
+			}
+
+			// 已有模块
+			existSet := map[string]struct{}{}
+			existMods := strings.Fields(m[2])
+
+			for _, mod := range existMods {
+				mod = strings.TrimSpace(mod)
+				if mod == "" {
+					continue
+				}
+				existSet[mod] = struct{}{}
+			}
+
+			// 追加且去重
+			for _, mod := range modules {
+				mod = strings.TrimSpace(mod)
+				if mod == "" {
+					continue
+				}
+
+				if _, ok := existSet[mod]; ok {
+					continue
+				}
+
+				existMods = append(existMods, mod)
+				existSet[mod] = struct{}{}
+			}
+
+			return m[1] +
+				strings.Join(existMods, " ") +
+				m[3]
+		})
+
+		// 没有 INITRD_MODULES 则追加
+		if !found {
+			modSet := map[string]struct{}{}
+			finalMods := make([]string, 0, len(modules))
+
+			for _, mod := range modules {
+				mod = strings.TrimSpace(mod)
+				if mod == "" {
+					continue
+				}
+
+				if _, ok := modSet[mod]; ok {
+					continue
+				}
+
+				modSet[mod] = struct{}{}
+				finalMods = append(finalMods, mod)
+			}
+
+			s += fmt.Sprintf(
+				`\nINITRD_MODULES="%s"`+"\n",
+				strings.Join(finalMods, " "),
+			)
+		}
+
+		err = os.WriteFile(cfgFile, []byte(s), 0644)
+		if err != nil {
+			return errors.Wrapf(
+				err,
+				"write `%s` failed",
+				cfgFile,
+			)
+		}
+
+		// 重建 initrd
+		cmdline := `mkinitrd`
+		_, _, err = fixer.executeWithChroot(cmdline)
+		if err != nil {
+			return errors.Wrap(err, "execute mkinitrd failed")
+		}
+
+		return nil
+	}
+
+	// mkinitrd > 2:
+	// 使用 --preload
+	preloads := make([]string, 0, len(modules))
+	for _, mod := range modules {
+		mod = strings.TrimSpace(mod)
+		if mod == "" {
+			continue
+		}
+
+		preloads = append(
+			preloads,
+			fmt.Sprintf("--preload=%s", mod),
+		)
+	}
+
+	cmdline := fmt.Sprintf(
+		`mkinitrd %s -v -f "%s" "%s"`,
+		strings.Join(preloads, " "),
+		k.Initrd,
+		k.Name,
+	)
+
+	_, _, err := fixer.executeWithChroot(cmdline)
+	if err != nil {
+		return errors.Wrap(err, "execute mkinitrd failed")
+	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) initrdAddModuleByUpdateInitramfs(
+	k kernel,
+	modules ...string,
+) error {
+	logger.Debugf("initrdAddModuleByUpdateInitramfs: ++")
+	defer logger.Debugf("initrdAddModuleByUpdateInitramfs: --")
+
+	if len(modules) == 0 {
+		return nil
+	}
+
+	// /etc/initramfs-tools/modules
+	modulesFile := filepath.Join(
+		fixer.offsys.root,
+		"etc/initramfs-tools/modules",
+	)
+
+	// 已有模块
+	existSet := map[string]struct{}{}
+	lines := make([]string, 0)
+
+	if bs, err := os.ReadFile(modulesFile); err == nil {
+		for _, line := range strings.Split(string(bs), "\n") {
+			line = strings.TrimSpace(line)
+
+			// 保留注释和空行
+			if line == "" || strings.HasPrefix(line, "#") {
+				lines = append(lines, line)
+				continue
+			}
+
+			mod := strings.Fields(line)[0]
+			existSet[mod] = struct{}{}
+
+			lines = append(lines, line)
+		}
+	}
+
+	// 追加模块（去重）
+	added := false
+
+	for _, mod := range modules {
+		mod = strings.TrimSpace(mod)
+		if mod == "" {
+			continue
+		}
+
+		if _, ok := existSet[mod]; ok {
+			continue
+		}
+
+		lines = append(lines, mod)
+		existSet[mod] = struct{}{}
+		added = true
+
+		logger.Debugf(
+			"initrdAddModuleByUpdateInitramfs: add module `%s`",
+			mod,
+		)
+	}
+
+	// 写回
+	if added {
+		content := strings.Join(lines, "\n")
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+
+		err := os.WriteFile(
+			modulesFile,
+			[]byte(content),
+			0644,
+		)
+		if err != nil {
+			return errors.Wrapf(
+				err,
+				"write `%s` failed",
+				modulesFile,
+			)
+		}
+	}
+
+	// 重建指定 kernel 的 initramfs
+	cmdline := fmt.Sprintf(
+		`update-initramfs -u -k %s`,
+		k.Name,
+	)
+
+	logger.Debugf(
+		"initrdAddModuleByUpdateInitramfs: cmd=`%s`",
+		cmdline,
+	)
+
+	_, _, err := fixer.executeWithChroot(cmdline)
+	if err != nil {
+		return errors.Wrap(
+			err,
+			"execute update-initramfs failed",
+		)
+	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) initrdAddModuleByDracut(
+	k kernel,
+	modules ...string,
+) error {
+	logger.Debugf("initrdAddModuleByDracut: ++")
+	defer logger.Debugf("initrdAddModuleByDracut: --")
+
+	if len(modules) == 0 {
+		return nil
+	}
+
+	confDir := filepath.Join(
+		fixer.offsys.root,
+		"etc/dracut.conf.d",
+	)
+
+	confFile := filepath.Join(
+		confDir,
+		"99-restore.conf",
+	)
+
+	if err := os.MkdirAll(confDir, 0755); err != nil {
+		return errors.Wrapf(
+			err,
+			"mkdir `%s` failed",
+			confDir,
+		)
+	}
+
+	// 已存在模块
+	existSet := map[string]struct{}{}
+
+	// 保留原配置
+	lines := make([]string, 0)
+
+	if bs, err := os.ReadFile(confFile); err == nil {
+		content := string(bs)
+
+		// 解析已有 add_drivers
+		re := regexp.MustCompile(
+			`(?m)add_drivers\+\s*=\s*"([^"]*)"`,
+		)
+
+		matches := re.FindAllStringSubmatch(content, -1)
+
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+
+			for _, mod := range strings.Fields(m[1]) {
+				mod = strings.TrimSpace(mod)
+				if mod == "" {
+					continue
+				}
+
+				existSet[mod] = struct{}{}
+			}
+		}
+
+		lines = strings.Split(content, "\n")
+	}
+
+	added := false
+
+	// 追加模块
+	for _, mod := range modules {
+		mod = strings.TrimSpace(mod)
+		if mod == "" {
+			continue
+		}
+
+		if _, ok := existSet[mod]; ok {
+			continue
+		}
+
+		existSet[mod] = struct{}{}
+		added = true
+
+		logger.Debugf(
+			"initrdAddModuleByDracut: add module `%s`",
+			mod,
+		)
+	}
+
+	// 如果没有新增，不必改配置
+	if added || len(lines) == 0 {
+		finalMods := make([]string, 0, len(existSet))
+
+		for mod := range existSet {
+			finalMods = append(finalMods, mod)
+		}
+
+		sort.Strings(finalMods)
+
+		newLine := fmt.Sprintf(
+			`add_drivers+=" %s "`,
+			strings.Join(finalMods, " "),
+		)
+
+		replaced := false
+
+		re := regexp.MustCompile(
+			`(?m)^.*add_drivers\+\s*=.*$`,
+		)
+
+		for i, line := range lines {
+			if re.MatchString(line) {
+				lines[i] = newLine
+				replaced = true
+			}
+		}
+
+		if !replaced {
+			lines = append(lines, newLine)
+		}
+
+		content := strings.Join(lines, "\n")
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+
+		err := os.WriteFile(
+			confFile,
+			[]byte(content),
+			0644,
+		)
+		if err != nil {
+			return errors.Wrapf(
+				err,
+				"write `%s` failed",
+				confFile,
+			)
+		}
+	}
+
+	// 重建 initramfs
+	cmdline := fmt.Sprintf(
+		`dracut -v -f /boot/%s %s`,
+		k.Initrd,
+		k.Name,
+	)
+
+	logger.Debugf(
+		"initrdAddModuleByDracut: cmd=`%s`",
+		cmdline,
+	)
+
+	_, _, err := fixer.executeWithChroot(cmdline)
+	if err != nil {
+		return errors.Wrap(
+			err,
+			"execute dracut failed",
+		)
+	}
 
 	return nil
 }

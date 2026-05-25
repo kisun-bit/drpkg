@@ -1,12 +1,10 @@
 package recovery
 
 import (
-	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
 
-	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
@@ -88,12 +86,12 @@ func (fixer *linuxSystemFixer) patchOneKernelVirtIO(k kernel) error {
 
 	logger.Debugf("patchOneKernelVirtIO: minBootMods=%v", minBootMods)
 
-	initrdPath := filepath.Join(fixer.offsys.root, "boot", k.Initrd)
-	cmdline := fmt.Sprintf("lsinitrd %s", initrdPath)
-	_, lsinitrdOutput, e := command.Execute(cmdline)
-	if e != nil {
-		return errors.Wrapf(e, "execute `%s`", cmdline)
-	}
+	//initrdPath := filepath.Join(fixer.offsys.root, "boot", k.Initrd)
+	//cmdline := fmt.Sprintf("lsinitrd %s", initrdPath)
+	//_, lsinitrdOutput, e := command.Execute(cmdline)
+	//if e != nil {
+	//	return errors.Wrapf(e, "execute `%s`", cmdline)
+	//}
 
 	// 本次需要打入initrd的模块
 	missedMods := make([]string, 0)
@@ -156,30 +154,34 @@ func (fixer *linuxSystemFixer) patchOneKernelVirtIO(k kernel) error {
 			return errors.Errorf("KCONFIG of %s is `%s`", m, mval)
 		}
 
-		// 驱动是否已打入initrd
-		patched := false
-		for _, line := range strings.Split(lsinitrdOutput, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || !strings.Contains(line, m) {
-				continue
-			}
-			items := strings.Fields(line)
-			rf := items[len(items)-1]
-			fn := filepath.Base(rf)
-			if strings.Contains(fn, ".") && moduleName(fn) == m {
-				patched = true
-				break
-			}
-		}
+		//// 驱动是否已打入initrd
+		//patched := false
+		//for _, line := range strings.Split(lsinitrdOutput, "\n") {
+		//	line = strings.TrimSpace(line)
+		//	if line == "" || !strings.Contains(line, m) {
+		//		continue
+		//	}
+		//	items := strings.Fields(line)
+		//	rf := items[len(items)-1]
+		//	fn := filepath.Base(rf)
+		//	if strings.Contains(fn, ".") && moduleName(fn) == m {
+		//		patched = true
+		//		break
+		//	}
+		//}
+		//
+		//if !patched {
+		//	missedMods = append(missedMods, m)
+		//}
 
-		if !patched {
-			missedMods = append(missedMods, m)
-		}
+		// 内核配置为m的模块，如果发现lsinitrd时此模块已经在initrd文件中存在，那么也需要重新打入
+		missedMods = append(missedMods, m)
 	}
 
 	logger.Debugf("patchOneKernelVirtIO: missedMods=%v", missedMods)
 
-	// TODO 打入至initrd
-
+	if err := fixer.initrdAddModule(k, missedMods...); err != nil {
+		return err
+	}
 	return nil
 }
