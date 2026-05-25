@@ -1,10 +1,6 @@
 package recovery
 
 import (
-	"io/fs"
-	"path/filepath"
-	"strings"
-
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
@@ -118,26 +114,9 @@ func (fixer *linuxSystemFixer) patchOneKernelVirtIO(k kernel) error {
 		// 找不到就从driver目录中查找
 		if !mok {
 			logger.Warnf("patchOneKernelVirtIO: KCONFIG of %s not found", m)
-			foundFromLib := false
-			libDir := filepath.Join(fixer.offsys.root, "lib/modules", k.Name)
-			ew := filepath.WalkDir(libDir, func(path_ string, d_ fs.DirEntry, err_ error) error {
-				if strings.HasSuffix(path_, ".ko") ||
-					strings.HasSuffix(path_, ".ko.xz") ||
-					strings.HasSuffix(path_, ".ko.zst") {
-					fn_ := filepath.Base(path_)
-					mn_ := moduleName(fn_)
-					if mn_ == m {
-						foundFromLib = true
-						return filepath.SkipAll
-					}
-				}
-				return nil
-			})
-			if ew != nil {
-				return ew
-			}
+			foundFromLib, _ := fixer.kernelContainsModule(k, m)
 			if foundFromLib {
-				logger.Debugf("patchOneKernelVirtIO: module file of %s found in %s", m, libDir)
+				logger.Debugf("patchOneKernelVirtIO: module file of %s found in %s", m, k.Name)
 				missedMods = append(missedMods, m)
 			}
 			continue

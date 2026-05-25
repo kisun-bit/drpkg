@@ -1,12 +1,10 @@
 package recovery
 
 import (
-	"bufio"
-	"bytes"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/logger"
@@ -18,13 +16,14 @@ func (fixer *linuxSystemFixer) unconfigXen() error {
 	logger.Debugf("unconfigXen: ++")
 	defer logger.Debugf("unconfigXen: --")
 
-	//if err := unconfigureXenFromSysconfig(fixer.offsys.root, fixer.offsys.distro.Family == LinuxFamilySUSE); err != nil {
-	//	return err
-	//}
-
 	if err := changeUVPTools(fixer.offsys.root, true); err != nil {
 		return err
 	}
+
+	// FIXME: xen_platform_pci.dev_unplug=all 貌似只是华为云文档中的参数，并非通用参数，请调研
+	//if err := fixer.fixGrubKernelArg("xen_platform_pci.dev_unplug=all", false); err != nil {
+	//	return errors.Wrap(err, "xen_platform_pci.dev_unplug")
+	//}
 
 	return nil
 }
@@ -33,115 +32,117 @@ func (fixer *linuxSystemFixer) configXen() error {
 	logger.Debugf("configXen: ++")
 	defer logger.Debugf("configXen: --")
 
-	// TODO
-
 	if err := changeUVPTools(fixer.offsys.root, false); err != nil {
 		return err
 	}
 
-	return nil
-}
-
-func unconfigureXenFromSysconfig(rootDir string, isSUSE bool) error {
-	if !isSUSE {
-		return nil
-	}
-
-	var kernelConfig = filepath.Join(rootDir, "etc/sysconfig/kernel")
-
-	content, err := os.ReadFile(kernelConfig)
-	if err != nil {
-		return errors.Errorf("read %s failed: %w", kernelConfig, err)
-	}
-
-	variables := map[string]struct{}{
-		"INITRD_MODULES":      {},
-		"DOMU_INITRD_MODULES": {},
-	}
-
-	xenModules := map[string]struct{}{
-		"xennet":   {},
-		"xen-vnif": {},
-		"xenblk":   {},
-		"xen-vbd":  {},
-	}
-
-	modified := false
-	var output bytes.Buffer
-
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		// 空行/注释直接保留
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			output.WriteString(line + "\n")
-			continue
-		}
-
-		// 找 key=value
-		idx := strings.Index(line, "=")
-		if idx == -1 {
-			output.WriteString(line + "\n")
-			continue
-		}
-
-		key := strings.TrimSpace(line[:idx])
-		value := strings.TrimSpace(line[idx+1:])
-
-		_, needProcess := variables[key]
-		if !needProcess {
-			output.WriteString(line + "\n")
-			continue
-		}
-
-		// 去掉引号
-		unquoted := strings.Trim(value, `"'`)
-
-		// split modules
-		fields := strings.Fields(unquoted)
-
-		var kept []string
-		removed := false
-
-		for _, mod := range fields {
-			if _, isXen := xenModules[mod]; isXen {
-				removed = true
-				modified = true
-				continue
-			}
-			kept = append(kept, mod)
-		}
-
-		if removed {
-			newLine := fmt.Sprintf(`%s="%s"`,
-				key,
-				strings.Join(kept, " "),
-			)
-			output.WriteString(newLine + "\n")
-		} else {
-			output.WriteString(line + "\n")
-		}
-	}
-
-	if err = scanner.Err(); err != nil {
+	if err := fixer.patchXen(); err != nil {
 		return err
 	}
 
-	// 没修改直接返回
-	if !modified {
-		return nil
-	}
-
-	// 写回
-	if err = os.WriteFile(kernelConfig, output.Bytes(), 0644); err != nil {
-		return errors.Errorf("write %s failed: %w", kernelConfig, err)
-	}
-
 	return nil
 }
+
+//func unconfigureXenFromSysconfig(rootDir string, isSUSE bool) error {
+//	if !isSUSE {
+//		return nil
+//	}
+//
+//	var kernelConfig = filepath.Join(rootDir, "etc/sysconfig/kernel")
+//
+//	content, err := os.ReadFile(kernelConfig)
+//	if err != nil {
+//		return errors.Errorf("read %s failed: %w", kernelConfig, err)
+//	}
+//
+//	variables := map[string]struct{}{
+//		"INITRD_MODULES":      {},
+//		"DOMU_INITRD_MODULES": {},
+//	}
+//
+//	xenModules := map[string]struct{}{
+//		"xennet":   {},
+//		"xen-vnif": {},
+//		"xenblk":   {},
+//		"xen-vbd":  {},
+//	}
+//
+//	modified := false
+//	var output bytes.Buffer
+//
+//	scanner := bufio.NewScanner(bytes.NewReader(content))
+//
+//	for scanner.Scan() {
+//		line := scanner.Text()
+//		trimmed := strings.TrimSpace(line)
+//
+//		// 空行/注释直接保留
+//		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+//			output.WriteString(line + "\n")
+//			continue
+//		}
+//
+//		// 找 key=value
+//		idx := strings.Index(line, "=")
+//		if idx == -1 {
+//			output.WriteString(line + "\n")
+//			continue
+//		}
+//
+//		key := strings.TrimSpace(line[:idx])
+//		value := strings.TrimSpace(line[idx+1:])
+//
+//		_, needProcess := variables[key]
+//		if !needProcess {
+//			output.WriteString(line + "\n")
+//			continue
+//		}
+//
+//		// 去掉引号
+//		unquoted := strings.Trim(value, `"'`)
+//
+//		// split modules
+//		fields := strings.Fields(unquoted)
+//
+//		var kept []string
+//		removed := false
+//
+//		for _, mod := range fields {
+//			if _, isXen := xenModules[mod]; isXen {
+//				removed = true
+//				modified = true
+//				continue
+//			}
+//			kept = append(kept, mod)
+//		}
+//
+//		if removed {
+//			newLine := fmt.Sprintf(`%s="%s"`,
+//				key,
+//				strings.Join(kept, " "),
+//			)
+//			output.WriteString(newLine + "\n")
+//		} else {
+//			output.WriteString(line + "\n")
+//		}
+//	}
+//
+//	if err = scanner.Err(); err != nil {
+//		return err
+//	}
+//
+//	// 没修改直接返回
+//	if !modified {
+//		return nil
+//	}
+//
+//	// 写回
+//	if err = os.WriteFile(kernelConfig, output.Bytes(), 0644); err != nil {
+//		return errors.Errorf("write %s failed: %w", kernelConfig, err)
+//	}
+//
+//	return nil
+//}
 
 // changeUVPTools 调整华为云的UVPTools
 // 华为云主机（基于xen）在安装UVPTools时，会存在如下写入逻辑（https://github.com/UVP-Tools/SAP-HANA-Tools/blob/eeceb65c5b06a4e9283273708906fadaafdc24c9/install#L1334）：
@@ -248,6 +249,176 @@ func changeUVPTools(rootDir string, deprecated bool) error {
 			errs,
 		)
 	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) patchXen() error {
+	logger.Debugf("patchXen: ++")
+	defer logger.Debugf("patchXen: --")
+
+	for _, k := range fixer.offsys.kernels {
+		if err := fixer.patchOneKernelXen(k); err != nil {
+			// TODO 提示警告，此内核不兼容xen硬件设备
+			logger.Warnf("patchXen: patchOneKernelXen: %v", err)
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
+	logger.Debugf("patchXen: ++")
+	defer logger.Debugf("patchXen: --")
+
+	if fixer.offsys.root == "" {
+		return ErrorRootEnvNotMounted
+	}
+
+	if !k.Bootable {
+		return errors.Errorf("kernel(%s) is not bootable", k.Name)
+	}
+
+	// 候选驱动集合：
+	// 第一组：xen_vnif xen_vbd xen_platform_pci，
+	//        注意：SUSE 11 SP1 64bit ~ SUSE 11 SP4 64bit系统需要在“menu.lst”文件添加xen_platform_pci.dev_unplug=all
+	// 第二组：xen-blkfront xen-netfront
+
+	xenCand1Modules := []string{"xen-vnif", "xen-vbd", "xen-platform-pci"}
+	xenCand1ModulesFound, _ := fixer.kernelContainsModule(k, xenCand1Modules[0])
+
+	xenCand2Modules := []string{"xen-blkfront", "xen-netfront"}
+	xenCand2ModulesFound, _ := fixer.kernelContainsModule(k, xenCand2Modules[0])
+
+	if !xenCand1ModulesFound && !xenCand2ModulesFound {
+		// 操作系统版本低于SUSE 12 SP1或低于openSUSE 13
+		if (fixer.offsys.distro.ID == "sles" && (fixer.offsys.distro.Major <= 11 || strings.Contains(fixer.offsys.distro.Pretty, "12 SP1"))) ||
+			(fixer.offsys.distro.ID == "opensuse" && fixer.offsys.distro.Major <= 13) {
+			// TODO 安装xen-kmp包，安装成功后，就不在抛出错误
+			return errors.Errorf("xen-kmp not installed")
+		} else {
+			return errors.Errorf("unsupported xen-based hardware")
+		}
+	}
+
+	modules := make([]string, 0)
+	if xenCand1ModulesFound {
+		modules = append(modules, xenCand1Modules...)
+
+		// FIXME: xen_platform_pci.dev_unplug=all 貌似只是华为云文档中的参数，并非通用参数，请调研
+		//if err := fixer.fixGrubKernelArg("xen_platform_pci.dev_unplug=all", true); err != nil {
+		//	return errors.Wrap(err, "xen_platform_pci.dev_unplug")
+		//}
+	}
+	if xenCand2ModulesFound && len(modules) == 0 {
+		modules = append(modules, xenCand2Modules...)
+	}
+	logger.Debugf("patchXen: patchXen: modules: %v", modules)
+
+	if err := fixer.initrdAddModule(k, modules...); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) fixGrubKernelArg(
+	arg string,
+	add bool,
+) error {
+	logger.Debugf(
+		"fixGrubKernelArg(%s, add=%v): ++",
+		arg,
+		add,
+	)
+	defer logger.Debugf(
+		"fixGrubKernelArg(%s, add=%v): --",
+		arg,
+		add,
+	)
+
+	data, err := os.ReadFile(fixer.offsys.grubCfg)
+	if err != nil {
+		return err
+	}
+
+	// 匹配：
+	// kernel /vmlinuz ...
+	// linux /vmlinuz ...
+	// linuxefi /vmlinuz ...
+	lineRe := regexp.MustCompile(
+		`(?m)^(\s*(?:kernel|linux|linuxefi)\s+\S+.*)$`,
+	)
+
+	// 精确匹配 kernel arg
+	argRe := regexp.MustCompile(
+		`(^|\s+)` +
+			regexp.QuoteMeta(arg) +
+			`(\s+|$)`,
+	)
+
+	content := string(data)
+
+	newContent := lineRe.ReplaceAllStringFunc(
+		content,
+		func(line string) string {
+			hasArg := argRe.MatchString(line)
+
+			// 添加
+			if add {
+				if hasArg {
+					return line
+				}
+
+				return line + " " + arg
+			}
+
+			// 删除
+			if !hasArg {
+				return line
+			}
+
+			// 删除参数并清理多余空格
+			line = argRe.ReplaceAllString(
+				line,
+				" ",
+			)
+
+			// 压缩连续空格
+			line = strings.Join(
+				strings.Fields(line),
+				" ",
+			)
+
+			return line
+		},
+	)
+
+	if newContent == content {
+		logger.Debugf("fixGrubKernelArg: %s not changed", fixer.offsys.grubCfg)
+		return nil
+	}
+
+	err = os.WriteFile(
+		fixer.offsys.grubCfg,
+		[]byte(newContent),
+		0644,
+	)
+	if err != nil {
+		return errors.Errorf(
+			"write grub cfg failed: %s, err=%w",
+			fixer.offsys.grubCfg,
+			err,
+		)
+	}
+
+	logger.Infof(
+		"update grub arg success: %s, arg=%s, add=%v",
+		fixer.offsys.grubCfg,
+		arg,
+		add,
+	)
 
 	return nil
 }

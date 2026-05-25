@@ -13,3 +13,12 @@ func (fixer *linuxSystemFixer) unconfigVmware() error {
 
 	return nil
 }
+
+func (fixer *linuxSystemFixer) configVmware() error {
+	logger.Debugf("configVmware: ++")
+	defer logger.Debugf("configVmware: --")
+
+	// TODO
+
+	return nil
+}

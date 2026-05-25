@@ -476,3 +476,34 @@ func isValidFstabDevice(device string) bool {
 	}
 	return false
 }
+
+// parseRootDir 获取root目录
+// 如:
+// /a/b/c/d就返回/a
+// /a就返回/a
+// /就返回/
+func parseRootDir(p string) string {
+	// 清理路径
+	p = filepath.Clean(p)
+
+	// 根目录
+	if p == "/" {
+		return "/"
+	}
+
+	// 去掉前导 /
+	p = strings.TrimPrefix(p, "/")
+
+	// 空路径
+	if p == "" {
+		return "/"
+	}
+
+	// 找第一个 /
+	idx := strings.Index(p, "/")
+	if idx == -1 {
+		return "/" + p
+	}
+
+	return "/" + p[:idx]
+}

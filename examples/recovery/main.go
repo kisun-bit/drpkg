@@ -25,13 +25,13 @@ func main() {
 				BootMode: "bios",
 				Arch:     "amd64",
 				Base:     "virtual",
-				Virt:     "vmware",
+				Virt:     "none",
 			},
 			Target: recovery.Platform{
 				BootMode: "bios",
 				Arch:     "amd64",
 				Base:     "virtual",
-				Virt:     "qemu/kvm",
+				Virt:     "xen",
 			},
 		},
 	})
