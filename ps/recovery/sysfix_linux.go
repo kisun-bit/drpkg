@@ -1726,11 +1726,22 @@ func (fixer *linuxSystemFixer) fixOneGrub(
 	)
 
 	// resume=
+	//if resumeUUID != "" {
+	//	resumeRe := regexp.MustCompile(`(^|\s+)resume=\S+`)
+	//	content = resumeRe.ReplaceAllString(
+	//		content,
+	//		`${1}resume=UUID=`+resumeUUID,
+	//	)
+	//}
+	// resume=
 	if resumeUUID != "" {
-		resumeRe := regexp.MustCompile(`(^|\s+)resume=\S+`)
+		resumeRe := regexp.MustCompile(
+			`resume=\S+`,
+		)
+
 		content = resumeRe.ReplaceAllString(
 			content,
-			`${1}resume=UUID=`+resumeUUID,
+			"resume=UUID="+resumeUUID,
 		)
 	}
 
