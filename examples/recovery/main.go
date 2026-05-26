@@ -22,16 +22,14 @@ func main() {
 		OfflineSysDisks: offlineDisks,
 		RecoveryParam: recovery.RecoveryParameter{
 			Source: recovery.Platform{
-				BootMode: "bios",
-				Arch:     "amd64",
-				Base:     "virtual",
-				Virt:     "none",
+				Arch: "amd64",
+				Base: "virtual",
+				Virt: "none",
 			},
 			Target: recovery.Platform{
-				BootMode: "bios",
-				Arch:     "amd64",
-				Base:     "virtual",
-				Virt:     "xen",
+				Arch: "amd64",
+				Base: "virtual",
+				Virt: "xen",
 			},
 		},
 	})

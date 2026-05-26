@@ -49,10 +49,6 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 		}
 	}
 	for _, platform := range []Platform{opts.RecoveryParam.Source, opts.RecoveryParam.Target} {
-		if platform.BootMode != BootModeUEFI &&
-			platform.BootMode != BootModeBIOS {
-			return errors.New("FixerCreateOptions BootMode is invalid")
-		}
 		if platform.Arch != runtime.GOARCH {
 			return errors.New("FixerCreateOptions Arch is invalid")
 		}

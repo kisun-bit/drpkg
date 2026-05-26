@@ -37,13 +37,10 @@ const (
 
 // Platform 表示一个运行环境（源或目标）
 type Platform struct {
-	// BootMode 启动模式
-	BootMode BootMode `json:"bootMode"`
-
-	// Arch OCI风格的架构标识
+	// Arch OCI风格的架构标识，即runtime.GOARCH
 	Arch string `json:"arch"`
 
-	// CpuVendor CPU的制造商ID
+	// CpuVendor CPU的制造商ID，可选字段
 	CpuVendor string `json:"cpuVendor"`
 
 	// Base 平台类型：virt / bare-metal

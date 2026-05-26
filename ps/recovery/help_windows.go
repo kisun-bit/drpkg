@@ -12,7 +12,7 @@ func Mount(ctx context.Context, device string, mountpoint string, readonly bool)
 	return true, nil
 }
 
-func Umount(deviceOrMountpoint string) error {
+func Umount(deviceOrMountpoint string, recursive bool) error {
 	return nil
 }
 
