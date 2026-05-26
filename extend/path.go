@@ -393,7 +393,7 @@ func NormalizeWindowsRoot(dir string) string {
 }
 
 func EffectiveForBoot(dir string) bool {
-	return IsRootDir(dir) || IsBootDir(dir) || IsEfiDir(dir)
+	return IsRootDir(dir) || IsBootDir(dir) || IsEfiDir(dir) || IsUsrDir(dir)
 }
 
 func IsWindowsRoot(dir string) bool {
@@ -416,13 +416,29 @@ func IsLinuxRoot(dir string) bool {
 		return false
 	}
 
-	// systemd 或 init 存在一个
-	initPath := filepath.Join(dir, "sbin", "init")
-	if IsExisted(initPath) {
-		return true
+	//
+	// usr不是单独的卷
+	//
+
+	usrPath := filepath.Join(dir, "usr")
+	usrSubDirs, _ := os.ReadDir(usrPath)
+	if len(usrSubDirs) > 0 {
+		// systemd 或 init 存在一个
+		initPath := filepath.Join(dir, "sbin", "init")
+		if IsExisted(initPath) {
+			return true
+		}
+		sysmdPath := filepath.Join(dir, "lib", "systemd", "systemd")
+		if IsExisted(sysmdPath) {
+			return true
+		}
 	}
-	sysmdPath := filepath.Join(dir, "lib", "systemd", "systemd")
-	if IsExisted(sysmdPath) {
+
+	//
+	// usr是单独的卷
+	//
+
+	if ContainAllSubDirs(dir, "sys", "proc", "dev", "boot") {
 		return true
 	}
 
@@ -455,7 +471,11 @@ func IsLinuxBoot(dir string) bool {
 }
 
 func IsLinuxVar(dir string) bool {
-	return ContainAllSubDirs(dir, "log", "cache", "lib", "spool", "tmp", "run", "lock")
+	return ContainAllSubEntries(dir, "log", "cache", "lib", "spool", "tmp", "run", "lock")
+}
+
+func IsLinuxUsr(dir string) bool {
+	return ContainAllSubEntries(dir, "bin", "sbin", "include", "lib", "local", "share", "src")
 }
 
 func IsWindowsBoot(dir string) bool {
@@ -507,6 +527,15 @@ func IsVarDir(dir string) bool {
 	switch runtime.GOOS {
 	case "linux":
 		return IsLinuxVar(dir)
+	default:
+		return false
+	}
+}
+
+func IsUsrDir(dir string) bool {
+	switch runtime.GOOS {
+	case "linux":
+		return IsLinuxUsr(dir)
 	default:
 		return false
 	}

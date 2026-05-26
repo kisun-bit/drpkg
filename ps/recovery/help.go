@@ -37,6 +37,10 @@ func IsVarDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsVarDevice", extend.IsVarDir)
 }
 
+func IsUsrDevice(ctx context.Context, device string) bool {
+	return withMount(ctx, device, "IsUsrDevice", extend.IsUsrDir)
+}
+
 // IsBootDevice 是否为启动分区
 func IsBootDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsBootDevice", extend.IsBootDir)

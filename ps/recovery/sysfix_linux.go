@@ -63,6 +63,7 @@ type offlineSystem struct {
 	devBoot  string   // /boot 文件系统设备
 	devEfi   string   // EFI System Partition（ESP）设备（/boot/efi）
 	devVar   string   // /var 文件系统设备
+	devUsr   string   // /usr 文件系统设备
 	devSwaps []string // swap 设备列表
 
 	// 虚拟机主板芯片组模型（machine type）
@@ -217,6 +218,8 @@ func (fixer *linuxSystemFixer) Repair() error {
 		unconfigFun = fixer.unconfigVmware
 	case HPVTQemuKvm:
 		unconfigFun = fixer.unconfigKvm
+	case HPVTHyperV:
+		unconfigFun = fixer.unconfigHyperV
 	}
 
 	var configFun = fixer.configBare
@@ -227,6 +230,8 @@ func (fixer *linuxSystemFixer) Repair() error {
 		configFun = fixer.configVmware
 	case HPVTQemuKvm:
 		configFun = fixer.configKvm
+	case HPVTHyperV:
+		configFun = fixer.configHyperV
 	}
 
 	if err := unconfigFun(); err != nil {
@@ -288,6 +293,14 @@ func (fixer *linuxSystemFixer) mountSys() error {
 	}
 	fixer.offsys.root = rootDir
 	fixer.offsys.mounts = append(fixer.offsys.mounts, rootDir)
+
+	if fixer.offsys.devUsr != "" {
+		usrMountpoint := filepath.Join(rootDir, "usr")
+		if _, err := Mount(fixer.ctx, fixer.offsys.devUsr, usrMountpoint, false); err != nil {
+			return err
+		}
+		fixer.offsys.mounts = append(fixer.offsys.mounts, usrMountpoint)
+	}
 
 	if fixer.offsys.devBoot != "" {
 		// FIXME：项目上发现，未修复的Boot可能影响新的initrd文件生成
@@ -465,11 +478,13 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 			fixer.offsys.devEfi = dev.Device
 		case IsVarDevice(fixer.ctx, dev.Device):
 			fixer.offsys.devVar = dev.Device
+		case IsUsrDevice(fixer.ctx, dev.Device):
+			fixer.offsys.devUsr = dev.Device
 		}
 	}
 
-	logger.Debugf("detectSysDevice: root=`%s`, boot=`%s`, efi=`%s`, var=`%s`",
-		fixer.offsys.devRoot, fixer.offsys.devBoot, fixer.offsys.devEfi, fixer.offsys.devVar)
+	logger.Debugf("detectSysDevice: root=`%s`, boot=`%s`, efi=`%s`, var=`%s`, usr=`%s`",
+		fixer.offsys.devRoot, fixer.offsys.devBoot, fixer.offsys.devEfi, fixer.offsys.devVar, fixer.offsys.devUsr)
 
 	fixer.offsys.devSwaps = make([]string, 0)
 	for _, dev := range fixer.offsys.fsList {
