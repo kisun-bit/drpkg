@@ -30,13 +30,15 @@ type linuxSystemFixer struct {
 }
 
 type offlineSystem struct {
-	fsList []fsDevice // 探测到的文件系统设备列表（如 ext4/xfs/btrfs/swap 等）
+	// 探测到的文件系统设备（ext4/xfs/btrfs/swap 等）
+	fsList []fsDevice
 
 	// 文件系统最近一次挂载点映射
-	// key: 文件系统设备（fsDevice）
+	// key: 文件系统设备
 	// val: 最近一次挂载路径（如 "/", "/boot", "/var"）
 	fsLastMount map[string]string
 
+	// 文件系统设备
 	devRoot  string   // 根文件系统设备（/）
 	devBoot  string   // /boot 文件系统设备
 	devEfi   string   // EFI System Partition（ESP）设备（/boot/efi）
@@ -44,20 +46,12 @@ type offlineSystem struct {
 	devUsr   string   // /usr 文件系统设备
 	devSwaps []string // swap 设备列表
 
-	// 虚拟机主板芯片组模型（machine type）
-	// 常见值：i440fx、q35
-	kvmChipset string
+	// KVM 硬件配置
+	kvmChipset string // 主板芯片组（i440fx、q35）
+	kvmVideo   string // 显卡类型（bochs、vga、virtio、ramfb）
+	kvmDiskBus string // 磁盘总线（ide、scsi、virtio、sata）
 
-	// 显卡类型
-	// 常见值：bochs、vga、virtio、ramfb
-	kvmVideo string
-
-	// 磁盘类型
-	// 常见值：ide、scsi、virtio、sata
-	kvmDiskBus string
-
-	// 启动模式
-	// 常见值：bios、uefi
+	// 启动模式（bios、uefi）
 	bootMode BootMode
 
 	// 磁盘设备映射关系（源设备 -> 目标设备）
@@ -68,23 +62,28 @@ type offlineSystem struct {
 	// 例如：["/", "/boot", "/boot/efi"]
 	mounts []string
 
-	root string // 离线系统根目录挂载点（如 /mnt/sysroot）
+	// 离线系统根目录挂载点（如 /mnt/sysroot）
+	root string
 
 	// initrd/initramfs 生成工具
-	// 常见值：dracut、mkinitrd、update-initramfs
-	initrdTl    string
-	initrdTlVer string
+	initrdTl    string // dracut、mkinitrd、update-initramfs
+	initrdTlVer string // 工具版本
 
-	kernels []kernel // 系统已安装的内核列表
+	// 已安装内核列表
+	kernels []kernel
 
-	grubVer int    // grub 主版本（1: grub legacy, 2: grub2）
-	grubCfg string // grub 配置文件路径（相对于系统根目录）
+	// grub 配置
+	grubVer int    // 主版本（1: grub legacy, 2: grub2）
+	grubCfg string // 配置文件路径（相对系统根目录）
 
-	distro DistroInfo // 发行版信息（名称、版本、架构等）
+	// 发行版信息（名称、版本、架构等）
+	distro DistroInfo
 
-	pkgMgrType PackageManager // 包管理器
+	// 包管理器类型
+	pkgMgrType PackageManager
 
-	udevSupportUuid bool // udev是否支持UUID寻址
+	// udev 是否支持 UUID 寻址
+	udevSupportUuid bool
 }
 
 type kernel struct {
