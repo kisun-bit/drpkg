@@ -2506,7 +2506,7 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(packages ...string) e
 			return errors.Wrapf(ecp, "copy %s to %s/", pkg, tmpDir)
 		}
 
-		installCmdline := fmt.Sprintf("cd %s; zypper install %s", tmpDirChrootPath, filepath.Base(pkg))
+		installCmdline := fmt.Sprintf("cd %s; zypper --non-interactive install %s", tmpDirChrootPath, filepath.Base(pkg))
 		_, _, e = fixer.executeWithChroot(installCmdline)
 		if e != nil {
 			return errors.Wrapf(e, "install %s", filepath.Base(pkg))
