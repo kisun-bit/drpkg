@@ -120,48 +120,6 @@ func Umount(deviceOrMountpoint string, recursive bool) error {
 		return errors.Wrapf(err, "umount %s", deviceOrMountpoint)
 	}
 
-	//logger.Warnf("Umount() normal failed target=%s output=%s err=%v",
-	//	deviceOrMountpoint, output, err)
-
-	//// 2. 尝试 lazy umount（避免 busy 卡死）
-	//cmd = fmt.Sprintf("umount -l %s", deviceOrMountpoint)
-	//_, output, err = command.Execute(cmd)
-	//if err == nil {
-	//	logger.Warnf("Umount() lazy umount success target=%s", deviceOrMountpoint)
-	//	return nil
-	//}
-	//
-	//logger.Warnf("Umount() lazy failed target=%s output=%s err=%v",
-	//	deviceOrMountpoint, output, err)
-
-	//// 3. 尝试 force（主要用于 NFS / 某些异常情况）
-	//cmd = fmt.Sprintf("umount -f %s", deviceOrMountpoint)
-	//_, output, err = command.Execute(cmd)
-	//if err == nil {
-	//	logger.Warnf("Umount() force umount success target=%s", deviceOrMountpoint)
-	//	return nil
-	//}
-	//
-	//logger.Warnf("Umount() force failed target=%s output=%s err=%v",
-	//	deviceOrMountpoint, output, err)
-	//
-	//// 4. 尝试杀占用进程（谨慎使用）
-	//// fuser -km 会 kill 所有占用该挂载点的进程
-	//killCmd := fmt.Sprintf("fuser -km %s", deviceOrMountpoint)
-	//_, killOut, killErr := command.Execute(killCmd)
-	//logger.Warnf("Umount() fuser kill target=%s output=%s err=%v",
-	//	deviceOrMountpoint, killOut, killErr)
-	//
-	//// 再尝试一次卸载
-	//cmd = fmt.Sprintf("umount %s", deviceOrMountpoint)
-	//_, output, err = command.Execute(cmd)
-	//if err == nil {
-	//	logger.Warnf("Umount() success after kill target=%s", deviceOrMountpoint)
-	//	return nil
-	//}
-	//
-	//return errors.Wrapf(err, "umount failed target=%s output=%s", deviceOrMountpoint, output)
-
 	return nil
 }
 
@@ -229,7 +187,7 @@ func Kconfig(kCfgPath string) (configs map[string]string, err error) {
 	return configs, scanner.Err()
 }
 
-func vmbusExisted() (bool, error) {
+func VmbusExisted() (bool, error) {
 	items, err := os.ReadDir("/sys/bus/vmbus/devices")
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
@@ -343,7 +301,7 @@ func readFileHead(path string, n int) (string, error) {
 	return string(buf[:nr]), nil
 }
 
-// 从 grub.cfg 内容中解析 configfile 指向的真实路径
+// parseConfigfile 从 grub.cfg 内容中解析 configfile 指向的真实路径
 func parseConfigfile(content, root string) string {
 	var prefix string
 
@@ -465,7 +423,8 @@ func isValidFstabDevice(device string) bool {
 		strings.HasPrefix(strings.ToUpper(device), "PARTUUID=") ||
 		strings.HasPrefix(strings.ToUpper(device), "UUID=") ||
 		strings.HasPrefix(strings.ToUpper(device), "LABEL=") ||
-		strings.HasPrefix(device, "/dev/mapper") {
+		strings.HasPrefix(device, "/dev/mapper") ||
+		strings.HasPrefix(device, "/skole") {
 		return true
 	}
 	if strings.HasPrefix(device, "/dev/") {
@@ -475,35 +434,4 @@ func isValidFstabDevice(device string) bool {
 		}
 	}
 	return false
-}
-
-// parseRootDir 获取root目录
-// 如:
-// /a/b/c/d就返回/a
-// /a就返回/a
-// /就返回/
-func parseRootDir(p string) string {
-	// 清理路径
-	p = filepath.Clean(p)
-
-	// 根目录
-	if p == "/" {
-		return "/"
-	}
-
-	// 去掉前导 /
-	p = strings.TrimPrefix(p, "/")
-
-	// 空路径
-	if p == "" {
-		return "/"
-	}
-
-	// 找第一个 /
-	idx := strings.Index(p, "/")
-	if idx == -1 {
-		return "/" + p
-	}
-
-	return "/" + p[:idx]
 }

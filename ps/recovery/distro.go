@@ -9,14 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/pkg/errors"
-)
-
-const (
-	LinuxFamilyRHEL   = "RHEL"
-	LinuxFamilyALT    = "ALT"
-	LinuxFamilySUSE   = "SUSE"
-	LinuxFamilyDebian = "DEBIAN"
 )
 
 type DistroInfo struct {
@@ -87,7 +81,7 @@ func parseOSReleaseUsr(root string) (*DistroInfo, error) {
 }
 
 func parseOSRelease(path string) (*DistroInfo, error) {
-	if !fileExists(path) {
+	if !extend.IsExisted(path) {
 		return nil, errors.New("not exist")
 	}
 
@@ -117,7 +111,7 @@ func parseOSRelease(path string) (*DistroInfo, error) {
 
 func parseLSBRelease(root string) (*DistroInfo, error) {
 	path := filepath.Join(root, "etc/lsb-release")
-	if !fileExists(path) {
+	if !extend.IsExisted(path) {
 		return nil, errors.New("not exist")
 	}
 
@@ -147,7 +141,7 @@ func parseLSBRelease(root string) (*DistroInfo, error) {
 
 func parseRedhatRelease(root string) (*DistroInfo, error) {
 	path := filepath.Join(root, "etc/redhat-release")
-	if !fileExists(path) {
+	if !extend.IsExisted(path) {
 		return nil, errors.New("not exist")
 	}
 
@@ -195,7 +189,7 @@ func parseRedhatRelease(root string) (*DistroInfo, error) {
 
 func parseDebianVersion(root string) (*DistroInfo, error) {
 	path := filepath.Join(root, "etc/debian_version")
-	if !fileExists(path) {
+	if !extend.IsExisted(path) {
 		return nil, errors.New("not exist")
 	}
 
@@ -221,7 +215,7 @@ func parseDebianVersion(root string) (*DistroInfo, error) {
 
 func parseSuseRelease(root string) (*DistroInfo, error) {
 	path := filepath.Join(root, "etc/SuSE-release")
-	if !fileExists(path) {
+	if !extend.IsExisted(path) {
 		return nil, errors.New("not exist")
 	}
 
@@ -255,7 +249,7 @@ func parseSuseRelease(root string) (*DistroInfo, error) {
 
 func parseIssueFallback(root string) (*DistroInfo, error) {
 	path := filepath.Join(root, "etc/issue")
-	if !fileExists(path) {
+	if !extend.IsExisted(path) {
 		return nil, errors.New("not exist")
 	}
 
@@ -293,11 +287,6 @@ func parseIssueFallback(root string) (*DistroInfo, error) {
 //
 // -------------------- utils --------------------
 //
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
 
 func parseKeyValueFile(path string) (map[string]string, error) {
 	file, err := os.Open(path)

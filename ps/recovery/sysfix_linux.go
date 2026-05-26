@@ -21,28 +21,6 @@ import (
 	"github.com/thoas/go-funk"
 )
 
-const (
-	InitrdToolDracut          = "dracut"
-	InitrdToolUpdateInitramfs = "update-initramfs"
-	InitrdToolMkinitrd        = "mkinitrd"
-)
-
-const (
-	ChipsetQ35    = "q35"
-	ChipsetI440fx = "i440fx"
-)
-
-const (
-	VideoBochs  = "bochs"
-	VideoVGA    = "vga"
-	VideoVirtio = "virtio"
-	VideoRamfb  = "ramfb"
-)
-
-var (
-	rootDir = "/mnt/sysroot"
-)
-
 type linuxSystemFixer struct {
 	ctx    context.Context
 	opts   *FixerCreateOptions // 恢复参数
@@ -73,6 +51,10 @@ type offlineSystem struct {
 	// 显卡类型
 	// 常见值：bochs、vga、virtio、ramfb
 	kvmVideo string
+
+	// 磁盘类型
+	// 常见值：ide、scsi、virtio、sata
+	kvmDiskBus string
 
 	// 启动模式
 	// 常见值：bios、uefi
@@ -210,7 +192,7 @@ func (fixer *linuxSystemFixer) Repair() error {
 		return errors.Wrap(err, "fix grub")
 	}
 
-	var unconfigFun = fixer.unconfigBare
+	var unconfigFun = fixer.unconfigBareMetal
 	switch fixer.opts.RecoveryParam.Source.Virt {
 	case HPVTXen:
 		unconfigFun = fixer.unconfigXen
@@ -222,7 +204,7 @@ func (fixer *linuxSystemFixer) Repair() error {
 		unconfigFun = fixer.unconfigHyperV
 	}
 
-	var configFun = fixer.configBare
+	var configFun = fixer.configBareMetal
 	switch fixer.opts.RecoveryParam.Target.Virt {
 	case HPVTXen:
 		configFun = fixer.configXen
@@ -966,6 +948,8 @@ func (fixer *linuxSystemFixer) detectKvmCfg() {
 	if fixer.offsys.kvmChipset == ChipsetQ35 {
 		fixer.offsys.kvmChipset = VideoVGA
 	}
+
+	fixer.offsys.kvmDiskBus = DiskBusScsi
 
 	// FIXME:
 	// 但在实际测试中发现，SUSE11 SP4（kernel 3.0.101）是一个例外：

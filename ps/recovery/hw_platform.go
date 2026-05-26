@@ -95,7 +95,7 @@ func RuntimePlatform() (pf Platform, err error) {
 	}
 
 	// 检查是否是hyper-v环境
-	yes, err := vmbusExisted()
+	yes, err := VmbusExisted()
 	if err != nil {
 		return pf, err
 	}

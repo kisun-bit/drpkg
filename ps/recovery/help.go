@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
 	"runtime"
 	"strings"
 
@@ -17,35 +16,32 @@ import (
 	"github.com/thoas/go-funk"
 )
 
-var MountSupportedFsTypes = []string{"ext4", "ext3", "ext2", "xfs", "fat", "vfat", "ntfs", "cramfs", "gfs2", "hfs", "hfsplus", "zfs", "jfs", "minix", "msdos", "reiserfs"}
-
-var reBlkidType = regexp.MustCompile(`TYPE="([^"]+)"`)
-
-var reBlkidUuid = regexp.MustCompile(`UUID="([^"]+)"`)
-
-// IsRootDevice 是否为系统根盘
+// IsRootDevice 是否为 Root 设备
 func IsRootDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsRootDevice", extend.IsRootDir)
 }
 
-// IsEfiDevice 是否为 EFI 分区
+// IsEfiDevice 是否为 EFI 设备
 func IsEfiDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsEfiDevice", extend.IsEfiDir)
 }
 
+// IsVarDevice 是否为 Var 设备
 func IsVarDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsVarDevice", extend.IsVarDir)
 }
 
+// IsUsrDevice 是否为 Usr 设备
 func IsUsrDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsUsrDevice", extend.IsUsrDir)
 }
 
-// IsBootDevice 是否为启动分区
+// IsBootDevice 是否为 Boot 设备
 func IsBootDevice(ctx context.Context, device string) bool {
 	return withMount(ctx, device, "IsBootDevice", extend.IsBootDir)
 }
 
+// SupportMount 指定设备是否支持挂载
 func SupportMount(device string) (ok bool, fsType string) {
 	fsType, err := DetectFSTypeByBlkid(device)
 	if err != nil {
@@ -54,7 +50,7 @@ func SupportMount(device string) (ok bool, fsType string) {
 	if fsType == "" {
 		return false, ""
 	}
-	return funk.InStrings(MountSupportedFsTypes, fsType), fsType
+	return funk.InStrings(SupportedFsTypes, fsType), fsType
 }
 
 // DetectFSTypeByBlkid 使用 blkid 探测文件系统类型
@@ -306,7 +302,7 @@ func enumFilesystem(offline []string) ([]fsDevice, error) {
 	var devs []fsDevice
 	for _, dev := range fsDevList {
 		fsStr, _ := DetectFSTypeByBlkid(dev)
-		if funk.InStrings(MountSupportedFsTypes, fsStr) || fsStr == "swap" {
+		if funk.InStrings(SupportedFsTypes, fsStr) || fsStr == "swap" {
 			devs = append(devs, fsDevice{dev, fsStr})
 		}
 	}

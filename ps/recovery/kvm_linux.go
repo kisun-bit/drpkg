@@ -35,6 +35,7 @@ func (fixer *linuxSystemFixer) patchVirtIO() error {
 		if err := fixer.patchOneKernelVirtIO(k); err != nil {
 			// TODO 提示警告，此内核不兼容virtio硬件设备
 			logger.Warnf("patchVirtIO: patchOneKernelVirtIO: %v", err)
+			fixer.offsys.kvmDiskBus = DiskBusIde
 			return nil
 		}
 	}
