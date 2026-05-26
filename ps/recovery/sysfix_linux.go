@@ -161,6 +161,10 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		return errors.Wrap(err, "detect distro")
 	}
 
+	if err := fixer.deprecateSysMountPoint(); err != nil {
+		return errors.Wrap(err, "deprecate sys mountpoint")
+	}
+
 	if err := fixer.detectPkgMgr(); err != nil {
 		return errors.Wrap(err, "detect package manager")
 	}
@@ -228,6 +232,7 @@ func (fixer *linuxSystemFixer) Repair() error {
 	if err := unconfigFun(); err != nil {
 		return errors.Wrapf(err, "unconfig %s", fixer.opts.RecoveryParam.Source.Virt)
 	}
+
 	if err := configFun(); err != nil {
 		return errors.Wrapf(err, "config %s", fixer.opts.RecoveryParam.Target.Virt)
 	}
@@ -323,7 +328,8 @@ func (fixer *linuxSystemFixer) mountSys() error {
 		chrootRunPath:  fmt.Sprintf("mount --bind /run %s", chrootRunPath),
 	}
 
-	// NOTE: 不要使用--rbind和--make-rslave，会造成卸载rootDir时vg资源释放不干净
+	// NOTE:
+	// 1. 不要使用--rbind和--make-rslave，会造成卸载rootDir时vg资源释放不干净
 
 	for mp, cmdline := range releatedMounts {
 		if !extend.IsExisted(mp) {
@@ -350,6 +356,62 @@ func (fixer *linuxSystemFixer) umountSys() error {
 			return err
 		}
 	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) deprecateSysMountPoint() error {
+	logger.Debugf("deprecateSysMountPoint: ++")
+	defer logger.Debugf("deprecateSysMountPoint: --")
+
+	// 注意：
+	// centos4/rhel4 等系统，若挂载了/dev到/mnt/sysroot/dev，那么在执行了mkinitrd之后，系统启动会报错，如下：
+	// """
+	// mount: error 6 mounting ext3
+	// mount: error 2 mounting none
+	// switchroot: mount failed: 22
+	// umount /initrd/dev failed: 2
+	// Kernel panic - not syncing: Attempted to kill init!
+	// """
+
+	if fixer.offsys.root == "" {
+		return ErrorRootEnvNotMounted
+	}
+
+	umountDev := false
+	if fixer.offsys.distro.Family == LinuxFamilyRHEL && fixer.offsys.distro.Major <= 4 {
+		umountDev = true
+	}
+	// FIXME: 待补充，其他系统是否也存在此问题
+
+	if !umountDev {
+		return nil
+	}
+
+	chrootDevPath := filepath.Join(rootDir, "dev")
+	newMounts := make([]string, 0)
+	oldMounts := make([]string, len(fixer.offsys.mounts))
+	copy(oldMounts[:], fixer.offsys.mounts[:])
+	funk.ReverseStrings(oldMounts)
+
+	for _, mp := range oldMounts {
+		if !extend.IsExisted(mp) {
+			continue
+		}
+		if strings.HasPrefix(mp, chrootDevPath+"/") || mp == chrootDevPath {
+			logger.Debugf("deprecateSysMountPoint: umount %s", mp)
+			_, _, e := command.Execute("umount " + mp)
+			if e != nil {
+				return errors.Wrapf(e, "umount %s", mp)
+			}
+			continue
+		}
+		newMounts = append(newMounts, mp)
+	}
+
+	logger.Debugf("deprecateSysMountPoint: mounts [before]:\n%s", extend.Pretty(fixer.offsys.mounts))
+	fixer.offsys.mounts = funk.ReverseStrings(newMounts)
+	logger.Debugf("deprecateSysMountPoint: mounts [after]:\n%s", extend.Pretty(fixer.offsys.mounts))
 
 	return nil
 }
@@ -1496,7 +1558,7 @@ func (fixer *linuxSystemFixer) fixPamLogin() error {
 		}
 
 		filePath := filepath.Join(pamDir, entry.Name())
-		logger.Debugf("fixPamLogin: Prepare to repair `%s`", filePath)
+		//logger.Debugf("fixPamLogin: Prepare to repair `%s`", filePath)
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {
