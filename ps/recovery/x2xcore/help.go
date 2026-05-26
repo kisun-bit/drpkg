@@ -1,4 +1,4 @@
-package recovery
+package x2xcore
 
 import (
 	"context"

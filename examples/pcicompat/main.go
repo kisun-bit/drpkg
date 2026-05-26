@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kisun-bit/drpkg/ps/recovery"
+	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
 )
 
 func main() {
@@ -50,7 +50,7 @@ func main() {
 	kernel := os.Args[2]
 	module := os.Args[3]
 
-	loader, _ := recovery.NewModuleLoader(root, kernel)
+	loader, _ := x2xcore.NewModuleLoader(root, kernel)
 
 	paths, err := loader.LoadModuleByName(module)
 	if err != nil {

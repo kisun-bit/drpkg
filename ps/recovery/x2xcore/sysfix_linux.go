@@ -1,4 +1,4 @@
-package recovery
+package x2xcore
 
 import (
 	"bufio"
@@ -17,6 +17,7 @@ import (
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/info"
+	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 )
@@ -26,6 +27,7 @@ type linuxSystemFixer struct {
 	opts   *FixerCreateOptions // 恢复参数
 	logs   <-chan LogEntry     // 日志缓存通道
 	psinfo *info.PsInfo        // 修复虚机的系统信息（已附加离线系统）
+	x2xLib *x2xlib.X2XLib      // 驱动库
 	offsys offlineSystem       // 离线系统的私有信息
 }
 
@@ -96,7 +98,12 @@ func NewSysFixer(ctx context.Context, opts *FixerCreateOptions) (fixer SysFixer,
 	if err = CheckFixerCreateOptions(opts); err != nil {
 		return nil, err
 	}
-	return &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}, nil
+	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
+	lf.x2xLib, err = x2xlib.NewX2XLib(opts.RecoveryParam.X2XLibrary)
+	if err != nil {
+		return nil, err
+	}
+	return lf, nil
 }
 
 // Prepare 准备修复环境（挂载/加载离线系统）
@@ -2469,7 +2476,7 @@ func (fixer *linuxSystemFixer) syncFs() {
 	_, _, _ = command.Execute("sync;echo 3 > /proc/sys/vm/drop_caches", command.WithDebug())
 }
 
-func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(packageDir string) error {
+func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(packages ...string) error {
 	logger.Debugf("injectPackageByZypper: ++")
 	defer logger.Debugf("injectPackageByZypper: --")
 
@@ -2477,29 +2484,33 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(packageDir string) er
 		return ErrorRootEnvNotMounted
 	}
 
-	if !extend.IsExisted(packageDir) {
-		return os.ErrNotExist
-	}
-
-	logger.Debugf("injectPackagesByZypper: Package-Dir: %s", packageDir)
-
-	pkgTargetDirName := "." + filepath.Base(packageDir) + "." + strconv.FormatInt(time.Now().Unix(), 10)
-	pkgTargetDir := filepath.Join(fixer.offsys.root, pkgTargetDirName)
-	if e := os.MkdirAll(pkgTargetDir, 0755); e != nil {
-		return errors.Wrapf(e, "mkdir for %s", pkgTargetDir)
-	}
-	defer os.RemoveAll(pkgTargetDir)
-
-	cpCmdline := fmt.Sprintf("cp %s/* %s/", packageDir, pkgTargetDir)
-	_, _, e := command.Execute(cpCmdline, command.WithDebug())
+	tmpDir, e := os.MkdirTemp(fixer.offsys.root, "x2x.packages")
 	if e != nil {
-		return errors.Wrapf(e, "copy %s", pkgTargetDir)
+		return e
 	}
+	tmpDirChrootPath := "/" + filepath.Base(tmpDir)
 
-	installCmdline := fmt.Sprintf("cd /%s; zypper install ./*.rpm", pkgTargetDirName)
-	_, _, e = fixer.executeWithChroot(installCmdline)
-	if e != nil {
-		return errors.Wrapf(e, "install %s", pkgTargetDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
+
+	for _, pkg := range packages {
+		if !extend.IsExisted(pkg) {
+			return errors.Wrap(os.ErrNotExist, pkg)
+		}
+		logger.Debugf("injectPackagesByZypper: injecting %s ...", pkg)
+
+		cpCmdline := fmt.Sprintf("cp %s %s/", pkg, tmpDir)
+		_, _, ecp := command.Execute(cpCmdline, command.WithDebug())
+		if ecp != nil {
+			return errors.Wrapf(ecp, "copy %s to %s/", pkg, tmpDir)
+		}
+
+		installCmdline := fmt.Sprintf("cd %s; zypper install %s", tmpDirChrootPath, filepath.Base(pkg))
+		_, _, e = fixer.executeWithChroot(installCmdline)
+		if e != nil {
+			return errors.Wrapf(e, "install %s", filepath.Base(pkg))
+		}
 	}
 
 	return nil

@@ -1,4 +1,4 @@
-package recovery
+package x2xcore
 
 import (
 	"path/filepath"
@@ -71,8 +71,11 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 		}
 	}
 
-	if opts.RecoveryParam.PackageDir == "" {
-		opts.RecoveryParam.PackageDir = filepath.Join(extend.ExecDir(), "package")
+	if opts.RecoveryParam.X2XLibrary == "" {
+		opts.RecoveryParam.X2XLibrary = filepath.Join(extend.ExecDir(), "library")
+	}
+	if !extend.IsExisted(opts.RecoveryParam.X2XLibrary) {
+		return errors.Errorf("FixerCreateOptions X2XLibrary(%s) is empty", opts.RecoveryParam.X2XLibrary)
 	}
 
 	//

@@ -5,7 +5,7 @@ import (
 
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/info"
-	"github.com/kisun-bit/drpkg/ps/recovery"
+	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
 )
 
 func main() {
@@ -18,19 +18,20 @@ func main() {
 		offlineDisks = append(offlineDisks, disk.Device)
 	}
 
-	fixer, err := recovery.NewSysFixer(context.Background(), &recovery.FixerCreateOptions{
+	fixer, err := x2xcore.NewSysFixer(context.Background(), &x2xcore.FixerCreateOptions{
 		OfflineSysDisks: offlineDisks,
-		RecoveryParam: recovery.RecoveryParameter{
-			Source: recovery.Platform{
+		RecoveryParam: x2xcore.RecoveryParameter{
+			Source: x2xcore.Platform{
 				Arch: "amd64",
 				Base: "virtual",
 				Virt: "none",
 			},
-			Target: recovery.Platform{
+			Target: x2xcore.Platform{
 				Arch: "amd64",
 				Base: "virtual",
 				Virt: "xen",
 			},
+			X2XLibrary: "/root/library",
 		},
 	})
 

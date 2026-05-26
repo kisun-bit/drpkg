@@ -1,4 +1,4 @@
-package recovery
+package x2xcore
 
 import (
 	"io/fs"
@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 )
@@ -212,22 +211,22 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 		installed := false
 		if isOldSLES || isOldOpenSUSE {
 			// 装xen-kmp包
-			pkgDir := filepath.Join(fixer.opts.RecoveryParam.PackageDir,
-				runtime.GOOS,
+			pkgs, e := fixer.x2xLib.GetLinuxPackage(
 				fixer.offsys.distro.ID,
-				suseVersion(fixer.offsys.distro),
 				runtime.GOARCH,
-				"xen-kmp-default",
-			)
-			if extend.IsExisted(pkgDir) {
-				if e := fixer.batchInjectPackagesByZypper(pkgDir); e != nil {
-					return errors.Wrapf(e, "install %s", filepath.Dir(pkgDir))
-				}
-				installed = true
-				xenCand1ModulesFound = true
-			} else {
-				return errors.Errorf("xen-kmp-default*.rpm not installed")
+				k.Name,
+				"xen-kmp-default")
+			if e != nil {
+				logger.Warnf("patchOneKernelXen: GetLinuxPackage: %v", e)
+				return errors.Wrap(e, "xen-kmp-default*.rpm not installed")
 			}
+
+			logger.Debugf("patchOneKernelXen: packages of `xen-kmp-default`: %v", pkgs)
+			if e = fixer.batchInjectPackagesByZypper(pkgs...); e != nil {
+				return errors.Wrapf(e, "install xen-kmp-default")
+			}
+			installed = true
+			xenCand1ModulesFound = true
 		}
 
 		if !installed {

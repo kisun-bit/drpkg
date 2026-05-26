@@ -1,4 +1,4 @@
-package recovery
+package x2xcore
 
 //
 // =========================
@@ -166,8 +166,8 @@ type RecoveryParameter struct {
 	// SecureBoot 目标平台启用Secure Boot
 	SecureBoot bool `json:"secureBoot"`
 
-	// PackageDir 安装包路径
-	PackageDir string `json:"packageDir"`
+	// X2XLibrary x2xlib的library路径
+	X2XLibrary string `json:"x2XLibrary"`
 }
 
 type DeviceMap struct {
