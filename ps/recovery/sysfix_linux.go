@@ -773,6 +773,16 @@ func (fixer *linuxSystemFixer) detectDeviceMaps() error {
 			},
 		)
 	}
+	if fixer.offsys.devUsr != "" {
+		uuidStr, _ := DetectUuidByBlkid(fixer.offsys.devUsr)
+		fixer.offsys.devMaps = append(fixer.offsys.devMaps,
+			DeviceMap{
+				Origin:     "",
+				Mountpoint: "/usr",
+				UUID:       uuidStr,
+			},
+		)
+	}
 
 	//
 	// 基于blkid的缓存文件进行探测
@@ -1864,15 +1874,8 @@ func (fixer *linuxSystemFixer) fixOneGrub(
 	)
 
 	// resume=
-	//if resumeUUID != "" {
-	//	resumeRe := regexp.MustCompile(`(^|\s+)resume=\S+`)
-	//	content = resumeRe.ReplaceAllString(
-	//		content,
-	//		`${1}resume=UUID=`+resumeUUID,
-	//	)
-	//}
-	// resume=
 	if resumeUUID != "" {
+		//	resumeRe := regexp.MustCompile(`(^|\s+)resume=\S+`)
 		resumeRe := regexp.MustCompile(
 			`resume=\S+`,
 		)
@@ -1915,30 +1918,25 @@ func (fixer *linuxSystemFixer) fixOneGrub(
 		)
 	}
 
-	// 去掉 quiet 启动参数
-	quietRe := regexp.MustCompile(`(^|\s+)quiet(\s|$)`)
-	if quietRe.MatchString(content) {
-		lineRe := regexp.MustCompile(
-			`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
-		)
+	// 去掉 quiet 启动参数（保留原缩进和格式）
+	quietRe := regexp.MustCompile(`\s+quiet(\s|$)`)
 
-		content = lineRe.ReplaceAllStringFunc(
-			content,
-			func(line string) string {
-				line = quietRe.ReplaceAllString(
-					line,
-					" ",
-				)
+	lineRe := regexp.MustCompile(
+		`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
+	)
 
-				line = strings.Join(
-					strings.Fields(line),
-					" ",
-				)
+	content = lineRe.ReplaceAllStringFunc(
+		content,
+		func(line string) string {
+			// 删除 quiet
+			line = quietRe.ReplaceAllString(line, "$1")
 
-				return line
-			},
-		)
-	}
+			// 清理 quiet 删除后可能出现的尾部空格
+			line = strings.TrimRight(line, " \t")
+
+			return line
+		},
+	)
 
 	if content == before {
 		logger.Debugf("fixOneGrub: `%s` no change", file)
