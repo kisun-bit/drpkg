@@ -258,7 +258,9 @@ func (fixer *linuxSystemFixer) Cleanup() error {
 		return errors.Wrap(err, "umount sys")
 	}
 
-	//fixer.fsckAllFs()
+	if fixer.opts.RecoveryParam.FsckFs {
+		fixer.fsckAllFs()
+	}
 
 	return nil
 }
@@ -2482,4 +2484,40 @@ func (fixer *linuxSystemFixer) fsckAllFs() {
 
 func (fixer *linuxSystemFixer) syncFs() {
 	_, _, _ = command.Execute("sync;echo 3 > /proc/sys/vm/drop_caches", command.WithDebug())
+}
+
+func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(packageDir string) error {
+	logger.Debugf("injectPackageByZypper: ++")
+	defer logger.Debugf("injectPackageByZypper: --")
+
+	if fixer.offsys.root == "" {
+		return ErrorRootEnvNotMounted
+	}
+
+	if !extend.IsExisted(packageDir) {
+		return os.ErrNotExist
+	}
+
+	logger.Debugf("injectPackagesByZypper: Package-Dir: %s", packageDir)
+
+	pkgTargetDirName := "." + filepath.Base(packageDir) + "." + strconv.FormatInt(time.Now().Unix(), 10)
+	pkgTargetDir := filepath.Join(fixer.offsys.root, pkgTargetDirName)
+	if e := os.MkdirAll(pkgTargetDir, 0755); e != nil {
+		return errors.Wrapf(e, "mkdir for %s", pkgTargetDir)
+	}
+	defer os.RemoveAll(pkgTargetDir)
+
+	cpCmdline := fmt.Sprintf("cp %s/* %s/", packageDir, pkgTargetDir)
+	_, _, e := command.Execute(cpCmdline, command.WithDebug())
+	if e != nil {
+		return errors.Wrapf(e, "copy %s", pkgTargetDir)
+	}
+
+	installCmdline := fmt.Sprintf("cd /%s; zypper install ./*.rpm", pkgTargetDirName)
+	_, _, e = fixer.executeWithChroot(installCmdline)
+	if e != nil {
+		return errors.Wrapf(e, "install %s", pkgTargetDir)
+	}
+
+	return nil
 }

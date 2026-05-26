@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 )
@@ -42,107 +44,6 @@ func (fixer *linuxSystemFixer) configXen() error {
 
 	return nil
 }
-
-//func unconfigureXenFromSysconfig(rootDir string, isSUSE bool) error {
-//	if !isSUSE {
-//		return nil
-//	}
-//
-//	var kernelConfig = filepath.Join(rootDir, "etc/sysconfig/kernel")
-//
-//	content, err := os.ReadFile(kernelConfig)
-//	if err != nil {
-//		return errors.Errorf("read %s failed: %w", kernelConfig, err)
-//	}
-//
-//	variables := map[string]struct{}{
-//		"INITRD_MODULES":      {},
-//		"DOMU_INITRD_MODULES": {},
-//	}
-//
-//	xenModules := map[string]struct{}{
-//		"xennet":   {},
-//		"xen-vnif": {},
-//		"xenblk":   {},
-//		"xen-vbd":  {},
-//	}
-//
-//	modified := false
-//	var output bytes.Buffer
-//
-//	scanner := bufio.NewScanner(bytes.NewReader(content))
-//
-//	for scanner.Scan() {
-//		line := scanner.Text()
-//		trimmed := strings.TrimSpace(line)
-//
-//		// 空行/注释直接保留
-//		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-//			output.WriteString(line + "\n")
-//			continue
-//		}
-//
-//		// 找 key=value
-//		idx := strings.Index(line, "=")
-//		if idx == -1 {
-//			output.WriteString(line + "\n")
-//			continue
-//		}
-//
-//		key := strings.TrimSpace(line[:idx])
-//		value := strings.TrimSpace(line[idx+1:])
-//
-//		_, needProcess := variables[key]
-//		if !needProcess {
-//			output.WriteString(line + "\n")
-//			continue
-//		}
-//
-//		// 去掉引号
-//		unquoted := strings.Trim(value, `"'`)
-//
-//		// split modules
-//		fields := strings.Fields(unquoted)
-//
-//		var kept []string
-//		removed := false
-//
-//		for _, mod := range fields {
-//			if _, isXen := xenModules[mod]; isXen {
-//				removed = true
-//				modified = true
-//				continue
-//			}
-//			kept = append(kept, mod)
-//		}
-//
-//		if removed {
-//			newLine := fmt.Sprintf(`%s="%s"`,
-//				key,
-//				strings.Join(kept, " "),
-//			)
-//			output.WriteString(newLine + "\n")
-//		} else {
-//			output.WriteString(line + "\n")
-//		}
-//	}
-//
-//	if err = scanner.Err(); err != nil {
-//		return err
-//	}
-//
-//	// 没修改直接返回
-//	if !modified {
-//		return nil
-//	}
-//
-//	// 写回
-//	if err = os.WriteFile(kernelConfig, output.Bytes(), 0644); err != nil {
-//		return errors.Errorf("write %s failed: %w", kernelConfig, err)
-//	}
-//
-//	return nil
-//}
 
 // changeUVPTools 调整华为云的UVPTools
 // 华为云主机（基于xen）在安装UVPTools时，会存在如下写入逻辑（https://github.com/UVP-Tools/SAP-HANA-Tools/blob/eeceb65c5b06a4e9283273708906fadaafdc24c9/install#L1334）：
@@ -283,26 +184,59 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 	// 候选驱动集合：
 	// 第一组：xen_vnif xen_vbd xen_platform_pci，
 	//        注意：SUSE 11 SP1 64bit ~ SUSE 11 SP4 64bit系统需要在“menu.lst”文件添加xen_platform_pci.dev_unplug=all
-	// 第二组：xen-blkfront xen-netfront
+	// 第二组：xen-blkfront xen-netfront xen-scsifront
+	xenCand1Modules := []string{
+		"xen-vnif",
+		"xen-vbd",
+		"xen-platform-pci",
+	}
 
-	xenCand1Modules := []string{"xen-vnif", "xen-vbd", "xen-platform-pci"}
+	xenCand2Modules := []string{
+		"xen-blkfront",
+		"xen-netfront",
+		"xen-scsifront",
+	}
+
 	xenCand1ModulesFound, _ := fixer.kernelContainsModule(k, xenCand1Modules[0])
-
-	xenCand2Modules := []string{"xen-blkfront", "xen-netfront"}
 	xenCand2ModulesFound, _ := fixer.kernelContainsModule(k, xenCand2Modules[0])
 
 	if !xenCand1ModulesFound && !xenCand2ModulesFound {
 		// 操作系统版本低于SUSE 12 SP1或低于openSUSE 13
-		if (fixer.offsys.distro.ID == "sles" && (fixer.offsys.distro.Major <= 11 || strings.Contains(fixer.offsys.distro.Pretty, "12 SP1"))) ||
-			(fixer.offsys.distro.ID == "opensuse" && fixer.offsys.distro.Major <= 13) {
-			// TODO 安装xen-kmp包，安装成功后，就不在抛出错误
-			return errors.Errorf("xen-kmp not installed")
-		} else {
+		isOldSLES := fixer.offsys.distro.ID == "sles" &&
+			(fixer.offsys.distro.Major <= 11 ||
+				strings.Contains(fixer.offsys.distro.Pretty, "12 SP1"))
+
+		isOldOpenSUSE := fixer.offsys.distro.ID == "opensuse" &&
+			fixer.offsys.distro.Major <= 13
+
+		installed := false
+		if isOldSLES || isOldOpenSUSE {
+			// 装xen-kmp包
+			pkgDir := filepath.Join(fixer.opts.RecoveryParam.PackageDir,
+				runtime.GOOS,
+				fixer.offsys.distro.ID,
+				suseVersion(fixer.offsys.distro),
+				runtime.GOARCH,
+				"xen-kmp-default",
+			)
+			if extend.IsExisted(pkgDir) {
+				if e := fixer.batchInjectPackagesByZypper(pkgDir); e != nil {
+					return errors.Wrapf(e, "install %s", filepath.Dir(pkgDir))
+				}
+				installed = true
+				xenCand1ModulesFound = true
+			} else {
+				return errors.Errorf("xen-kmp-default*.rpm not installed")
+			}
+		}
+
+		if !installed {
 			return errors.Errorf("unsupported xen-based hardware")
 		}
 	}
 
 	modules := make([]string, 0)
+
 	if xenCand1ModulesFound {
 		modules = append(modules, xenCand1Modules...)
 
@@ -311,10 +245,22 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 		//	return errors.Wrap(err, "xen_platform_pci.dev_unplug")
 		//}
 	}
+
 	if xenCand2ModulesFound && len(modules) == 0 {
-		modules = append(modules, xenCand2Modules...)
+		for _, module := range xenCand2Modules {
+			yes, err := fixer.kernelContainsModule(k, module)
+			if err == nil && yes {
+				modules = append(modules, module)
+			}
+		}
 	}
-	logger.Debugf("patchXen: patchXen: modules: %v", modules)
+
+	logger.Debugf("patchXen: modules: %v", modules)
+
+	if len(modules) == 0 {
+		logger.Debugf("patchXen: no modules need to patch")
+		return nil
+	}
 
 	if err := fixer.initrdAddModule(k, modules...); err != nil {
 		return err

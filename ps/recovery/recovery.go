@@ -165,6 +165,9 @@ type RecoveryParameter struct {
 
 	// SecureBoot 目标平台启用Secure Boot
 	SecureBoot bool `json:"secureBoot"`
+
+	// PackageDir 安装包路径
+	PackageDir string `json:"packageDir"`
 }
 
 type DeviceMap struct {

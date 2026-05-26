@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"path/filepath"
 	"runtime"
 
 	"github.com/kisun-bit/drpkg/extend"
@@ -68,6 +69,10 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 			len(platform.PciList) == 0 {
 			return errors.New("FixerCreateOptions PciList is empty")
 		}
+	}
+
+	if opts.RecoveryParam.PackageDir == "" {
+		opts.RecoveryParam.PackageDir = filepath.Join(extend.ExecDir(), "package")
 	}
 
 	//

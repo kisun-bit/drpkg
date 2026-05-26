@@ -2,6 +2,7 @@ package recovery
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -343,4 +344,13 @@ func extractMajor(v string) int {
 	parts := strings.Split(v, ".")
 	n, _ := strconv.Atoi(parts[0])
 	return n
+}
+
+func suseVersion(distro DistroInfo) string {
+	pretty := strings.ToLower(strings.TrimSpace(distro.Pretty))
+	prettyItems := strings.Fields(pretty)
+	if sPStr := prettyItems[len(prettyItems)-1]; strings.HasPrefix(sPStr, "sp") {
+		return fmt.Sprintf("%d%s", distro.Major, sPStr)
+	}
+	return fmt.Sprintf("%d", distro.Major)
 }
