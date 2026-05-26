@@ -238,7 +238,7 @@ func changeUVPTools(rootDir string, deprecated bool) error {
 
 	if err != nil {
 		return errors.Errorf(
-			"walk modules dir failed: %w",
+			"walk modules dir failed: %v",
 			err,
 		)
 	}
@@ -407,7 +407,7 @@ func (fixer *linuxSystemFixer) fixGrubKernelArg(
 	)
 	if err != nil {
 		return errors.Errorf(
-			"write grub cfg failed: %s, err=%w",
+			"write grub cfg failed: %s, err=%v",
 			fixer.offsys.grubCfg,
 			err,
 		)
