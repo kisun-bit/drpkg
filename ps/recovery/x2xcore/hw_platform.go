@@ -20,11 +20,11 @@ const (
 type HPVirtType string
 
 const (
-	HPVTNone    HPVirtType = "none"
-	HPVTVmware  HPVirtType = "vmware"
-	HPVTQemuKvm HPVirtType = "qemu/kvm"
-	HPVTXen     HPVirtType = "xen"
-	HPVTHyperV  HPVirtType = "hyper-v"
+	HPVTNone   HPVirtType = "none"
+	HPVTVmware HPVirtType = "vmware"
+	HPVTKvm    HPVirtType = "kvm"
+	HPVTXen    HPVirtType = "xen"
+	HPVTHyperV HPVirtType = "hyper-v"
 )
 
 // BootMode 启动模式
@@ -85,7 +85,7 @@ func RuntimePlatform() (pf Platform, err error) {
 			continue
 		case pci.VendorId() == 0x1af4 && pf.Base == HPUnknown: // 检查是否是qemu/kvm环境
 			pf.Base = HPVirt
-			pf.Virt = HPVTQemuKvm
+			pf.Virt = HPVTKvm
 			continue
 		}
 

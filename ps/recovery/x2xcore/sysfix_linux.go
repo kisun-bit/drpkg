@@ -204,7 +204,7 @@ func (fixer *linuxSystemFixer) Repair() error {
 		unconfigFun = fixer.unconfigXen
 	case HPVTVmware:
 		unconfigFun = fixer.unconfigVmware
-	case HPVTQemuKvm:
+	case HPVTKvm:
 		unconfigFun = fixer.unconfigKvm
 	case HPVTHyperV:
 		unconfigFun = fixer.unconfigHyperV
@@ -216,7 +216,7 @@ func (fixer *linuxSystemFixer) Repair() error {
 		configFun = fixer.configXen
 	case HPVTVmware:
 		configFun = fixer.configVmware
-	case HPVTQemuKvm:
+	case HPVTKvm:
 		configFun = fixer.configKvm
 	case HPVTHyperV:
 		configFun = fixer.configHyperV
@@ -1419,6 +1419,7 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 
 	shimEfiPath := findFirstEfi([]string{
 		filepath.Join(efiRoot, "*", efiImgName.Shim),
+		filepath.Join(efiRoot, "*", "shim.efi"),
 	})
 
 	//
@@ -2476,7 +2477,7 @@ func (fixer *linuxSystemFixer) syncFs() {
 	_, _, _ = command.Execute("sync;echo 3 > /proc/sys/vm/drop_caches", command.WithDebug())
 }
 
-func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(packages ...string) error {
+func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(pkgDir string) error {
 	logger.Debugf("injectPackageByZypper: ++")
 	defer logger.Debugf("injectPackageByZypper: --")
 
@@ -2484,7 +2485,7 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(packages ...string) e
 		return ErrorRootEnvNotMounted
 	}
 
-	tmpDir, e := os.MkdirTemp(fixer.offsys.root, "x2x.packages")
+	tmpDir, e := os.MkdirTemp(fixer.offsys.root, "x2x.packages.*")
 	if e != nil {
 		return e
 	}
@@ -2494,23 +2495,18 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(packages ...string) e
 		_ = os.RemoveAll(tmpDir)
 	}()
 
-	for _, pkg := range packages {
-		if !extend.IsExisted(pkg) {
-			return errors.Wrap(os.ErrNotExist, pkg)
-		}
-		logger.Debugf("injectPackagesByZypper: injecting %s ...", pkg)
+	cpCmdline := fmt.Sprintf("cp %s/* %s/", pkgDir, tmpDir)
+	_, _, ecp := command.Execute(cpCmdline, command.WithDebug())
+	if ecp != nil {
+		return errors.Wrapf(ecp, "copy %s/* to %s/", pkgDir, tmpDir)
+	}
 
-		cpCmdline := fmt.Sprintf("cp %s %s/", pkg, tmpDir)
-		_, _, ecp := command.Execute(cpCmdline, command.WithDebug())
-		if ecp != nil {
-			return errors.Wrapf(ecp, "copy %s to %s/", pkg, tmpDir)
-		}
+	logger.Debugf("injectPackagesByZypper: injecting %s ...", pkgDir)
 
-		installCmdline := fmt.Sprintf("cd %s; zypper --non-interactive install %s", tmpDirChrootPath, filepath.Base(pkg))
-		_, _, e = fixer.executeWithChroot(installCmdline)
-		if e != nil {
-			return errors.Wrapf(e, "install %s", filepath.Base(pkg))
-		}
+	installCmdline := fmt.Sprintf("cd %s; zypper --non-interactive install *.rpm", tmpDirChrootPath)
+	_, _, e = fixer.executeWithChroot(installCmdline)
+	if e != nil {
+		return errors.Wrapf(e, "install %s", pkgDir)
 	}
 
 	return nil

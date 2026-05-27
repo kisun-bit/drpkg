@@ -60,7 +60,7 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 		}
 		if platform.Virt != HPVTNone &&
 			platform.Virt != HPVTVmware &&
-			platform.Virt != HPVTQemuKvm &&
+			platform.Virt != HPVTKvm &&
 			platform.Virt != HPVTXen &&
 			platform.Virt != HPVTHyperV {
 			return errors.New("FixerCreateOptions Virt is invalid")
@@ -96,7 +96,7 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 			}
 			if uniPci.VendorId() == 0x1af4 {
 				plats[i].Base = HPVirt
-				plats[i].Virt = HPVTQemuKvm
+				plats[i].Virt = HPVTKvm
 				break
 			}
 			if uniPci.VendorId() == 0x5853 {

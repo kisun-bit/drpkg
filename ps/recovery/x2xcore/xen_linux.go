@@ -211,18 +211,18 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 		installed := false
 		if isOldSLES || isOldOpenSUSE {
 			// 装xen-kmp包
-			pkgs, e := fixer.x2xLib.GetLinuxPackage(
+			pkgDir, e := fixer.x2xLib.GetLinuxVirtualPackage(
 				fixer.offsys.distro.ID,
 				runtime.GOARCH,
 				k.Name,
-				"xen-kmp-default")
+				string(HPVTXen))
 			if e != nil {
 				logger.Warnf("patchOneKernelXen: GetLinuxPackage: %v", e)
 				return errors.Wrap(e, "xen-kmp-default*.rpm not installed")
 			}
 
-			logger.Debugf("patchOneKernelXen: packages of `xen-kmp-default`: %v", pkgs)
-			if e = fixer.batchInjectPackagesByZypper(pkgs...); e != nil {
+			logger.Debugf("patchOneKernelXen: packages of `xen-kmp-default`: %v", pkgDir)
+			if e = fixer.batchInjectPackagesByZypper(pkgDir); e != nil {
 				return errors.Wrapf(e, "install xen-kmp-default")
 			}
 			installed = true

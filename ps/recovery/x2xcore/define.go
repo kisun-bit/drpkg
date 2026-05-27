@@ -20,6 +20,7 @@ var SupportedFsTypes = []string{
 	"ext3",
 	"ext2",
 	"xfs",
+	"btrfs",
 	"fat",
 	"vfat",
 	"ntfs",
