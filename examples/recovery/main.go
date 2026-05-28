@@ -31,7 +31,7 @@ func main() {
 				Base: "virtual",
 				Virt: "xen",
 			},
-			X2XLibrary: "/root/library",
+			X2xLibrary: "/root/library",
 		},
 	})
 

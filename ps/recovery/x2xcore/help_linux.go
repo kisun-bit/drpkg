@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 )
@@ -25,15 +26,15 @@ func getEfiImageName() (efiImageName, bool) {
 	tag := ""
 
 	switch runtime.GOARCH {
-	case "amd64":
+	case define.ArchAmd64:
 		tag = "x64"
-	case "arm64":
+	case define.ArchArm64:
 		tag = "aa64"
-	case "386":
+	case define.Arch386:
 		tag = "ia32"
-	case "loong64":
+	case define.ArchLoong64:
 		tag = "loongarch64"
-	case "riscv64":
+	case define.ArchRiscv64:
 		tag = "riscv64"
 	}
 
@@ -54,7 +55,7 @@ func Mount(ctx context.Context, device string, mountpoint string, readonly bool)
 
 	// 确保 mountpoint 存在
 	if err = os.MkdirAll(mountpoint, 0755); err != nil {
-		return false, fmt.Errorf("create mountpoint failed: %w", err)
+		return false, fmt.Errorf("create mountpoint failed: %v", err)
 	}
 
 	// 检测设备是否支持挂载

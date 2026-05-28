@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"
 	"github.com/pkg/errors"
@@ -53,29 +54,29 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 		if platform.Arch != runtime.GOARCH {
 			return errors.New("FixerCreateOptions Arch is invalid")
 		}
-		if platform.Base != HPUnknown &&
-			platform.Base != HPVirt &&
-			platform.Base != HPBareMetal {
+		if platform.Base != define.HPUnknown &&
+			platform.Base != define.HPVirt &&
+			platform.Base != define.HPBareMetal {
 			return errors.New("FixerCreateOptions Base is invalid")
 		}
-		if platform.Virt != HPVTNone &&
-			platform.Virt != HPVTVmware &&
-			platform.Virt != HPVTKvm &&
-			platform.Virt != HPVTXen &&
-			platform.Virt != HPVTHyperV {
+		if platform.Virt != define.HPVTNone &&
+			platform.Virt != define.HPVTVmware &&
+			platform.Virt != define.HPVTKvm &&
+			platform.Virt != define.HPVTXen &&
+			platform.Virt != define.HPVTHyperV {
 			return errors.New("FixerCreateOptions Virt is invalid")
 		}
-		if platform.Base == HPBareMetal &&
+		if platform.Base == define.HPBareMetal &&
 			len(platform.PciList) == 0 {
 			return errors.New("FixerCreateOptions PciList is empty")
 		}
 	}
 
-	if opts.RecoveryParam.X2XLibrary == "" {
-		opts.RecoveryParam.X2XLibrary = filepath.Join(extend.ExecDir(), "library")
+	if opts.RecoveryParam.X2xLibrary == "" {
+		opts.RecoveryParam.X2xLibrary = filepath.Join(extend.ExecDir(), "library")
 	}
-	if !extend.IsExisted(opts.RecoveryParam.X2XLibrary) {
-		return errors.Errorf("FixerCreateOptions X2XLibrary(%s) is empty", opts.RecoveryParam.X2XLibrary)
+	if !extend.IsExisted(opts.RecoveryParam.X2xLibrary) {
+		return errors.Errorf("FixerCreateOptions X2XLibrary(%s) is empty", opts.RecoveryParam.X2xLibrary)
 	}
 
 	//
@@ -87,26 +88,26 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 		if plats[i].Base != "" {
 			continue
 		}
-		plats[i].Base = HPBareMetal
-		plats[i].Virt = HPVTNone
+		plats[i].Base = define.HPBareMetal
+		plats[i].Virt = define.HPVTNone
 		for _, p := range plats[i].PciList {
 			uniPci, err := universal.UniPciFromString(p)
 			if err != nil {
 				return err
 			}
 			if uniPci.VendorId() == 0x1af4 {
-				plats[i].Base = HPVirt
-				plats[i].Virt = HPVTKvm
+				plats[i].Base = define.HPVirt
+				plats[i].Virt = define.HPVTKvm
 				break
 			}
 			if uniPci.VendorId() == 0x5853 {
-				plats[i].Base = HPVirt
-				plats[i].Virt = HPVTXen
+				plats[i].Base = define.HPVirt
+				plats[i].Virt = define.HPVTXen
 				break
 			}
 			if uniPci.VendorId() == 0x15ad {
-				plats[i].Base = HPVirt
-				plats[i].Virt = HPVTVmware
+				plats[i].Base = define.HPVirt
+				plats[i].Virt = define.HPVTVmware
 				break
 			}
 		}

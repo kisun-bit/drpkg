@@ -160,14 +160,8 @@ type RecoveryParameter struct {
 	// FsckFs 强制修复文件系统
 	FsckFs bool `json:"fsckFs"`
 
-	// FsckFsTimeout 修复文件系统的超时时间
-	FsckFsTimeout int `json:"fsckFsTimeout"`
-
-	// SecureBoot 目标平台启用Secure Boot
-	SecureBoot bool `json:"secureBoot"`
-
-	// X2XLibrary x2xlib的library路径
-	X2XLibrary string `json:"x2XLibrary"`
+	// X2xLibrary x2xlib的library路径
+	X2xLibrary string `json:"x2xLibrary"`
 }
 
 type DeviceMap struct {

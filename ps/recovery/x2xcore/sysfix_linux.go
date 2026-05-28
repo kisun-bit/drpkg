@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kisun-bit/drpkg/command"
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/info"
@@ -26,7 +27,6 @@ type linuxSystemFixer struct {
 	ctx    context.Context
 	opts   *FixerCreateOptions // 恢复参数
 	logs   <-chan LogEntry     // 日志缓存通道
-	psinfo *info.PsInfo        // 修复虚机的系统信息（已附加离线系统）
 	x2xLib *x2xlib.X2XLib      // 驱动库
 	offsys offlineSystem       // 离线系统的私有信息
 }
@@ -54,7 +54,7 @@ type offlineSystem struct {
 	kvmDiskBus string // 磁盘总线（ide、scsi、virtio、sata）
 
 	// 启动模式（bios、uefi）
-	bootMode BootMode
+	bootMode define.BootMode
 
 	// 磁盘设备映射关系（源设备 -> 目标设备）
 	// 用于恢复后设备名变化映射（如 sda -> vda）
@@ -99,7 +99,7 @@ func NewSysFixer(ctx context.Context, opts *FixerCreateOptions) (fixer SysFixer,
 		return nil, err
 	}
 	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
-	lf.x2xLib, err = x2xlib.NewX2XLib(opts.RecoveryParam.X2XLibrary)
+	lf.x2xLib, err = x2xlib.NewX2XLib(opts.RecoveryParam.X2xLibrary)
 	if err != nil {
 		return nil, err
 	}
@@ -200,25 +200,25 @@ func (fixer *linuxSystemFixer) Repair() error {
 
 	var unconfigFun = fixer.unconfigBareMetal
 	switch fixer.opts.RecoveryParam.Source.Virt {
-	case HPVTXen:
+	case define.HPVTXen:
 		unconfigFun = fixer.unconfigXen
-	case HPVTVmware:
+	case define.HPVTVmware:
 		unconfigFun = fixer.unconfigVmware
-	case HPVTKvm:
+	case define.HPVTKvm:
 		unconfigFun = fixer.unconfigKvm
-	case HPVTHyperV:
+	case define.HPVTHyperV:
 		unconfigFun = fixer.unconfigHyperV
 	}
 
 	var configFun = fixer.configBareMetal
 	switch fixer.opts.RecoveryParam.Target.Virt {
-	case HPVTXen:
+	case define.HPVTXen:
 		configFun = fixer.configXen
-	case HPVTVmware:
+	case define.HPVTVmware:
 		configFun = fixer.configVmware
-	case HPVTKvm:
+	case define.HPVTKvm:
 		configFun = fixer.configKvm
-	case HPVTHyperV:
+	case define.HPVTHyperV:
 		configFun = fixer.configHyperV
 	}
 
@@ -382,7 +382,7 @@ func (fixer *linuxSystemFixer) deprecateSysMountPoint() error {
 	}
 
 	umountDev := false
-	if fixer.offsys.distro.Family == LinuxFamilyRHEL && fixer.offsys.distro.Major <= 4 {
+	if fixer.offsys.distro.Family == define.LinuxFamilyRHEL && fixer.offsys.distro.Major <= 4 {
 		umountDev = true
 	}
 	// FIXME: 待补充，其他系统是否也存在此问题
@@ -500,18 +500,18 @@ type initrdTool struct {
 
 var initrdTools = []initrdTool{
 	{
-		name:        InitrdToolDracut,
+		name:        define.InitrdToolDracut,
 		featureFile: "/etc/dracut.conf",
-		cmd:         InitrdToolDracut,
+		cmd:         define.InitrdToolDracut,
 	},
 	{
-		name:        InitrdToolUpdateInitramfs,
+		name:        define.InitrdToolUpdateInitramfs,
 		featureFile: "/etc/initramfs-tools/update-initramfs.conf",
-		cmd:         InitrdToolUpdateInitramfs,
+		cmd:         define.InitrdToolUpdateInitramfs,
 	},
 	{
-		name: InitrdToolMkinitrd,
-		cmd:  InitrdToolMkinitrd,
+		name: define.InitrdToolMkinitrd,
+		cmd:  define.InitrdToolMkinitrd,
 	},
 }
 
@@ -548,14 +548,14 @@ func (fixer *linuxSystemFixer) detectInitrdTool() error {
 
 		initrdTlVerCmdline := ""
 		switch tool.name {
-		case InitrdToolMkinitrd:
+		case define.InitrdToolMkinitrd:
 			if fixer.offsys.pkgMgrType == PackageManagerRPM {
 				initrdTlVerCmdline = `rpm -q mkinitrd`
 				break
 			}
-		case InitrdToolDracut:
+		case define.InitrdToolDracut:
 			// TODO
-		case InitrdToolUpdateInitramfs:
+		case define.InitrdToolUpdateInitramfs:
 			// TODO
 		}
 
@@ -921,7 +921,7 @@ func (fixer *linuxSystemFixer) detectKvmCfg() {
 	// "以 2007 为分界时间线，早于 2007 发布的 Linux 使用 i440fx，
 	// 2007 及之后发布的 Linux 使用 q35。"
 
-	chipset := ChipsetQ35
+	chipset := define.ChipsetQ35
 
 	switch fixer.offsys.distro.ID {
 	case "fedora":
@@ -931,31 +931,31 @@ func (fixer *linuxSystemFixer) detectKvmCfg() {
 		//	chipset = ChipsetI440fx
 		//}
 		if fixer.offsys.distro.Major <= 6 {
-			chipset = ChipsetI440fx
+			chipset = define.ChipsetI440fx
 		}
 	case "sles", "suse-based", "opensuse":
 		//if fixer.offlineSystem.distro.Major <= 10 {
 		//	chipset = ChipsetI440fx
 		//}
 		if fixer.offsys.distro.Major <= 12 {
-			chipset = ChipsetI440fx
+			chipset = define.ChipsetI440fx
 		}
 	case "debian", "ubuntu", "linuxmint", "kaillinux":
 		if fixer.offsys.distro.Major <= 4 {
-			chipset = ChipsetI440fx
+			chipset = define.ChipsetI440fx
 		}
 	}
 
 	fixer.offsys.kvmChipset = chipset
 	logger.Debugf("detectChipset: chipset detected: %s", chipset)
 
-	fixer.offsys.kvmVideo = VideoBochs
+	fixer.offsys.kvmVideo = define.VideoBochs
 	// FIXME: 后续不要根据主板去决定显卡类型
-	if fixer.offsys.kvmChipset == ChipsetQ35 {
-		fixer.offsys.kvmChipset = VideoVGA
+	if fixer.offsys.kvmChipset == define.ChipsetQ35 {
+		fixer.offsys.kvmChipset = define.VideoVGA
 	}
 
-	fixer.offsys.kvmDiskBus = DiskBusScsi
+	fixer.offsys.kvmDiskBus = define.DiskBusScsi
 
 	// FIXME:
 	// 但在实际测试中发现，SUSE11 SP4（kernel 3.0.101）是一个例外：
@@ -1000,7 +1000,7 @@ func (fixer *linuxSystemFixer) detectBootMode() {
 		return
 	}
 
-	fixer.offsys.bootMode = BootModeBIOS
+	fixer.offsys.bootMode = define.BootModeBIOS
 
 	efiDir := filepath.Join(fixer.offsys.root, "boot/efi")
 	if extend.IsExisted(efiDir) {
@@ -1015,7 +1015,7 @@ func (fixer *linuxSystemFixer) detectBootMode() {
 				return nil
 			}
 			if filename := strings.ToLower(filepath.Base(path)); strings.HasSuffix(filename, ".efi") {
-				fixer.offsys.bootMode = BootModeUEFI
+				fixer.offsys.bootMode = define.BootModeUEFI
 				return filepath.SkipAll
 			}
 			return nil
@@ -1036,7 +1036,7 @@ func (fixer *linuxSystemFixer) detectUdevSupportUuid() {
 	fixer.offsys.udevSupportUuid = true
 
 	switch fixer.offsys.distro.Family {
-	case LinuxFamilyRHEL:
+	case define.LinuxFamilyRHEL:
 		if fixer.offsys.distro.Major <= 4 {
 			fixer.offsys.udevSupportUuid = false
 		}
@@ -1338,7 +1338,7 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 	logger.Debugf("fixEfiFirmware: ++")
 	defer logger.Debugf("fixEfiFirmware: --")
 
-	if fixer.offsys.bootMode != BootModeUEFI {
+	if fixer.offsys.bootMode != define.BootModeUEFI {
 		logger.Debugf("fixEfiFirmware: Ignored when bootmode is `%s`", fixer.offsys.bootMode)
 		return nil
 	}
@@ -1553,7 +1553,7 @@ func (fixer *linuxSystemFixer) fixPamLogin() error {
 
 	entries, err := os.ReadDir(pamDir)
 	if err != nil {
-		return fmt.Errorf("read pam dir failed: %w", err)
+		return fmt.Errorf("read pam dir failed: %v", err)
 	}
 
 	// 匹配绝对路径 so
@@ -1652,7 +1652,7 @@ func (fixer *linuxSystemFixer) fixPamLogin() error {
 				0644,
 			); err != nil {
 				return fmt.Errorf(
-					"write pam file failed: %s, err=%w",
+					"write pam file failed: %s, err=%v",
 					filePath,
 					err,
 				)
@@ -1707,7 +1707,7 @@ func (fixer *linuxSystemFixer) disableSeLinux() error {
 		newContent := strings.Join(lines, "\n")
 
 		if err := os.WriteFile(configPath, []byte(newContent), 0644); err != nil {
-			return fmt.Errorf("write selinux config failed: %w", err)
+			return fmt.Errorf("write selinux config failed: %v", err)
 		}
 
 		logger.Debugf("disableSeLinux: `%s` [modified]:"+
@@ -1967,14 +1967,14 @@ func (fixer *linuxSystemFixer) initrdAddModule(k kernel, modules ...string) erro
 	}
 
 	switch fixer.offsys.initrdTl {
-	case InitrdToolMkinitrd:
+	case define.InitrdToolMkinitrd:
 		return fixer.initrdAddModuleByMkinitrd(k, modules...)
-	case InitrdToolDracut:
+	case define.InitrdToolDracut:
 		if err := fixer.addModulesToDracutConf(modules...); err != nil {
 			return err
 		}
 		return fixer.generateInitrdByDracut(k)
-	case InitrdToolUpdateInitramfs:
+	case define.InitrdToolUpdateInitramfs:
 		if err := fixer.addModulesToInitramfsConf(modules...); err != nil {
 			return err
 		}
@@ -2106,7 +2106,7 @@ func (fixer *linuxSystemFixer) initrdAddModuleByMkinitrd(
 		verItems := strings.Split(
 			strings.TrimPrefix(
 				fixer.offsys.initrdTlVer,
-				InitrdToolMkinitrd+"-",
+				define.InitrdToolMkinitrd+"-",
 			),
 			".",
 		)
