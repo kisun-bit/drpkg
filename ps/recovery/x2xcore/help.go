@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/disk/table"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
@@ -56,7 +57,7 @@ func SupportMount(device string) (ok bool, fsType string) {
 // DetectFSTypeByBlkid 使用 blkid 探测文件系统类型
 func DetectFSTypeByBlkid(device string) (string, error) {
 	switch runtime.GOOS {
-	case "linux":
+	case define.OsLinux:
 		_, output, err := command.Execute(fmt.Sprintf("blkid -o value -s TYPE %s", device))
 		if err != nil {
 			return "", err
@@ -74,7 +75,7 @@ func DetectFSTypeByBlkid(device string) (string, error) {
 // DetectUuidByBlkid 使用 blkid 探测设备的UUID
 func DetectUuidByBlkid(device string) (string, error) {
 	switch runtime.GOOS {
-	case "linux":
+	case define.OsLinux:
 		_, output, err := command.Execute(fmt.Sprintf("blkid -o value -s UUID %s", device))
 		if err != nil {
 			return "", err
@@ -92,54 +93,74 @@ func DetectUuidByBlkid(device string) (string, error) {
 // DetectFSRepairCmdline 探测设备的修复命令
 func DetectFSRepairCmdline(device string) (cmdline string, ok bool) {
 	switch runtime.GOOS {
-	case "windows":
+	case define.OsWindows:
 		if !strings.HasSuffix(device, ":") {
-			logger.Warnf("DetectFSRepairCmdline: The device name (%s) is invalid; Windows platforms require it to end with a \":\" character.", device)
+			logger.Warnf(
+				"DetectFSRepairCmdline: invalid device(%s), Windows drive must end with ':'",
+				device,
+			)
 			return "", false
 		}
+
 		return fmt.Sprintf("CHKDSK /F %s", device), true
-	case "linux":
+
+	case define.OsLinux:
 		fsType, err := DetectFSTypeByBlkid(device)
 		if err != nil {
-			logger.Warnf("DetectFSRepairCmdline: DetectFSTypeByBlkid failed for %s. %v", device, err)
+			logger.Warnf(
+				"DetectFSRepairCmdline: DetectFSTypeByBlkid(%s) failed. %v",
+				device,
+				err,
+			)
 			return "", false
 		}
-		logger.Debugf("DetectFSRepairCmdline: device: %s, fsType: %s", device, fsType)
 
-		switch fsType {
-		case "ext4", "ext3", "ext2":
-			return fmt.Sprintf("e2fsck -y %s", device), true
-		case "xfs":
-			return fmt.Sprintf("xfs_repair -L %s", device), true
-		case "btrfs":
-			return fmt.Sprintf("btrfs check --repair %s", device), true
-		case "fat":
-			return fmt.Sprintf("fsck.fat -a %s", device), true
-		case "vfat":
-			return fmt.Sprintf("fsck.vfat -a %s", device), true
-		case "ntfs":
-			return fmt.Sprintf("ntfsfix -b -d %s", device), true
-		case "cramfs":
-			return fmt.Sprintf("fsck.cramfs -y %s", device), true
-		case "gfs2":
-			return fmt.Sprintf("fsck.gfs2 -y %s", device), true
-		case "hfs":
-			return fmt.Sprintf("fsck.hfs -y %s", device), true
-		case "hfsplus":
-			return fmt.Sprintf("fsck.hfsplus -y %s", device), true
-		case "zfs":
-			return fmt.Sprintf("fsck.zfs -y %s", device), true
-		case "jfs":
-			return fmt.Sprintf("fsck.jfs -a %s", device), true
-		case "minix":
-			return fmt.Sprintf("fsck.minix -a %s", device), true
-		case "msdos":
-			return fmt.Sprintf("fsck.msdos -a %s", device), true
-		case "reiserfs":
-			return fmt.Sprintf("yes Yes | fsck.reiserfs --fix-fixable --rebuild-sb --rebuild-tree -y %s", device), true
-		default:
+		logger.Debugf(
+			"DetectFSRepairCmdline: device=%s fsType=%s",
+			device,
+			fsType,
+		)
+
+		repairCmdMap := map[string]string{
+			// ext family
+			define.FsTypeExt2: "e2fsck -y %s",
+			define.FsTypeExt3: "e2fsck -y %s",
+			define.FsTypeExt4: "e2fsck -y %s",
+
+			// xfs
+			define.FsTypeXFS: "xfs_repair -L %s",
+
+			// btrfs
+			define.FsTypeBtrfs: "btrfs check --repair %s",
+
+			// FAT family
+			define.FsTypeFAT:   "fsck.fat -a %s",
+			define.FsTypeVFAT:  "fsck.vfat -a %s",
+			define.FsTypeMSDOS: "fsck.msdos -a %s",
+
+			// ntfs
+			define.FsTypeNTFS: "ntfsfix -b -d %s",
+
+			// special
+			define.FsTypeCramFS: "fsck.cramfs -y %s",
+			define.FsTypeGFS2:   "fsck.gfs2 -y %s",
+
+			// apple
+			define.FsTypeHFS:     "fsck.hfs -y %s",
+			define.FsTypeHFSPlus: "fsck.hfsplus -y %s",
+
+			// unix-like
+			define.FsTypeJFS:      "fsck.jfs -a %s",
+			define.FsTypeMinix:    "fsck.minix -a %s",
+			define.FsTypeReiserFS: "yes Yes | fsck.reiserfs --fix-fixable --rebuild-sb --rebuild-tree -y %s",
+		}
+
+		cmdTemplate, exists := repairCmdMap[fsType]
+		if !exists {
 			return "", false
 		}
+
+		return fmt.Sprintf(cmdTemplate, device), true
 
 	default:
 		return "", false
@@ -160,13 +181,13 @@ func withMount(
 
 	switch runtime.GOOS {
 
-	case "windows":
+	case define.OsWindows:
 		if !strings.HasSuffix(device, ":") {
 			return false
 		}
 		mountpoint = device + "\\"
 
-	case "linux":
+	case define.OsLinux:
 		var err error
 
 		mountpoint, err = os.MkdirTemp("", strings.ToLower(tag)+"-*")
@@ -302,7 +323,7 @@ func enumFilesystem(offline []string) ([]fsDevice, error) {
 	var devs []fsDevice
 	for _, dev := range fsDevList {
 		fsStr, _ := DetectFSTypeByBlkid(dev)
-		if funk.InStrings(SupportedFsTypes, fsStr) || fsStr == "swap" {
+		if funk.InStrings(SupportedFsTypes, fsStr) || fsStr == define.FsTypeSwap {
 			devs = append(devs, fsDevice{dev, fsStr})
 		}
 	}

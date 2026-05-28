@@ -1,6 +1,10 @@
 package info
 
-import "runtime"
+import (
+	"runtime"
+
+	"github.com/kisun-bit/drpkg/define"
+)
 
 type LinuxTarget struct {
 	GoArch     string `json:"goArch"`     // Architecture name according to Go
@@ -13,7 +17,7 @@ type LinuxTarget struct {
 
 var LinuxTargets = []LinuxTarget{
 	{
-		GoArch:    "386",
+		GoArch:    define.Arch386,
 		LinuxArch: "x86",
 		GNUArch:   "i686-linux-gnu", // Note "i686" not "i386"
 		// 举例:
@@ -47,14 +51,14 @@ var LinuxTargets = []LinuxTarget{
 		Bits: 32,
 	},
 	{
-		GoArch:    "amd64",
+		GoArch:    define.ArchAmd64,
 		LinuxArch: "x86",
 		GNUArch:   "x86_64-linux-gnu",
 		Bits:      64,
 	},
 	{
-		GoArch:     "arm64",
-		LinuxArch:  "arm64",
+		GoArch:     define.ArchArm64,
+		LinuxArch:  define.ArchArm64,
 		GNUArch:    "aarch64-linux-gnu",
 		SignedChar: true,
 		Bits:       64,
@@ -66,7 +70,7 @@ var LinuxTargets = []LinuxTarget{
 		Bits:      32,
 	},
 	{
-		GoArch:    "loong64",
+		GoArch:    define.ArchLoong64,
 		LinuxArch: "loongarch",
 		GNUArch:   "loongarch64-linux-gnu",
 		Bits:      64,
@@ -118,7 +122,7 @@ var LinuxTargets = []LinuxTarget{
 		Bits:      64,
 	},
 	{
-		GoArch:    "riscv64",
+		GoArch:    define.ArchRiscv64,
 		LinuxArch: "riscv",
 		GNUArch:   "riscv64-linux-gnu",
 		Bits:      64,

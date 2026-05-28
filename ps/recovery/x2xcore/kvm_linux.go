@@ -1,6 +1,7 @@
 package x2xcore
 
 import (
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
@@ -35,7 +36,7 @@ func (fixer *linuxSystemFixer) patchVirtIO() error {
 		if err := fixer.patchOneKernelVirtIO(k); err != nil {
 			// TODO 提示警告，此内核不兼容virtio硬件设备
 			logger.Warnf("patchVirtIO: patchOneKernelVirtIO: %v", err)
-			fixer.offsys.kvmDiskBus = DiskBusIde
+			fixer.offsys.kvmDiskBus = define.DiskBusIde
 			return nil
 		}
 	}

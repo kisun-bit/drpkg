@@ -3,36 +3,9 @@ package x2xcore
 import (
 	"runtime"
 
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"
 	"github.com/shirou/gopsutil/v3/cpu"
-)
-
-// HardwarePlatform 基础硬件平台
-type HardwarePlatform string
-
-const (
-	HPUnknown   HardwarePlatform = "unknown"
-	HPVirt      HardwarePlatform = "virtual"    // 虚拟化 / 云平台
-	HPBareMetal HardwarePlatform = "bare-metal" // 裸机（物理机）
-)
-
-// HPVirtType 虚拟化/云平台的类别
-type HPVirtType string
-
-const (
-	HPVTNone   HPVirtType = "none"
-	HPVTVmware HPVirtType = "vmware"
-	HPVTKvm    HPVirtType = "kvm"
-	HPVTXen    HPVirtType = "xen"
-	HPVTHyperV HPVirtType = "hyper-v"
-)
-
-// BootMode 启动模式
-type BootMode string
-
-const (
-	BootModeUEFI BootMode = "uefi"
-	BootModeBIOS BootMode = "bios"
 )
 
 // Platform 表示一个运行环境（源或目标）
@@ -44,10 +17,10 @@ type Platform struct {
 	CpuVendor string `json:"cpuVendor"`
 
 	// Base 平台类型：virt / bare-metal
-	Base HardwarePlatform `json:"base"`
+	Base define.HardwarePlatform `json:"base"`
 
 	// Virt 虚拟化类型（仅当 Base=virt 时使用）
-	Virt HPVirtType `json:"virt,omitempty"`
+	Virt define.HPVirtType `json:"virt,omitempty"`
 
 	// PciList PCI设备列表（仅当 Base=bare-metal 时使用）
 	PciList []string `json:"pciList,omitempty"`
@@ -55,8 +28,8 @@ type Platform struct {
 
 // RuntimePlatform 返回当前所运行系统的硬件平台信息
 func RuntimePlatform() (pf Platform, err error) {
-	pf.Base = HPUnknown
-	pf.Virt = HPVTNone
+	pf.Base = define.HPUnknown
+	pf.Virt = define.HPVTNone
 
 	pf.Arch = runtime.GOARCH
 
@@ -75,17 +48,17 @@ func RuntimePlatform() (pf Platform, err error) {
 	for _, pci := range pciList {
 
 		switch {
-		case pci.VendorId() == 0x15ad && pf.Base == HPUnknown: // 检查是否是vmware环境
-			pf.Base = HPVirt
-			pf.Virt = HPVTVmware
+		case pci.VendorId() == 0x15ad && pf.Base == define.HPUnknown: // 检查是否是vmware环境
+			pf.Base = define.HPVirt
+			pf.Virt = define.HPVTVmware
 			continue
-		case pci.VendorId() == 0x5853 && pf.Base == HPUnknown: // 检查是否是xen环境
-			pf.Base = HPVirt
-			pf.Virt = HPVTXen
+		case pci.VendorId() == 0x5853 && pf.Base == define.HPUnknown: // 检查是否是xen环境
+			pf.Base = define.HPVirt
+			pf.Virt = define.HPVTXen
 			continue
-		case pci.VendorId() == 0x1af4 && pf.Base == HPUnknown: // 检查是否是qemu/kvm环境
-			pf.Base = HPVirt
-			pf.Virt = HPVTKvm
+		case pci.VendorId() == 0x1af4 && pf.Base == define.HPUnknown: // 检查是否是qemu/kvm环境
+			pf.Base = define.HPVirt
+			pf.Virt = define.HPVTKvm
 			continue
 		}
 
@@ -99,15 +72,15 @@ func RuntimePlatform() (pf Platform, err error) {
 	if err != nil {
 		return pf, err
 	}
-	if yes && pf.Base == HPUnknown {
-		pf.Base = HPVirt
-		pf.Virt = HPVTHyperV
+	if yes && pf.Base == define.HPUnknown {
+		pf.Base = define.HPVirt
+		pf.Virt = define.HPVTHyperV
 	}
 
 	// 排除所有虚拟化，确定为物理机环境
-	if pf.Base == HPUnknown {
-		pf.Base = HPBareMetal
-		pf.Virt = HPVTNone
+	if pf.Base == define.HPUnknown {
+		pf.Base = define.HPBareMetal
+		pf.Virt = define.HPVTNone
 	}
 
 	return pf, nil

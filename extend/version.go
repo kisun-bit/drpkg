@@ -1,7 +1,6 @@
 package extend
 
 import (
-	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -173,25 +172,4 @@ func (v Versions) Less(i, j int) bool {
 
 func (v Versions) Swap(i, j int) {
 	v[i], v[j] = v[j], v[i]
-}
-
-func Example() {
-	v1 := Parse("10.0.19045")
-	v2 := Parse("10.0.16299")
-
-	fmt.Println(v1.GreaterThan(v2)) // true
-
-	fmt.Println(Parse("1.2").Equal(Parse("1.2.0"))) // true
-
-	fmt.Println(Parse("v1.2.3"))
-	fmt.Println(Parse("NTamd64.10.0...16299"))
-
-	versions := Versions{
-		Parse("10.0.19045"),
-		Parse("6.1"),
-		Parse("10.0.16299"),
-	}
-
-	// sort.Sort(versions)
-	fmt.Println(versions)
 }

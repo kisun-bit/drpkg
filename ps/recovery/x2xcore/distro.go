@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/pkg/errors"
 )
@@ -22,28 +23,37 @@ type DistroInfo struct {
 	Family  string // 来源：RHEL、ALT、SUSE、DEBIAN
 }
 
-func GetFamilyByDistroId(distroId string) string {
-	switch distroId {
-	case "fedora",
-		"rhel",
-		"centos",
-		"circle",
-		"scientificlinux",
-		"redhat-based",
-		"oraclelinux",
-		"rocky",
-		"kylin",
-		"neokylin",
-		"anolis",
-		"openeuler":
-		return LinuxFamilyRHEL
-	case "altlinux":
-		return LinuxFamilyALT
-	case "sles", "suse-based", "opensuse":
-		return LinuxFamilySUSE
-	case "debian", "ubuntu", "linuxmint", "kalilinux":
-		return LinuxFamilyDebian
+func GetFamilyByDistroID(distroID string) string {
+	switch distroID {
+	case define.DistroFedora,
+		define.DistroRHEL,
+		define.DistroCentOS,
+		define.DistroCircle,
+		define.DistroScientificLinux,
+		define.DistroRedhatBased,
+		define.DistroOracleLinux,
+		define.DistroRocky,
+		define.DistroKylin,
+		define.DistroNeoKylin,
+		define.DistroAnolis,
+		define.DistroOpenEuler:
+		return define.LinuxFamilyRHEL
+
+	case define.DistroALTLinux:
+		return define.LinuxFamilyALT
+
+	case define.DistroSLES,
+		define.DistroSUSEBased,
+		define.DistroOpenSUSE:
+		return define.LinuxFamilySUSE
+
+	case define.DistroDebian,
+		define.DistroUbuntu,
+		define.DistroLinuxMint,
+		define.DistroKaliLinux:
+		return define.LinuxFamilyDebian
 	}
+
 	return ""
 }
 
@@ -60,7 +70,7 @@ func DetectDistro(root string) (*DistroInfo, error) {
 
 	for _, fn := range try {
 		if info, err := fn(root); err == nil && info != nil {
-			info.Family = GetFamilyByDistroId(info.ID)
+			info.Family = GetFamilyByDistroID(info.ID)
 			return info, nil
 		}
 	}
@@ -160,15 +170,15 @@ func parseRedhatRelease(root string) (*DistroInfo, error) {
 
 	switch {
 	case strings.Contains(lower, "centos"):
-		info.ID = "centos"
+		info.ID = define.DistroCentOS
 	case strings.Contains(lower, "red hat"):
-		info.ID = "rhel"
+		info.ID = define.DistroRHEL
 	case strings.Contains(lower, "oracle"):
-		info.ID = "oracle"
+		info.ID = define.DistroOracleLinux
 	case strings.Contains(lower, "rocky"):
-		info.ID = "rocky"
+		info.ID = define.DistroRocky
 	case strings.Contains(lower, "alma"):
-		info.ID = "almalinux"
+		info.ID = define.DistroAlma
 	default:
 		info.ID = "unknown"
 	}
@@ -201,7 +211,7 @@ func parseDebianVersion(root string) (*DistroInfo, error) {
 	v := strings.TrimSpace(string(data))
 
 	return &DistroInfo{
-		ID:      "debian",
+		ID:      define.DistroDebian,
 		Version: v,
 		Major:   extractMajor(v),
 		Pretty:  "Debian " + v,
@@ -223,15 +233,15 @@ func parseSuseRelease(root string) (*DistroInfo, error) {
 	s := string(data)
 
 	info := &DistroInfo{
-		ID:     "suse-based",
+		ID:     define.DistroSUSEBased,
 		Pretty: strings.TrimSpace(s),
 		Source: path,
 	}
 
 	if strings.Contains(strings.ToLower(string(data)), "suse linux enterprise server") {
-		info.ID = "sles"
+		info.ID = define.DistroSLES
 	} else if strings.Contains(strings.ToLower(string(data)), "opensuse") {
-		info.ID = "opensuse"
+		info.ID = define.DistroOpenSUSE
 	}
 
 	re := regexp.MustCompile(`VERSION\s*=\s*(\d+)`)
@@ -264,13 +274,13 @@ func parseIssueFallback(root string) (*DistroInfo, error) {
 
 	switch {
 	case strings.Contains(lower, "centos"):
-		info.ID = "centos"
+		info.ID = define.DistroCentOS
 	case strings.Contains(lower, "ubuntu"):
-		info.ID = "ubuntu"
+		info.ID = define.DistroUbuntu
 	case strings.Contains(lower, "debian"):
-		info.ID = "debian"
+		info.ID = define.DistroDebian
 	case strings.Contains(lower, "red hat"):
-		info.ID = "rhel"
+		info.ID = define.DistroRHEL
 	default:
 		info.ID = "unknown"
 	}

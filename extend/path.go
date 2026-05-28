@@ -133,6 +133,48 @@ func FilenameIfExisted(path string) string {
 	return ""
 }
 
+func CopyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		dstPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		return CopyFileV2(path, dstPath, info.Mode())
+	})
+}
+
+func CopyFileV2(src, dst string, mode os.FileMode) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.OpenFile(
+		dst,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		mode,
+	)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
+}
+
 // CopyFile 拷贝文件
 func CopyFile(src, dst string) (int64, error) {
 	stat, err := os.Stat(src)

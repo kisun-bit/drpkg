@@ -15,6 +15,7 @@ import (
 	"unsafe"
 
 	"github.com/kisun-bit/drpkg/command"
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 	"golang.org/x/sys/unix"
@@ -35,10 +36,10 @@ func GetFileSize(fileName string) (size uint64, err error) {
 		defer f.Close()
 
 		switch runtime.GOARCH {
-		case "386":
+		case define.Arch386:
 			_, _, errno = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize, uintptr(unsafe.Pointer(&size)))
 			size <<= 9
-		case "amd64", "arm64":
+		case define.ArchAmd64, define.ArchArm64:
 			_, _, errno = unix.Syscall(unix.SYS_IOCTL, f.Fd(), LinuxIOCTLGetBlockSize64, uintptr(unsafe.Pointer(&size)))
 		}
 

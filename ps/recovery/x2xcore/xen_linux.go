@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 )
@@ -210,20 +211,22 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 
 		installed := false
 		if isOldSLES || isOldOpenSUSE {
-			// 装xen-kmp包
-			pkgDir, e := fixer.x2xLib.GetLinuxVirtualPackage(
+
+			// 离线安装xen相关的包
+			pkgDirs, e := fixer.x2xLib.GetLinuxVirtualizationDriver(
 				fixer.offsys.distro.ID,
 				runtime.GOARCH,
-				k.Name,
-				string(HPVTXen))
+				define.HPVTXen,
+				k.Name)
 			if e != nil {
-				logger.Warnf("patchOneKernelXen: GetLinuxPackage: %v", e)
-				return errors.Wrap(e, "xen-kmp-default*.rpm not installed")
+				logger.Warnf("patchOneKernelXen: GetLinuxVirtualizationDriver: %v", e)
+				return errors.Wrap(e, "xen drivers not installed")
 			}
-
-			logger.Debugf("patchOneKernelXen: packages of `xen-kmp-default`: %v", pkgDir)
-			if e = fixer.batchInjectPackagesByZypper(pkgDir); e != nil {
-				return errors.Wrapf(e, "install xen-kmp-default")
+			for _, pkgDir := range pkgDirs {
+				logger.Debugf("patchOneKernelXen: Package: %s", pkgDir)
+				if e = fixer.batchInjectPackagesByZypper(pkgDir); e != nil {
+					return errors.Wrapf(e, filepath.Base(pkgDir))
+				}
 			}
 			installed = true
 			xenCand1ModulesFound = true
