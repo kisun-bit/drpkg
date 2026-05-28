@@ -91,7 +91,7 @@ func MatchDevLinkName(base string, deviceName string) string {
 func DevBlockSize(dev string) (uint32, error) {
 	fd, err := os.OpenFile(dev, os.O_RDONLY, 0600)
 	if err != nil {
-		return 0, fmt.Errorf("fail to open %s: %w", dev, err)
+		return 0, fmt.Errorf("fail to open %s: %v", dev, err)
 	}
 	defer fd.Close()
 
@@ -106,7 +106,7 @@ func DevBlockSize(dev string) (uint32, error) {
 func DevPhysicalBlockSize(dev string) (uint32, error) {
 	fd, err := os.OpenFile(dev, os.O_RDONLY, 0600)
 	if err != nil {
-		return 0, fmt.Errorf("fail to open %s: %w", dev, err)
+		return 0, fmt.Errorf("fail to open %s: %v", dev, err)
 	}
 	defer fd.Close()
 
@@ -508,7 +508,7 @@ func GetMultipathSlaves(devPath string) ([]string, error) {
 
 	entries, err := os.ReadDir(slavesPath)
 	if err != nil {
-		return nil, errors.Errorf("read slaves dir failed: %w", err)
+		return nil, errors.Errorf("read slaves dir failed: %v", err)
 	}
 
 	var result []string
@@ -632,12 +632,12 @@ func MultipathSegments(device string) (segments []Segment, err error) {
 	// 解析 start 和 length, 单位：512B
 	start, err := strconv.ParseUint(fields[0], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parse start failed: %w", err)
+		return nil, fmt.Errorf("parse start failed: %v", err)
 	}
 
 	length, err := strconv.ParseUint(fields[1], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parse length failed: %w", err)
+		return nil, fmt.Errorf("parse length failed: %v", err)
 	}
 
 	target := fields[2]

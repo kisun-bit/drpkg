@@ -89,7 +89,7 @@ func readPatternsFromFiles(files []string) ([]string, error) {
 			return scanner.Err()
 		}()
 		if err != nil {
-			return nil, fmt.Errorf("failed to read patterns from file %q: %w", filename, err)
+			return nil, fmt.Errorf("failed to read patterns from file %q: %v", filename, err)
 		}
 	}
 	return patterns, nil

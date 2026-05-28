@@ -25,7 +25,7 @@ func newFsRegionReader(path string, offset, size int64) (*fsRegionReader, error)
 
 	deviceSize, err := extend.FileSize(path)
 	if err != nil {
-		return nil, errors.Errorf("get device size failed: %w", err)
+		return nil, errors.Errorf("get device size failed: %v", err)
 	}
 	if deviceSize <= 0 {
 		return nil, errors.Errorf("invalid device size: %d", deviceSize)
@@ -39,7 +39,7 @@ func newFsRegionReader(path string, offset, size int64) (*fsRegionReader, error)
 
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, errors.Errorf("open device failed: %w", err)
+		return nil, errors.Errorf("open device failed: %v", err)
 	}
 
 	r := io.NewSectionReader(f, offset, size)

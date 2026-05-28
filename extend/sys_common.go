@@ -44,12 +44,12 @@ func ScanPVLabelFromDisk(dev string) (pl PVLabel, existed bool, err error) {
 		curOff := int64(i) * int64(lba)
 
 		if _, err = fp.Seek(curOff, io.SeekStart); err != nil {
-			return PVLabel{}, false, errors.Errorf("seek sector %d: %w", i, err)
+			return PVLabel{}, false, errors.Errorf("seek sector %d: %v", i, err)
 		}
 
 		n, er := io.ReadFull(fp, buf)
 		if er != nil && er != io.EOF {
-			return PVLabel{}, false, errors.Errorf("read sector %d: %w", i, er)
+			return PVLabel{}, false, errors.Errorf("read sector %d: %v", i, er)
 		}
 		if n == 0 {
 			break

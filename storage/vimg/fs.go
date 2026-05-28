@@ -135,7 +135,7 @@ func (m *manager) CreateFromBacking(opts CreateFromBackingOptions) (*VImg, error
 
 	backingMetaInfo := &VImg{}
 	if err := readJSON(backingMeta, backingMetaInfo); err != nil {
-		return nil, fmt.Errorf("failed to open backing meta %q: %w", backingMeta, err)
+		return nil, fmt.Errorf("failed to open backing meta %q: %v", backingMeta, err)
 	}
 	if opts.BackingGuid != "" && opts.BackingGuid != backingMetaInfo.Guid {
 		return nil, fmt.Errorf("backing guid mismatch: expected %s, got %s", opts.BackingGuid, backingMetaInfo.Guid)
@@ -980,7 +980,7 @@ func decodeStoredEncryptionKey(v *VImg, info storagePrivateInfo) ([]byte, error)
 		}
 		key, err := base64.StdEncoding.DecodeString(info.EncryptionKey)
 		if err != nil {
-			return nil, fmt.Errorf("invalid encryption key encoding: %w", err)
+			return nil, fmt.Errorf("invalid encryption key encoding: %v", err)
 		}
 		if len(key) != aes256KeySize {
 			return nil, fmt.Errorf("invalid encryption key size: got %d, want %d", len(key), aes256KeySize)
@@ -1152,7 +1152,7 @@ func getStoragePrivateInfo(v *VImg) (storagePrivateInfo, error) {
 
 	info := storagePrivateInfo{}
 	if err := json.Unmarshal([]byte(v.StoragePrivateInfo), &info); err != nil {
-		return storagePrivateInfo{}, fmt.Errorf("failed to unmarshal StoragePrivateInfo: %w", err)
+		return storagePrivateInfo{}, fmt.Errorf("failed to unmarshal StoragePrivateInfo: %v", err)
 	}
 	if info.Version == 0 {
 		info.Version = 1
