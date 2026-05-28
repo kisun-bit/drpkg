@@ -23,7 +23,7 @@ func TestParse(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := Parse(tt.input).String()
+		got := ParseVersion(tt.input).String()
 
 		if got != tt.want {
 			t.Fatalf(
@@ -51,7 +51,7 @@ func TestEqual(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := Parse(tt.a).Equal(Parse(tt.b))
+		got := ParseVersion(tt.a).Equal(ParseVersion(tt.b))
 
 		if got != tt.want {
 			t.Fatalf(
@@ -80,7 +80,7 @@ func TestGreaterThan(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := Parse(tt.a).GreaterThan(Parse(tt.b))
+		got := ParseVersion(tt.a).GreaterThan(ParseVersion(tt.b))
 
 		if got != tt.want {
 			t.Fatalf(
@@ -109,7 +109,7 @@ func TestLessThan(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := Parse(tt.a).LessThan(Parse(tt.b))
+		got := ParseVersion(tt.a).LessThan(ParseVersion(tt.b))
 
 		if got != tt.want {
 			t.Fatalf(
@@ -138,7 +138,7 @@ func TestCompare(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := Parse(tt.a).Compare(Parse(tt.b))
+		got := ParseVersion(tt.a).Compare(ParseVersion(tt.b))
 
 		if got != tt.want {
 			t.Fatalf(
@@ -153,29 +153,29 @@ func TestCompare(t *testing.T) {
 }
 
 func TestGreaterOrEqual(t *testing.T) {
-	if !Parse("1.2").GreaterOrEqual(Parse("1.2")) {
+	if !ParseVersion("1.2").GreaterOrEqual(ParseVersion("1.2")) {
 		t.Fatal("expect true")
 	}
 
-	if !Parse("1.2.1").GreaterOrEqual(Parse("1.2")) {
+	if !ParseVersion("1.2.1").GreaterOrEqual(ParseVersion("1.2")) {
 		t.Fatal("expect true")
 	}
 
-	if Parse("1.1").GreaterOrEqual(Parse("1.2")) {
+	if ParseVersion("1.1").GreaterOrEqual(ParseVersion("1.2")) {
 		t.Fatal("expect false")
 	}
 }
 
 func TestLessOrEqual(t *testing.T) {
-	if !Parse("1.2").LessOrEqual(Parse("1.2")) {
+	if !ParseVersion("1.2").LessOrEqual(ParseVersion("1.2")) {
 		t.Fatal("expect true")
 	}
 
-	if !Parse("1.2").LessOrEqual(Parse("1.2.1")) {
+	if !ParseVersion("1.2").LessOrEqual(ParseVersion("1.2.1")) {
 		t.Fatal("expect true")
 	}
 
-	if Parse("1.3").LessOrEqual(Parse("1.2")) {
+	if ParseVersion("1.3").LessOrEqual(ParseVersion("1.2")) {
 		t.Fatal("expect false")
 	}
 }
@@ -194,7 +194,7 @@ func TestIsZero(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := Parse(tt.input).IsZero()
+		got := ParseVersion(tt.input).IsZero()
 
 		if got != tt.want {
 			t.Fatalf(
@@ -209,12 +209,12 @@ func TestIsZero(t *testing.T) {
 
 func TestSort(t *testing.T) {
 	versions := Versions{
-		Parse("10.0.19045"),
-		Parse("6.1"),
-		Parse("10.0.16299"),
-		Parse("1.2"),
-		Parse("1.10"),
-		Parse("1.9"),
+		ParseVersion("10.0.19045"),
+		ParseVersion("6.1"),
+		ParseVersion("10.0.16299"),
+		ParseVersion("1.2"),
+		ParseVersion("1.10"),
+		ParseVersion("1.9"),
 	}
 
 	sort.Sort(versions)
@@ -251,8 +251,8 @@ func TestSort(t *testing.T) {
 
 // Windows版本判断场景
 func TestWindowsVersionRange(t *testing.T) {
-	min := Parse("6.0")
-	max := Parse("6.2")
+	min := ParseVersion("6.0")
+	max := ParseVersion("6.2")
 
 	tests := []struct {
 		version string
@@ -268,7 +268,7 @@ func TestWindowsVersionRange(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		v := Parse(tt.version)
+		v := ParseVersion(tt.version)
 
 		got := v.GreaterOrEqual(min) &&
 			v.LessOrEqual(max)

@@ -69,6 +69,34 @@ func checkDriverDir(driverDir string) error {
 	return nil
 }
 
+var supportedNtVersions = []string{
+	"5.1",  // XP
+	"5.2",  // Server 2003 / XP x64
+	"6.0",  // Vista / Server 2008
+	"6.1",  // Windows 7 / Server 2008 R2
+	"6.2",  // Windows 8 / Server 2012
+	"6.3",  // Windows 8.1 / Server 2012 R2
+	"10.0", // Windows 10/11 / Server 2016+
+}
+
+func checkNtVersion(ntVersion string) error {
+	ntVersion = strings.TrimSpace(ntVersion)
+	if ntVersion == "" {
+		return errors.New("NT version is required")
+	}
+
+	for _, v := range supportedNtVersions {
+		if ntVersion == v || strings.HasPrefix(ntVersion, v+".") {
+			return nil
+		}
+	}
+
+	return errors.Errorf(
+		"unsupported NT version `%s`",
+		ntVersion,
+	)
+}
+
 func checkAndFixStrings(strArr []string) ([]string, error) {
 	if len(strArr) == 0 {
 		return nil, errors.New("strings is required")

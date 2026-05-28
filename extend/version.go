@@ -11,7 +11,7 @@ type Version struct {
 	parts []uint64
 }
 
-// Parse 从任意字符串解析版本
+// ParseVersion 从任意字符串解析版本
 //
 // 支持：
 //
@@ -20,7 +20,7 @@ type Version struct {
 //	"windows-10.0.19045"
 //	"6.1"
 //	"3"
-func Parse(s string) Version {
+func ParseVersion(s string) Version {
 	// 提取所有连续数字
 	re := regexp.MustCompile(`\d+`)
 	nums := re.FindAllString(s, -1)
@@ -46,9 +46,9 @@ func Parse(s string) Version {
 	}
 }
 
-// MustParse 解析失败时 panic（实际上不会失败）
-func MustParse(s string) Version {
-	return Parse(s)
+// MustParseVersion 解析失败时 panic（实际上不会失败）
+func MustParseVersion(s string) Version {
+	return ParseVersion(s)
 }
 
 // String 返回标准版本字符串
