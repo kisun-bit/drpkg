@@ -90,6 +90,6 @@ var SupportedDriverExt = []string{
 	"rpm",
 }
 
-const DriverStoreDirName = "driverstore"
-const DriverStoreVirtualDirName = "virtual"
-const DriverStoreIndexFileName = "index"
+const DriverStoreDirName = "driverstore.honki"
+const DriverStoreVirtualDirName = "virtual.honki"
+const DriverStoreIndexFileName = "INDEX"

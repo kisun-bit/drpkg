@@ -117,6 +117,14 @@ const (
 	FsTypeSwap = "swap"
 )
 
+// Windows 驱动签名类型
+const (
+	MsSignNone   = "none"
+	MsSignSha1   = "sha1"
+	MsSignSha256 = "sha256"
+	MsSignDual   = "dual"
+)
+
 // HardwarePlatform 基础硬件平台
 type HardwarePlatform string
 

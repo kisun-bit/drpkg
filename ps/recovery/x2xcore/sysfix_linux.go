@@ -2495,7 +2495,7 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(pkgDir string) error 
 		_ = os.RemoveAll(tmpDir)
 	}()
 
-	cpCmdline := fmt.Sprintf("cp %s/* %s/", pkgDir, tmpDir)
+	cpCmdline := fmt.Sprintf("cp --recursive %s/* %s/", pkgDir, tmpDir)
 	_, _, ecp := command.Execute(cpCmdline, command.WithDebug())
 	if ecp != nil {
 		return errors.Wrapf(ecp, "copy %s/* to %s/", pkgDir, tmpDir)
@@ -2506,7 +2506,7 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(pkgDir string) error 
 	installCmdline := fmt.Sprintf("cd %s; zypper --non-interactive install *.rpm", tmpDirChrootPath)
 	_, _, e = fixer.executeWithChroot(installCmdline)
 	if e != nil {
-		return errors.Wrapf(e, "install %s", pkgDir)
+		return e
 	}
 
 	return nil

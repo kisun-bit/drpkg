@@ -1,12 +1,11 @@
 package x2xlib
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/pkg/errors"
@@ -45,26 +44,19 @@ func checkVirtualType(virt define.HPVirtType) error {
 	return errors.Errorf("unsupported virtual type `%s`", virt)
 }
 
-func checkDriverName(driverName string) error {
-	if driverName == "" {
-		return errors.New("driver name is required")
+func checkOsType(os_ string) error {
+	if os_ != define.OsWindows && os_ != define.OsLinux {
+		return errors.Errorf("unsupported os `%s`", os_)
 	}
 	return nil
 }
 
-func checkDriverVersion(version string) error {
-	if version == "" {
-		return errors.New("driver version is required")
+func checkMsSignAlgo(signAlgo string) error {
+	if signAlgo == "" {
+		return errors.New("signature algorithm is required")
 	}
-	return nil
-}
-
-func checkDriverDir(driverDir string) error {
-	if driverDir == "" {
-		return errors.New("driver directory is required")
-	}
-	if !extend.IsDir(driverDir) {
-		return errors.Errorf("`%s` is not a directory", driverDir)
+	if signAlgo != define.MsSignDual && signAlgo != define.MsSignSha256 && signAlgo != define.MsSignSha1 {
+		return errors.Errorf("signature algorithm `%s` is not supported", signAlgo)
 	}
 	return nil
 }
@@ -97,80 +89,45 @@ func checkNtVersion(ntVersion string) error {
 	)
 }
 
-func checkAndFixStrings(strArr []string) ([]string, error) {
-	if len(strArr) == 0 {
-		return nil, errors.New("strings is required")
-	}
-	ret := make([]string, 0)
-	for _, str := range strArr {
-		if str = strings.TrimSpace(str); str != "" {
-			ret = append(ret, str)
-			continue
-		}
-	}
-	if len(ret) == 0 {
-		return nil, errors.New("strings is required")
-	}
-	return ret, nil
-}
-
-func getSupportedDistros(osType string) []string {
-	switch osType {
-	case define.OsWindows:
-		return []string{
-			define.DistroMicrosoft,
-		}
-
-	case define.OsLinux:
-		distros := make(
-			[]string,
-			0,
-			len(SupportedDistroTypes),
-		)
-
-		for _, distro := range SupportedDistroTypes {
-			if distro == define.DistroMicrosoft {
-				continue
-			}
-
-			distros = append(distros, distro)
-		}
-
-		return distros
-	}
-
-	return nil
-}
-
 func ensureDir(path string) error {
 	return os.MkdirAll(path, 0755)
 }
 
-func ensureDirWithGitKeep(path string) error {
-	if err := ensureDir(path); err != nil {
-		return err
+var unsupportedChars = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
+var multiUnderscore = regexp.MustCompile(`_+`)
+
+// SafeName 仅保留字母、数字、下划线、中横线、点号。
+func SafeName(s string) string {
+	s = strings.TrimSpace(s)
+
+	// 非法字符替换成 _
+	s = unsupportedChars.ReplaceAllString(s, "_")
+
+	// 连续 _ 合并
+	s = multiUnderscore.ReplaceAllString(s, "_")
+
+	// 去掉前后 _
+	s = strings.Trim(s, "_")
+
+	// 避免空
+	if s == "" || s == "." || s == ".." {
+		return "unnamed"
 	}
 
-	gitKeep := filepath.Join(path, ".gitkeep")
-
-	f, err := os.Create(gitKeep)
-	if err != nil {
-		return err
-	}
-
-	return f.Close()
+	return s
 }
 
-func generateDriverId(driverName string) (string, error) {
-	if err := checkDriverName(driverName); err != nil {
-		return "", err
+// initIndexFile 初始化带索引文件目录。
+func initIndexFile(path string) error {
+	if err := ensureDir(filepath.Dir(path)); err != nil {
+		return err
 	}
-	u, e := uuid.NewUUID()
-	if e != nil {
-		return "", e
+	if extend.IsExisted(path) {
+		return nil
 	}
-	return fmt.Sprintf(
-		"%s.%s",
-		driverName,
-		strings.ReplaceAll(u.String(), "-", "")), nil
+	return os.WriteFile(
+		path,
+		[]byte("[]"),
+		0o644,
+	)
 }
