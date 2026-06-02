@@ -660,12 +660,14 @@ func DiskAlignmentStorage(hardDiskPath string) (sad STORAGE_ACCESS_ALIGNMENT_DES
 func DiskSectorAlignment(dev string) (sa StorageAlignment, err error) {
 	sad, err := DiskAlignmentStorage(dev)
 	if err != nil {
-		if errors.Is(err, windows.ERROR_NOT_SUPPORTED) {
+		if errors.Is(err, windows.ERROR_NOT_SUPPORTED) ||
+			errors.Is(err, windows.ERROR_INVALID_PARAMETER) ||
+			errors.Is(err, windows.ERROR_INVALID_FUNCTION) {
 			sa.LogicalSectorSize = 512
 			sa.PhysicalSectorSize = sa.LogicalSectorSize
 			return sa, nil
 		}
-		return sa, errors.Wrapf(err, "DiskAlignmentStorage")
+		return sa, errors.Wrapf(err, "DiskSectorAlignment")
 	}
 	sa.PhysicalSectorSize = int(sad.BytesPerPhysicalSector)
 	sa.LogicalSectorSize = int(sad.BytesPerLogicalSector)

@@ -207,20 +207,68 @@ func (up *UniPci) MsCompatibleId() []string {
 	// * CC(4)
 	//
 
-	return []string{
-		fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X\\REV_%02X",
-			up.vendorId, up.deviceId, up.revision),
-		fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X",
-			up.vendorId, up.deviceId),
-		fmt.Sprintf("PCI\\VEN_%04X\\CC_%02X%02X%02X",
-			up.vendorId, up.baseClass, up.subClass, up.programInterface),
-		fmt.Sprintf("PCI\\VEN_%04X\\CC_%02X%02X",
-			up.vendorId, up.baseClass, up.subClass),
-		fmt.Sprintf("PCI\\VEN_%04X",
-			up.vendorId),
-		fmt.Sprintf("PCI\\CC_%02X%02X%02X",
-			up.baseClass, up.subClass, up.programInterface),
-		fmt.Sprintf("PCI\\CC_%02X%02X",
-			up.baseClass, up.subClass),
+	//return []string{
+	//	fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X\\REV_%02X",
+	//		up.vendorId, up.deviceId, up.revision),
+	//	fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X",
+	//		up.vendorId, up.deviceId),
+	//	fmt.Sprintf("PCI\\VEN_%04X\\CC_%02X%02X%02X",
+	//		up.vendorId, up.baseClass, up.subClass, up.programInterface),
+	//	fmt.Sprintf("PCI\\VEN_%04X\\CC_%02X%02X",
+	//		up.vendorId, up.baseClass, up.subClass),
+	//	fmt.Sprintf("PCI\\VEN_%04X",
+	//		up.vendorId),
+	//	fmt.Sprintf("PCI\\CC_%02X%02X%02X",
+	//		up.baseClass, up.subClass, up.programInterface),
+	//	fmt.Sprintf("PCI\\CC_%02X%02X",
+	//		up.baseClass, up.subClass),
+	//}
+
+	ids := make([]string, 0, 7)
+
+	// VEN + DEV + REV
+	if up.revision != 0 {
+		ids[0] = fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X\\REV_%02X",
+			up.vendorId, up.deviceId, up.revision)
 	}
+
+	// VEN + DEV
+	ids[1] = fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X",
+		up.vendorId, up.deviceId)
+
+	// VEN + CC(6)
+	if up.baseClass != 0 ||
+		up.subClass != 0 ||
+		up.programInterface != 0 {
+		ids[2] = fmt.Sprintf("PCI\\VEN_%04X\\CC_%02X%02X%02X",
+			up.vendorId, up.baseClass, up.subClass, up.programInterface)
+	}
+
+	// VEN + CC(4)
+	if up.baseClass != 0 ||
+		up.subClass != 0 {
+		ids[3] = fmt.Sprintf("PCI\\VEN_%04X\\CC_%02X%02X",
+			up.vendorId, up.baseClass, up.subClass)
+	}
+
+	// VEN
+	ids[4] = fmt.Sprintf("PCI\\VEN_%04X",
+		up.vendorId)
+
+	// CC(6)
+	if up.baseClass != 0 ||
+		up.subClass != 0 ||
+		up.programInterface != 0 {
+		ids[5] = fmt.Sprintf("PCI\\CC_%02X%02X%02X",
+			up.baseClass, up.subClass, up.programInterface)
+	}
+
+	// CC(4)
+	if up.baseClass != 0 ||
+		up.subClass != 0 {
+		ids[6] = fmt.Sprintf("PCI\\CC_%02X%02X",
+			up.baseClass, up.subClass)
+	}
+
+	return ids
 }
