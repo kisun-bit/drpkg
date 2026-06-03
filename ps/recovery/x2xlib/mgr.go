@@ -415,7 +415,7 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 		return "", "", err
 	}
 
-	compatIds, err := compadIdsFromUniPci(unipci)
+	compatIds, err := compatIdsFromUniPci(unipci)
 	if err != nil {
 		return "", "", err
 	}
@@ -495,7 +495,7 @@ func (x *X2XLib) SelectLinuxBestNormalDriver(
 		return "", "", errors.New("kernel is required")
 	}
 
-	compatIds, err := compadIdsFromUniPci(unipci)
+	compatIds, err := compatIdsFromUniPci(unipci)
 	if err != nil {
 		return "", "", err
 	}

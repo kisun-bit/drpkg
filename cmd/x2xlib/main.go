@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
 )
 
@@ -13,23 +14,23 @@ func main() {
 
 	_ = x
 
-	//if _, _, err := x.AddLinuxVirtualDriver(
-	//	"xen-kmp-default",
-	//	"4.1.23413",
-	//	define.HPVTXen,
-	//	"",
-	//	"amd64",
-	//	"D:\\download\\sles_xen",
-	//	"",
-	//	define.LinuxFamilySUSE,
-	//	x2xlib.Signature{
-	//		Signer: define.DrvSignerDistro,
-	//		Hash:   define.DrvHashSHA256,
-	//	},
-	//	[]string{"3.0.101-63-default"},
-	//); err != nil {
-	//	panic(err)
-	//}
+	if _, _, err := x.AddLinuxVirtualDriver(
+		"xen-kmp-default",
+		"4.1.23413",
+		define.HPVTXen,
+		"",
+		"amd64",
+		"D:\\download\\sles_xen",
+		"",
+		define.LinuxFamilySUSE,
+		x2xlib.Signature{
+			Signer: define.DrvSignerDistro,
+			Hash:   define.DrvHashSHA256,
+		},
+		[]string{"3.0.101-63-default"},
+	); err != nil {
+		panic(err)
+	}
 	//
 	//if _, _, err := x.AddWindowsVirtualDriver(
 	//	"VMware PVSCSI StorPort driver (64-bit)",

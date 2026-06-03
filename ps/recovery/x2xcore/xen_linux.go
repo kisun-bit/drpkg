@@ -216,7 +216,7 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 			name, dir, e := fixer.x2xLib.SelectLinuxBestVirtualDriver(
 				define.HPVTXen,
 				runtime.GOARCH,
-				fixer.offsys.distro.ID,
+				fixer.offsys.distro.Family,
 				k.Name,
 				"")
 			if e != nil {

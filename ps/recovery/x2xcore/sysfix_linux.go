@@ -2477,37 +2477,115 @@ func (fixer *linuxSystemFixer) syncFs() {
 	_, _, _ = command.Execute("sync;echo 3 > /proc/sys/vm/drop_caches", command.WithDebug())
 }
 
-func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(pkgDir string) error {
-	logger.Debugf("injectPackageByZypper: ++")
-	defer logger.Debugf("injectPackageByZypper: --")
+func (fixer *linuxSystemFixer) batchInjectPackages(
+	pkgDir string,
+	installCmd string,
+) error {
+	logger.Debugf("batchInjectPackages: ++")
+	defer logger.Debugf("batchInjectPackages: --")
 
 	if fixer.offsys.root == "" {
 		return ErrorRootEnvNotMounted
 	}
 
-	tmpDir, e := os.MkdirTemp(fixer.offsys.root, "x2x.packages.*")
-	if e != nil {
-		return e
-	}
-	tmpDirChrootPath := "/" + filepath.Base(tmpDir)
-
-	defer func() {
-		_ = os.RemoveAll(tmpDir)
-	}()
-
-	cpCmdline := fmt.Sprintf("cp --recursive %s/* %s/", pkgDir, tmpDir)
-	_, _, ecp := command.Execute(cpCmdline, command.WithDebug())
-	if ecp != nil {
-		return errors.Wrapf(ecp, "copy %s/* to %s/", pkgDir, tmpDir)
+	tmpDir, err := os.MkdirTemp(
+		fixer.offsys.root,
+		"x2x.packages.*",
+	)
+	if err != nil {
+		return err
 	}
 
-	logger.Debugf("injectPackagesByZypper: injecting %s ...", pkgDir)
+	defer func(path string) {
+		_ = os.RemoveAll(path)
+	}(tmpDir)
 
-	installCmdline := fmt.Sprintf("cd %s; zypper --non-interactive install *.rpm", tmpDirChrootPath)
-	_, _, e = fixer.executeWithChroot(installCmdline)
-	if e != nil {
-		return e
+	tmpDirChroot := "/" + filepath.Base(tmpDir)
+
+	cpCmdline := fmt.Sprintf(
+		"cp -r %s/* %s/",
+		pkgDir,
+		tmpDir,
+	)
+
+	if _, _, err = command.Execute(
+		cpCmdline,
+		command.WithDebug(),
+	); err != nil {
+		return errors.Wrapf(
+			err,
+			"copy %s/* to %s",
+			pkgDir,
+			tmpDir,
+		)
 	}
 
-	return nil
+	logger.Debugf(
+		"injecting packages from %s ...",
+		pkgDir,
+	)
+
+	cmdline := fmt.Sprintf(
+		"cd %s && %s",
+		tmpDirChroot,
+		installCmd,
+	)
+
+	_, _, err = fixer.executeWithChroot(cmdline)
+
+	return err
+}
+
+func (fixer *linuxSystemFixer) batchInjectPackagesByZypper(
+	pkgDir string,
+) error {
+	return fixer.batchInjectPackages(
+		pkgDir,
+		"zypper --non-interactive install *.rpm",
+	)
+}
+
+func (fixer *linuxSystemFixer) batchInjectPackagesByRpm(
+	pkgDir string,
+) error {
+	return fixer.batchInjectPackages(
+		pkgDir,
+		"rpm -Uvh *.rpm",
+	)
+}
+
+func (fixer *linuxSystemFixer) batchInjectPackagesByDnf(
+	pkgDir string,
+) error {
+	return fixer.batchInjectPackages(
+		pkgDir,
+		"dnf install -y *.rpm",
+	)
+}
+
+func (fixer *linuxSystemFixer) batchInjectPackagesByYum(
+	pkgDir string,
+) error {
+	return fixer.batchInjectPackages(
+		pkgDir,
+		"yum install -y *.rpm",
+	)
+}
+
+func (fixer *linuxSystemFixer) batchInjectPackagesByDpkg(
+	pkgDir string,
+) error {
+	return fixer.batchInjectPackages(
+		pkgDir,
+		"dpkg -i *.deb",
+	)
+}
+
+func (fixer *linuxSystemFixer) batchInjectPackagesByApt(
+	pkgDir string,
+) error {
+	return fixer.batchInjectPackages(
+		pkgDir,
+		"apt install -y ./*.deb",
+	)
 }

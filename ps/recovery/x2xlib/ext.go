@@ -239,7 +239,7 @@ func versionWeight(in string) (uint64, error) {
 		nums[3], nil
 }
 
-func compadIdsFromUniPci(upStr string) ([]string, error) {
+func compatIdsFromUniPci(upStr string) ([]string, error) {
 	up, err := universal.UniPciFromString(upStr)
 	if err != nil {
 		return nil, err
@@ -293,7 +293,7 @@ func buildDriver(opt createDriverOption) (*Driver, error) {
 	}
 
 	return &Driver{
-		ID:            uuid.New().String(),
+		ID:            strings.ReplaceAll(uuid.New().String(), "-", ""),
 		Name:          opt.Name,
 		Version:       opt.Version,
 		VersionWeight: verWeight,
