@@ -27,7 +27,15 @@ var (
 	// linux PCI解析相关正则
 	//
 
-	modaliasRegex = regexp.MustCompile(`pci:v([0-9A-Fa-f]{8})d([0-9A-Fa-f]{8})sv([0-9A-Fa-f]{8})sd([0-9A-Fa-f]{8})bc([0-9A-Fa-f]{2})sc([0-9A-Fa-f]{2})i([0-9A-Fa-f]{2})`)
+	modaliasRegex = regexp.MustCompile(
+		`^pci:v([0-9A-Fa-f]{8})` +
+			`d([0-9A-Fa-f]{8})` +
+			`sv([0-9A-Fa-f]{8}|\*)` +
+			`sd([0-9A-Fa-f]{8}|\*)` +
+			`bc([0-9A-Fa-f]{2}|\*)` +
+			`sc([0-9A-Fa-f]{2}|\*)` +
+			`i([0-9A-Fa-f]{2}|\*)$`,
+	)
 )
 
 func Lookup(baseClass, vendor, device uint16) (baseClassStr string, vendorStr string, deviceStr string) {
@@ -62,7 +70,7 @@ func Lookup(baseClass, vendor, device uint16) (baseClassStr string, vendorStr st
 	return
 }
 
-func uniPciFromMsHardwareIds(hwIds []string) (p *UniPci, err error) {
+func UniPciFromMsHardwareIds(hwIds []string) (p *UniPci, err error) {
 	if len(hwIds) == 0 {
 		return nil, errors.Errorf("hardware-id is empty")
 	}
@@ -129,7 +137,7 @@ func uniPciFromMsHardwareIds(hwIds []string) (p *UniPci, err error) {
 	return p, nil
 }
 
-func uniPciFromModaliasPath(path string) (p *UniPci, err error) {
+func UniPciFromModaliasPath(path string) (p *UniPci, err error) {
 	pb, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -140,7 +148,7 @@ func uniPciFromModaliasPath(path string) (p *UniPci, err error) {
 		return nil, errors.Errorf("modalias of %s is not a pci identifier", path)
 	}
 
-	p, e := uniPciFromModalias(modalias)
+	p, e := UniPciFromModalias(modalias)
 	if e != nil {
 		return nil, err
 	}
@@ -158,52 +166,57 @@ func uniPciFromModaliasPath(path string) (p *UniPci, err error) {
 	return p, nil
 }
 
-func uniPciFromModalias(modalias string) (p *UniPci, err error) {
+func UniPciFromModalias(modalias string) (*UniPci, error) {
 	match := modaliasRegex.FindStringSubmatch(modalias)
 	if len(match) == 0 {
 		return nil, errors.Errorf("modalias is not valid")
 	}
 
-	p = new(UniPci)
+	p := new(UniPci)
 
-	vendorStr := match[1]
-	p.vendorId, err = uint32FromString(vendorStr)
+	var err error
+
+	p.vendorId, err = uint32FromString(match[1])
 	if err != nil {
 		return nil, err
 	}
 
-	deviceStr := match[2]
-	p.deviceId, err = uint32FromString(deviceStr)
+	p.deviceId, err = uint32FromString(match[2])
 	if err != nil {
 		return nil, err
 	}
 
-	subVendorStr := match[3]
-	p.subsystemVendorId, err = uint32FromString(subVendorStr)
+	p.subsystemVendorId,
+		_,
+		err = parseHexOrAny(match[3])
 	if err != nil {
 		return nil, err
 	}
 
-	subDeviceStr := match[4]
-	p.subsystemDeviceId, err = uint32FromString(subDeviceStr)
+	p.subsystemDeviceId,
+		_,
+		err = parseHexOrAny(match[4])
 	if err != nil {
 		return nil, err
 	}
 
-	baseClassStr := match[5]
-	p.baseClass, err = uint32FromString(baseClassStr)
+	p.baseClass,
+		_,
+		err = parseHexOrAny(match[5])
 	if err != nil {
 		return nil, err
 	}
 
-	subClassStr := match[6]
-	p.subClass, err = uint32FromString(subClassStr)
+	p.subClass,
+		_,
+		err = parseHexOrAny(match[6])
 	if err != nil {
 		return nil, err
 	}
 
-	programInterfaceStr := match[7]
-	p.programInterface, err = uint32FromString(programInterfaceStr)
+	p.programInterface,
+		_,
+		err = parseHexOrAny(match[7])
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +226,15 @@ func uniPciFromModalias(modalias string) (p *UniPci, err error) {
 	//
 
 	return p, nil
+}
+
+func parseHexOrAny(s string) (value uint32, any bool, err error) {
+	if s == "*" {
+		return 0, true, nil
+	}
+
+	value, err = uint32FromString(s)
+	return value, false, err
 }
 
 func appendUniPci(uniPciList []*UniPci, uniPci *UniPci) []*UniPci {

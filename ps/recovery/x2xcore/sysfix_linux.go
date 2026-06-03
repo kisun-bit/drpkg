@@ -99,7 +99,7 @@ func NewSysFixer(ctx context.Context, opts *FixerCreateOptions) (fixer SysFixer,
 		return nil, err
 	}
 	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
-	lf.x2xLib, err = x2xlib.NewX2XLib(opts.RecoveryParam.X2xLibrary)
+	lf.x2xLib, err = x2xlib.NewX2XLib(opts.RecoveryParam.X2xLibrary, true)
 	if err != nil {
 		return nil, err
 	}

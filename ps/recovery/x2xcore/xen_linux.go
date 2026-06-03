@@ -213,7 +213,7 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 		if isOldSLES || isOldOpenSUSE {
 
 			// 离线安装xen相关的包
-			name, dir, e := fixer.x2xLib.GetLinuxCompatibleVDL(
+			name, dir, e := fixer.x2xLib.SelectLinuxBestVirtualDriver(
 				define.HPVTXen,
 				runtime.GOARCH,
 				fixer.offsys.distro.ID,

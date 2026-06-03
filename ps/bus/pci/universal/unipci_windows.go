@@ -90,7 +90,7 @@ func listUniPci() ([]*UniPci, error) {
 		if eHwIdVal != nil {
 			continue
 		}
-		p, ePci := uniPciFromMsHardwareIds(hwIdVal.([]string))
+		p, ePci := UniPciFromMsHardwareIds(hwIdVal.([]string))
 		if ePci != nil {
 			return nil, ePci
 		}

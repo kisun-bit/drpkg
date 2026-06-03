@@ -8,17 +8,20 @@ import (
 	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
 
 // X2XLib 表示驱动库对象。
 type X2XLib struct {
-	library                string
-	virtualDrvDBIndexPath  string // 虚拟化驱动库索引文件
-	hardwareDrvDBIndexPath string // 普通主设硬件的驱动索引文件
+	library        string
+	driverStoreDir string
+	driverStoreDB  string
+	readonly       bool
+	db             *gorm.DB
 }
 
 // NewX2XLib 创建驱动库实例。
-func NewX2XLib(libraryDir string) (*X2XLib, error) {
+func NewX2XLib(libraryDir string, readonly bool) (*X2XLib, error) {
 	if !extend.IsExisted(libraryDir) {
 		return nil, errors.Wrapf(
 			os.ErrNotExist,
@@ -27,10 +30,23 @@ func NewX2XLib(libraryDir string) (*X2XLib, error) {
 		)
 	}
 
+	drvStoreDir := filepath.Join(libraryDir, driverStoreDirName)
+	if err := ensureDir(drvStoreDir); err != nil {
+		return nil, err
+	}
+
+	drvStoreDB := filepath.Join(libraryDir, driverStoreDBName)
+	db, err := InitDB(drvStoreDB, readonly)
+	if err != nil {
+		return nil, err
+	}
+
 	return &X2XLib{
-		library:                libraryDir,
-		virtualDrvDBIndexPath:  filepath.Join(libraryDir, DriverStoreVirtualDirName, DriverStoreIndexFileName),
-		hardwareDrvDBIndexPath: filepath.Join(libraryDir, DriverStoreDirName, DriverStoreIndexFileName),
+		library:        libraryDir,
+		driverStoreDir: drvStoreDir,
+		driverStoreDB:  drvStoreDB,
+		readonly:       readonly,
+		db:             db,
 	}, nil
 }
 
@@ -41,296 +57,771 @@ func (x *X2XLib) String() string {
 	)
 }
 
+func (x *X2XLib) Close() error {
+	if x.db != nil {
+		dbi, err := x.db.DB()
+		if err != nil {
+			return err
+		}
+		return dbi.Close()
+	}
+	return nil
+}
+
 // Destroy 销毁驱动库。
 func (x *X2XLib) Destroy() error {
-	if err := os.RemoveAll(filepath.Dir(x.virtualDrvDBIndexPath)); err != nil {
+	if err := os.RemoveAll(x.driverStoreDir); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(filepath.Dir(x.hardwareDrvDBIndexPath)); err != nil {
+	if err := os.RemoveAll(x.driverStoreDB); err != nil {
 		return err
 	}
 	return nil
 }
 
-// Initialize 初始化驱动库目录结构。
-func (x *X2XLib) Initialize() error {
-
-	//
-	// 普通驱动
-	//
-
-	if err := initIndexFile(x.virtualDrvDBIndexPath); err != nil {
-		return errors.Wrapf(
-			err,
-			"init index file: %s",
-			x.virtualDrvDBIndexPath,
-		)
-	}
-
-	//
-	// 虚拟化驱动
-	//
-
-	if err := initIndexFile(x.virtualDrvDBIndexPath); err != nil {
-		return errors.Wrapf(
-			err,
-			"init index file: %s",
-			x.virtualDrvDBIndexPath,
-		)
-	}
-
-	return nil
-}
-
-// AddWindowsVDL 添加 Windows 虚拟化驱动。
-func (x *X2XLib) AddWindowsVDL(
+// AddWindowsVirtualDriver 添加 Windows 的虚拟化驱动库
+func (x *X2XLib) AddWindowsVirtualDriver(
 	name string,
 	version string,
-	remark string,
 	virtual define.HPVirtType,
 	vendor string,
 	architecture string,
-	signType string,
-	signedByMs bool,
+	sourceDir string,
+	remark string,
+	signatures []Signature,
 	minCompatibleNT string,
 	maxCompatibleNT string,
-	sourceDir string,
 ) (
 	driverID string,
 	driverDir string,
 	err error,
 ) {
 
-	defer func() {
-		if err != nil {
-			err = errors.Wrapf(err, "AddWindowsVDL: "+
-				"name=%s, ver=%s, virtual=%s, arch=%s, sign=%s, signByMs=%v, sourceDir=%s",
-				name,
-				version,
-				virtual,
-				architecture,
-				signType,
-				signedByMs,
-				sourceDir)
-		}
-	}()
-
-	if signType == "" {
-		signType = define.MsSignNone
+	if x.readonly {
+		return "", "", errors.New("readonly is enabled")
 	}
-
-	vd, err := newWindowsVDL(
+	if err = checkNtVersionRange(minCompatibleNT, maxCompatibleNT); err != nil {
+		return "", "", err
+	}
+	drvType, err := getDriverTypeByVirtType(virtual)
+	if err != nil {
+		return "", "", err
+	}
+	driver, err := buildWindowsDriver(
 		name,
 		version,
-		remark,
-		virtual,
 		vendor,
 		architecture,
-		signType,
-		signedByMs,
-		minCompatibleNT,
-		maxCompatibleNT,
+		sourceDir,
+		remark,
+		signatures,
+		drvType,
 	)
 	if err != nil {
 		return "", "", err
 	}
 
-	driverDir, err = x.addVDLWithFiles(vd, sourceDir)
+	return x.createDriverTx(
+		driver,
+		sourceDir,
+		func(tx *gorm.DB, driverID string) error {
+			return createNTCompat(
+				tx,
+				driverID,
+				minCompatibleNT,
+				maxCompatibleNT,
+			)
+		},
+	)
+}
+
+// AddWindowsNormalDriver 添加 Windows 的普通硬件驱动
+func (x *X2XLib) AddWindowsNormalDriver(
+	name string,
+	version string,
+	vendor string,
+	architecture string,
+	sourceDir string,
+	remark string,
+	signatures []Signature,
+	minCompatibleNT string,
+	maxCompatibleNT string,
+	hardwareIdsArr [][]string,
+) (
+	driverID string,
+	driverDir string,
+	err error,
+) {
+
+	if x.readonly {
+		return "", "", errors.New("readonly is enabled")
+	}
+	if err = checkNtVersionRange(minCompatibleNT, maxCompatibleNT); err != nil {
+		return "", "", err
+	}
+	hwids, err := parseWindowsHwids(
+		hardwareIdsArr,
+	)
+	if err != nil {
+		return "", "", err
+	}
+	driver, err := buildWindowsDriver(
+		name,
+		version,
+		vendor,
+		architecture,
+		sourceDir,
+		remark,
+		signatures,
+		driverTypeNormal,
+	)
 	if err != nil {
 		return "", "", err
 	}
 
-	return vd.Id, driverDir, nil
+	return x.createDriverTx(
+		driver,
+		sourceDir,
+		func(tx *gorm.DB, driverID string) error {
+
+			if err := createNTCompat(
+				tx,
+				driverID,
+				minCompatibleNT,
+				maxCompatibleNT,
+			); err != nil {
+
+				return err
+			}
+
+			return createHardwareCompat(
+				tx,
+				driverID,
+				hwids,
+			)
+		},
+	)
 }
 
-// AddLinuxVDL 添加 Linux 虚拟化驱动。
-func (x *X2XLib) AddLinuxVDL(
+// AddLinuxVirtualDriver 添加 Linux 的虚拟化驱动库
+func (x *X2XLib) AddLinuxVirtualDriver(
 	name string,
 	version string,
-	remark string,
 	virtual define.HPVirtType,
 	vendor string,
 	architecture string,
-	distro string,
-	compatibleKernels []string,
 	sourceDir string,
+	remark string,
+	family string,
+	signature Signature,
+	compatibleKernels []string,
 ) (
 	driverID string,
 	driverDir string,
 	err error,
 ) {
 
-	defer func() {
-		if err != nil {
-			err = errors.Wrapf(err, "AddLinuxVDL: "+
-				"name=%s, ver=%s, virtual=%s, arch=%s, distro=%s, kernels=%v, sourceDir=%s",
-				name,
-				version,
-				virtual,
-				architecture,
-				distro,
-				compatibleKernels,
-				sourceDir)
-		}
-	}()
-
-	vd, err := newLinuxVDL(
+	if x.readonly {
+		return "", "", errors.New("readonly is enabled")
+	}
+	if err = checkFamily(family); err != nil {
+		return "", "", err
+	}
+	if err = checkKernels(compatibleKernels); err != nil {
+		return "", "", err
+	}
+	drvType, err := getDriverTypeByVirtType(virtual)
+	if err != nil {
+		return "", "", err
+	}
+	driver, err := buildLinuxDriver(
 		name,
 		version,
-		remark,
-		virtual,
 		vendor,
 		architecture,
-		distro,
-		compatibleKernels,
+		sourceDir,
+		remark,
+		family,
+		signature,
+		drvType,
 	)
 	if err != nil {
 		return "", "", err
 	}
 
-	driverDir, err = x.addVDLWithFiles(vd, sourceDir)
+	return x.createDriverTx(
+		driver,
+		sourceDir,
+		func(tx *gorm.DB, driverID string) error {
+			return createKernelCompat(
+				tx,
+				driverID,
+				compatibleKernels,
+			)
+		},
+	)
+}
+
+// AddLinuxNormalDriver 添加 Linux 的普通硬件驱动
+func (x *X2XLib) AddLinuxNormalDriver(
+	name string,
+	version string,
+	vendor string,
+	architecture string,
+	sourceDir string,
+	remark string,
+	family string,
+	signature Signature,
+	compatibleKernels []string,
+	compatibleAlias []string,
+) (
+	driverID string,
+	driverDir string,
+	err error,
+) {
+
+	if x.readonly {
+		return "", "", errors.New("readonly is enabled")
+	}
+	if err = checkFamily(family); err != nil {
+		return "", "", err
+	}
+	if err = checkKernels(compatibleKernels); err != nil {
+		return "", "", err
+	}
+	hwids, err := parseLinuxAlias(
+		compatibleAlias,
+	)
+	if err != nil {
+		return "", "", err
+	}
+	driver, err := buildLinuxDriver(
+		name,
+		version,
+		vendor,
+		architecture,
+		sourceDir,
+		remark,
+		family,
+		signature,
+		driverTypeNormal,
+	)
 	if err != nil {
 		return "", "", err
 	}
 
-	return vd.Id, driverDir, nil
+	return x.createDriverTx(
+		driver,
+		sourceDir,
+		func(tx *gorm.DB, driverID string) error {
+
+			if err := createKernelCompat(
+				tx,
+				driverID,
+				compatibleKernels,
+			); err != nil {
+
+				return err
+			}
+
+			return createHardwareCompat(
+				tx,
+				driverID,
+				hwids,
+			)
+		},
+	)
 }
 
-// GetWindowsCompatibleVDL 获取 Windows 兼容的虚拟化驱动库。
-func (x *X2XLib) GetWindowsCompatibleVDL(
+// SelectWindowsBestVirtualDriver 获取 Windows 兼容的虚拟化驱动库。
+func (x *X2XLib) SelectWindowsBestVirtualDriver(
 	virtual define.HPVirtType,
 	architecture string,
 	ntVersion string,
-	mustSignType string, // 可选参数
-	mustSignedByMs bool, // 可选参数
+	ignoreCheckSignature bool,
 ) (
 	driverFriendly string,
 	driverDir string,
 	err error,
 ) {
-	defer func() {
-		if err != nil {
-			err = errors.Wrapf(err, "GetWindowsCompatibleVDL: "+
-				"virtual=%s, arch=%s, nt=%s, sign=%s, signByMs=%v",
-				virtual,
-				architecture,
-				ntVersion,
-				mustSignType,
-				mustSignedByMs)
-		}
-	}()
-
-	vdls, err := listVDL(x.virtualDrvDBIndexPath)
+	drvType, err := getDriverTypeByVirtType(virtual)
+	if err != nil {
+		return "", "", err
+	}
+	if err = checkArchitecture(architecture); err != nil {
+		return "", "", err
+	}
+	if err = checkNtVersion(ntVersion); err != nil {
+		return "", "", err
+	}
+	ntweight, err := versionWeight(ntVersion)
 	if err != nil {
 		return "", "", err
 	}
 
-	for _, vd := range vdls {
-		if vd.isWindowsCompatible(virtual, architecture, ntVersion, mustSignType, mustSignedByMs) {
-			return vd.String(), filepath.Join(x.library, vd.fileRepoDir()), nil
-		}
+	var drivers []Driver
+
+	err = x.db.
+		Table("driver").
+		Joins(
+			"INNER JOIN nt_compat ON nt_compat.driver_id = driver.id",
+		).
+		Where("driver.os = ?", define.OsWindows).
+		Where("driver.arch = ?", architecture).
+		Where("driver.type = ?", drvType).
+		Where("? >= nt_compat.nt_min_weight", ntweight).
+		Where("? <= nt_compat.nt_max_weight", ntweight).
+		Order("driver.version_weight DESC").
+		Find(&drivers).
+		Error
+
+	if err != nil {
+		return "", "", err
 	}
 
-	// TODO 按微软签名、版本号、兼容版本排序，优先使用最合适的驱动库进行注入
+	driver, err := x.pickWindowsDriver(
+		drivers,
+		ntweight,
+		ignoreCheckSignature,
+	)
+	if err != nil {
+		return "", "", err
+	}
 
-	return "", "", os.ErrNotExist
+	return x.driverResult(driver)
 }
 
-// GetLinuxCompatibleVDL 获取 Linux 兼容的虚拟化驱动库。
-func (x *X2XLib) GetLinuxCompatibleVDL(
+// SelectWindowsBestNormalDriver 获取 Windows 兼容的普通硬件驱动
+func (x *X2XLib) SelectWindowsBestNormalDriver(
+	architecture string,
+	ntVersion string,
+	unipci string,
+	ignoreCheckSignature bool,
+) (
+	driverFriendly string,
+	driverDir string,
+	err error,
+) {
+	if err = checkArchitecture(architecture); err != nil {
+		return "", "", err
+	}
+
+	if err = checkNtVersion(ntVersion); err != nil {
+		return "", "", err
+	}
+
+	ntWeight, err := versionWeight(ntVersion)
+	if err != nil {
+		return "", "", err
+	}
+
+	compatIds, err := compadIdsFromUniPci(unipci)
+	if err != nil {
+		return "", "", err
+	}
+
+	var drivers []Driver
+
+	err = x.db.
+		Table("driver").
+		Select("driver.*").
+		Joins(`
+			INNER JOIN hardware_compat
+				ON hardware_compat.driver_id = driver.id
+		`).
+		Joins(`
+			INNER JOIN nt_compat
+				ON nt_compat.driver_id = driver.id
+		`).
+		Where("driver.os = ?", define.OsWindows).
+		Where("driver.arch = ?", architecture).
+		Where("driver.type = ?", driverTypeNormal).
+		Where(
+			"hardware_compat.compat_id IN ?",
+			compatIds,
+		).
+		Where(
+			"? >= nt_compat.nt_min_weight",
+			ntWeight,
+		).
+		Where(
+			"? <= nt_compat.nt_max_weight",
+			ntWeight,
+		).
+		Group("driver.id").
+		Order("MAX(hardware_compat.compat_weight) DESC").
+		Order("driver.version_weight DESC").
+		Order("driver.sign_weight DESC").
+		Find(&drivers).
+		Error
+
+	if err != nil {
+		return "", "", err
+	}
+
+	driver, err := x.pickWindowsDriver(
+		drivers,
+		ntWeight,
+		ignoreCheckSignature,
+	)
+	if err != nil {
+		return "", "", err
+	}
+
+	return x.driverResult(driver)
+}
+
+// SelectLinuxBestNormalDriver 获取 Linux 兼容的普通硬件驱动
+func (x *X2XLib) SelectLinuxBestNormalDriver(
+	architecture string,
+	family string,
+	kernel string,
+	unipci string,
+) (
+	driverFriendly string,
+	driverDir string,
+	err error,
+) {
+
+	if err = checkArchitecture(architecture); err != nil {
+		return "", "", err
+	}
+
+	if err = checkFamily(family); err != nil {
+		return "", "", err
+	}
+
+	if kernel == "" {
+		return "", "", errors.New("kernel is required")
+	}
+
+	compatIds, err := compadIdsFromUniPci(unipci)
+	if err != nil {
+		return "", "", err
+	}
+
+	var drivers []Driver
+
+	err = x.db.
+		Table("driver").
+		Select("driver.*").
+		Joins(`
+			INNER JOIN hardware_compat
+				ON hardware_compat.driver_id = driver.id
+		`).
+		Joins(`
+			INNER JOIN kernel_compat
+				ON kernel_compat.driver_id = driver.id
+		`).
+		Where("driver.os = ?", define.OsLinux).
+		Where("driver.arch = ?", architecture).
+		Where("driver.family = ?", family).
+		Where("driver.type = ?", driverTypeNormal).
+		Where("kernel_compat.kernel = ?", kernel).
+		Where(
+			"hardware_compat.compat_id IN ?",
+			compatIds,
+		).
+		Group("driver.id").
+		Order("MAX(hardware_compat.compat_weight) DESC").
+		Order("driver.version_weight DESC").
+		Order("driver.sign_weight DESC").
+		Find(&drivers).
+		Error
+
+	if err != nil {
+		return "", "", err
+	}
+
+	if len(drivers) == 0 {
+		return "", "", errors.New("driver not found")
+	}
+
+	return x.driverResult(&drivers[0])
+}
+
+// SelectLinuxBestVirtualDriver 获取 Linux 兼容的虚拟化驱动库。
+func (x *X2XLib) SelectLinuxBestVirtualDriver(
 	virtual define.HPVirtType,
 	architecture string,
-	distro string,
+	family string,
 	kernel string,
-	mustVendor string, // 可选参数
+	vendor string,
 ) (
 	driverFriendly string,
 	driverDir string,
 	err error,
 ) {
+	drvType, err := getDriverTypeByVirtType(virtual)
+	if err != nil {
+		return "", "", err
+	}
+	if err = checkArchitecture(architecture); err != nil {
+		return "", "", err
+	}
+	if err = checkFamily(family); err != nil {
+		return "", "", err
+	}
 
-	defer func() {
-		if err != nil {
-			err = errors.Wrapf(err, "GetLinuxCompatibleVDL: "+
-				"distro=%s, arch=%s, virtual=%s, kernel=%s, vendor=%s",
-				distro,
-				architecture,
-				virtual,
-				kernel,
-				mustVendor)
-		}
-	}()
+	var drivers []Driver
 
-	vdls, err := listVDL(x.virtualDrvDBIndexPath)
+	err = x.db.
+		Table("driver").
+		Joins(
+			"INNER JOIN kernel_compat ON kernel_compat.driver_id = driver.id",
+		).
+		Where("driver.os = ?", define.OsLinux).
+		Where("driver.arch = ?", architecture).
+		Where("driver.type = ?", drvType).
+		Where("? = kernel_compat.kernel", kernel).
+		Order("driver.version_weight DESC").
+		Find(&drivers).
+		Error
+
 	if err != nil {
 		return "", "", err
 	}
 
-	for _, vd := range vdls {
-		if vd.isLinuxCompatible(virtual, architecture, distro, kernel, mustVendor) {
-			return vd.String(), filepath.Join(x.library, vd.fileRepoDir()), nil
-		}
+	driver, err := x.findDriverByVendor(
+		drivers,
+		vendor,
+	)
+	if err != nil {
+		return "", "", err
 	}
 
-	// TODO 按版本号排序（由高置低），优先使用最合适的驱动库进行注入
-
-	return "", "", os.ErrNotExist
+	return x.driverResult(driver)
 }
 
-// GetVDL 获取指定的虚拟化驱动库
-func (x *X2XLib) GetVDL(
+// DeleteDriver 删除指定的驱动
+func (x *X2XLib) DeleteDriver(
 	driverID string,
+) error {
+
+	var driver Driver
+
+	err := x.db.
+		Where("id = ?", driverID).
+		First(&driver).
+		Error
+
+	if err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+
+		return err
+	}
+
+	driverDir := driver.Directory(x.driverStoreDir)
+
+	err = x.db.Transaction(func(tx *gorm.DB) error {
+
+		if err = tx.Delete(
+			&Driver{},
+			"id = ?",
+			driverID,
+		).Error; err != nil {
+			return err
+		}
+
+		if err = tx.Delete(
+			&KernelCompat{},
+			"driver_id = ?",
+			driverID,
+		).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		if err = tx.Delete(
+			&NTCompat{},
+			"driver_id = ?",
+			driverID,
+		).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		if err = tx.Delete(
+			&HardwareCompat{},
+			"driver_id = ?",
+			driverID,
+		).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if err = os.RemoveAll(driverDir); err != nil {
+		return errors.Errorf(
+			"driver deleted but directory cleanup failed: %v",
+			err,
+		)
+	}
+
+	return nil
+}
+
+func (x *X2XLib) createDriverTx(
+	driver *Driver,
+	sourceDir string,
+	compatCreator func(tx *gorm.DB, driverID string) error,
 ) (
+	driverID string,
 	driverDir string,
 	err error,
 ) {
+
+	driverDir = filepath.Join(
+		x.driverStoreDir,
+		driver.OS,
+		driver.Family,
+		driver.Arch,
+		driver.ID,
+	)
+
+	tx := x.db.Begin()
+
+	if tx.Error != nil {
+		return "", "", tx.Error
+	}
+
 	defer func() {
-		if err != nil {
-			err = errors.Wrapf(err, "GetVDL: driverID=%s", driverID)
+
+		if err == nil {
+			return
+		}
+
+		tx.Rollback()
+
+		if driverDir != "" {
+			_ = os.RemoveAll(driverDir)
 		}
 	}()
 
-	vdls, err := listVDL(x.virtualDrvDBIndexPath)
+	//-----------------------------------
+	// Driver
+	//-----------------------------------
+
+	if err = tx.Create(driver).Error; err != nil {
+		return "", "", err
+	}
+
+	//-----------------------------------
+	// Compat
+	//-----------------------------------
+
+	if compatCreator != nil {
+
+		if err = compatCreator(
+			tx,
+			driver.ID,
+		); err != nil {
+
+			return "", "", err
+		}
+	}
+
+	//-----------------------------------
+	// Driver目录
+	//-----------------------------------
+
+	if err = ensureDir(driverDir); err != nil {
+		return "", "", err
+	}
+
+	if err = extend.CopyDir(
+		sourceDir,
+		driverDir,
+	); err != nil {
+
+		return "", "", err
+	}
+
+	//-----------------------------------
+	// Commit
+	//-----------------------------------
+
+	if err = tx.Commit().Error; err != nil {
+		return "", "", err
+	}
+
+	return driver.ID, driverDir, nil
+}
+
+func (x *X2XLib) pickWindowsDriver(
+	drivers []Driver,
+	ntWeight uint64,
+	ignoreCheckSignature bool,
+) (*Driver, error) {
+
+	if len(drivers) == 0 {
+		return nil, errors.New("driver not found")
+	}
+
+	// Win8(6.2) 开始支持 SHA2
+	nt62, err := versionWeight("6.2")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	for _, vd := range vdls {
-		if vd.Id == driverID {
-			return filepath.Join(x.library, vd.fileRepoDir()), nil
+	if ntWeight >= nt62 || !ignoreCheckSignature {
+		return &drivers[0], nil
+	}
+
+	for _, d := range drivers {
+		ds, err := LoadDriverSignature(d.Sign)
+		if err != nil {
+			return nil, err
+		}
+
+		if ds.IsSha1() {
+			return &d, nil
 		}
 	}
-	return "", os.ErrNotExist
+
+	return nil, errors.New("driver not found")
 }
 
-// DeleteVDL 删除指定的虚拟化驱动库
-func (x *X2XLib) DeleteVDL(
-	driverID string,
+func (x *X2XLib) driverResult(
+	d *Driver,
 ) (
-	err error,
+	string,
+	string,
+	error,
 ) {
-	defer func() {
-		if err != nil {
-			err = errors.Wrapf(err, "RemoveVDL: driverID=%s", driverID)
-		}
-	}()
+	if d == nil {
+		return "", "", errors.New("driver not found")
+	}
 
-	return delVDL(x.virtualDrvDBIndexPath, driverID)
+	return d.Pretty(),
+		d.Directory(x.driverStoreDir),
+		nil
 }
 
-func (x *X2XLib) addVDLWithFiles(vd *vdl, sourceDir string) (dstDir string, err error) {
-	dstDir = filepath.Join(x.library, vd.fileRepoDir())
-	if err = extend.CopyDir(sourceDir, dstDir); err != nil {
-		return "", err
-	}
-	defer func() {
-		if err != nil {
-			_ = os.RemoveAll(dstDir)
-		}
-	}()
+func (x *X2XLib) findDriverByVendor(
+	drivers []Driver,
+	vendor string,
+) (*Driver, error) {
 
-	if err = addVDL(x.virtualDrvDBIndexPath, vd); err != nil {
-		return "", err
+	if len(drivers) == 0 {
+		return nil, errors.New("driver not found")
 	}
-	return dstDir, nil
+
+	if vendor == "" {
+		return &drivers[0], nil
+	}
+
+	for _, d := range drivers {
+		if d.Vendor == vendor {
+			return &d, nil
+		}
+	}
+
+	return nil, errors.New("driver not found")
 }

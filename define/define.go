@@ -55,6 +55,7 @@ const (
 	LinuxFamilyALT    = "ALT"
 	LinuxFamilySUSE   = "SUSE"
 	LinuxFamilyDebian = "DEBIAN"
+	WindowsFamily     = "MICROSOFT"
 )
 
 // Initrd生成工具的类型
@@ -117,14 +118,6 @@ const (
 	FsTypeSwap = "swap"
 )
 
-// Windows 驱动签名类型
-const (
-	MsSignNone   = "none"
-	MsSignSha1   = "sha1"
-	MsSignSha256 = "sha256"
-	MsSignDual   = "dual"
-)
-
 // HardwarePlatform 基础硬件平台
 type HardwarePlatform string
 
@@ -151,4 +144,39 @@ type BootMode string
 const (
 	BootModeUEFI BootMode = "uefi"
 	BootModeBIOS BootMode = "bios"
+)
+
+// 签名主体
+type Signer string
+
+const (
+	// 私有签名
+	// 如：自签证书、测试证书、企业内部CA签发证书等
+	DrvSignerPrivate Signer = "sign-private"
+
+	// 第三方厂商签名
+	// 如：Intel、VMware、HPE、Broadcom、Red Hat VirtIO 等
+	DrvSignerVendor Signer = "sign-vendor"
+
+	// Linux 发行版官方签名
+	// 如：Red Hat、SUSE、Canonical、Oracle Linux 等
+	DrvSignerDistro Signer = "sign-distro"
+
+	// Windows Attestation
+	DrvSignerMicrosoft Signer = "sign-microsoft"
+
+	// Windows WHQL
+	DrvSignerWHQL Signer = "sign-whql"
+)
+
+// 签名算法
+type Hash string
+
+const (
+	DrvHashUnknown Hash = "unknown"
+	DrvHashSHA1    Hash = "sha1"
+	DrvHashSHA224  Hash = "sha224"
+	DrvHashSHA256  Hash = "sha256"
+	DrvHashSHA384  Hash = "sha384"
+	DrvHashSHA512  Hash = "sha512"
 )

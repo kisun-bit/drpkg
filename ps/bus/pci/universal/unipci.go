@@ -224,7 +224,7 @@ func (up *UniPci) MsCompatibleId() []string {
 	//		up.baseClass, up.subClass),
 	//}
 
-	ids := make([]string, 0, 7)
+	ids := make([]string, 7)
 
 	// VEN + DEV + REV
 	if up.revision != 0 {

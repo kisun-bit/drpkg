@@ -17,7 +17,7 @@ func listUniPci() ([]*UniPci, error) {
 
 	ps := make([]*UniPci, 0)
 	for _, pciPath := range pciPathList {
-		p, e := uniPciFromModaliasPath(pciPath)
+		p, e := UniPciFromModaliasPath(pciPath)
 		if e != nil {
 			return nil, e
 		}

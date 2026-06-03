@@ -1,6 +1,18 @@
 package x2xlib
 
-import "github.com/kisun-bit/drpkg/define"
+import (
+	"fmt"
+
+	"github.com/kisun-bit/drpkg/define"
+)
+
+const (
+	driverTypeNormal uint16 = iota
+	driverTypeVirtualKvm
+	driverTypeVirtualXen
+	driverTypeVirtualVmware
+	driverTypeVirtualHyperV
+)
 
 var SupportedOsTypes = []string{
 	define.OsWindows,
@@ -15,38 +27,45 @@ var SupportedArchTypes = []string{
 	define.ArchRiscv64,
 }
 
-var SupportedDistroTypes = []string{
-	// Microsoft
-	define.DistroMicrosoft,
+//var SupportedDistroTypes = []string{
+//	// Microsoft
+//	define.DistroMicrosoft,
+//
+//	// RHEL family
+//	define.DistroFedora,
+//	define.DistroRHEL,
+//	define.DistroCentOS,
+//	define.DistroCircle,
+//	define.DistroScientificLinux,
+//	define.DistroRedhatBased,
+//	define.DistroOracleLinux,
+//	define.DistroRocky,
+//	define.DistroKylin,
+//	define.DistroNeoKylin,
+//	define.DistroAnolis,
+//	define.DistroOpenEuler,
+//	define.DistroAlma,
+//
+//	// ALT family
+//	define.DistroALTLinux,
+//
+//	// SUSE family
+//	define.DistroSLES,
+//	define.DistroSUSEBased,
+//	define.DistroOpenSUSE,
+//
+//	// Debian family
+//	define.DistroDebian,
+//	define.DistroUbuntu,
+//	define.DistroLinuxMint,
+//	define.DistroKaliLinux,
+//}
 
-	// RHEL family
-	define.DistroFedora,
-	define.DistroRHEL,
-	define.DistroCentOS,
-	define.DistroCircle,
-	define.DistroScientificLinux,
-	define.DistroRedhatBased,
-	define.DistroOracleLinux,
-	define.DistroRocky,
-	define.DistroKylin,
-	define.DistroNeoKylin,
-	define.DistroAnolis,
-	define.DistroOpenEuler,
-	define.DistroAlma,
-
-	// ALT family
-	define.DistroALTLinux,
-
-	// SUSE family
-	define.DistroSLES,
-	define.DistroSUSEBased,
-	define.DistroOpenSUSE,
-
-	// Debian family
-	define.DistroDebian,
-	define.DistroUbuntu,
-	define.DistroLinuxMint,
-	define.DistroKaliLinux,
+var SupportedFamilyTypes = []string{
+	define.LinuxFamilyRHEL,
+	define.LinuxFamilyRHEL,
+	define.LinuxFamilySUSE,
+	define.WindowsFamily,
 }
 
 var SupportedVirtualizationTypes = []define.HPVirtType{
@@ -90,6 +109,6 @@ var SupportedDriverExt = []string{
 	"rpm",
 }
 
-const DriverStoreDirName = "driverstore.honki"
-const DriverStoreVirtualDirName = "virtual.honki"
-const DriverStoreIndexFileName = "INDEX"
+const driverStoreDirName = "driverstore.H0nK1"
+
+var driverStoreDBName = fmt.Sprintf("%s.db", driverStoreDirName)
