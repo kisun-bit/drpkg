@@ -13,7 +13,6 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
-	"github.com/kisun-bit/drpkg/disk/image"
 	"github.com/kisun-bit/drpkg/logger"
 )
 
@@ -81,7 +80,7 @@ func WriteProf(enableHash bool) {
 
 	logger.Debugf("target file: %s", os.Args[2])
 
-	img, err := image.Open(os.Args[2], image.EnableNoFlush())
+	img, err := qemublk.Open(os.Args[2], qemublk.EnableNoFlush())
 	if err != nil {
 		logger.Fatal("Open: ", err)
 	}
@@ -178,7 +177,7 @@ func WriteProf(enableHash bool) {
 //}
 
 func DemoImageMap() {
-	imi, err := image.Map(context.Background(), os.Args[2])
+	imi, err := qemublk.Map(context.Background(), os.Args[2])
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -187,7 +186,7 @@ func DemoImageMap() {
 
 func main() {
 	//defer time.Sleep(time.Hour)
-	if err := image.QemuToolDirSetup(os.Args[1]); err != nil {
+	if err := qemublk.QemuToolDirSetup(os.Args[1]); err != nil {
 		logger.Error("QemuToolDirSetup: ", err)
 	}
 	//DemoRead(false)
