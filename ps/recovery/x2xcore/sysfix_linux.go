@@ -32,7 +32,7 @@ type linuxSystemFixer struct {
 }
 
 type offlineSystem struct {
-	// crypt_LUKs设备
+	// crypto_LUKs设备
 	luksDeviceList []LuksOpenResult
 
 	// 探测到的文件系统设备（ext4/xfs/btrfs/swap 等）
@@ -126,7 +126,7 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		return errors.Wrap(err, "active lvm")
 	}
 
-	if err := fixer.openCryptLUKS(); err != nil {
+	if err := fixer.openCryptoLUKS(); err != nil {
 		return errors.Wrap(err, "open crypto_LUKS")
 	}
 
@@ -267,7 +267,7 @@ func (fixer *linuxSystemFixer) Cleanup() error {
 		fixer.fsckAllFs()
 	}
 
-	fixer.closeCryptLUKS()
+	fixer.closeCryptoLUKS()
 
 	return nil
 }
@@ -462,9 +462,9 @@ func (fixer *linuxSystemFixer) activeLVm() error {
 	return ActivateVgs()
 }
 
-func (fixer *linuxSystemFixer) openCryptLUKS() error {
-	logger.Debugf("openCryptLUKS: ++")
-	defer logger.Debugf("openCryptLUKS: --")
+func (fixer *linuxSystemFixer) openCryptoLUKS() error {
+	logger.Debugf("openCryptoLUKS: ++")
+	defer logger.Debugf("openCryptoLUKS: --")
 
 	if fixer.opts.RecoveryParam.LuksGlobalPassword == "" {
 		return nil
@@ -2541,7 +2541,7 @@ func (fixer *linuxSystemFixer) kernelContainsModule(k kernel, module string) (bo
 	return foundFromLib, nil
 }
 
-func (fixer *linuxSystemFixer) closeCryptLUKS() {
+func (fixer *linuxSystemFixer) closeCryptoLUKS() {
 	_ = fixer.deactiveLvm()
 	for _, luk := range fixer.offsys.luksDeviceList {
 		_, _, _ = command.Execute(
