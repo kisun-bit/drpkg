@@ -16,7 +16,7 @@ func Umount(deviceOrMountpoint string, recursive bool) error {
 	return nil
 }
 
-func vmbusExisted() (bool, error) {
+func VmbusExisted() (bool, error) {
 	devInfo, err := windows.SetupDiGetClassDevsEx(
 		nil,
 		"",

@@ -276,17 +276,19 @@ func enumFilesystem(offline []string, luksDeviceList []LuksOpenResult) ([]fsDevi
 	// 1. 加密设备下的子设备（分区、自身）
 	// 加密设备下的lvm无需探测，因为他的底层磁盘已经被扩充到了offline列表中
 
-	for _, luk := range luksDeviceList {
-		fsDevList = append(fsDevList, luk.Mapper)
-		offline = append(offline, luk.Device)
-		d, e := info.QueryOneDisk(luk.Mapper)
-		if e != nil {
-			return nil, errors.Wrapf(e, "query %s", luk.Mapper)
-		}
-		logger.Debugf("enumFilesystem: luks disk: \n%s", extend.Pretty(d))
-		for _, p := range d.Table.Partitions {
-			fsDevList = append(fsDevList, p.Device)
-			offline = append(offline, p.Device)
+	if runtime.GOOS == define.OsLinux {
+		for _, luk := range luksDeviceList {
+			fsDevList = append(fsDevList, luk.Mapper)
+			offline = append(offline, luk.Device)
+			d, e := info.QueryOneDisk(luk.Mapper)
+			if e != nil {
+				return nil, errors.Wrapf(e, "query %s", luk.Mapper)
+			}
+			logger.Debugf("enumFilesystem: luks disk: \n%s", extend.Pretty(d))
+			for _, p := range d.Table.Partitions {
+				fsDevList = append(fsDevList, p.Device)
+				offline = append(offline, p.Device)
+			}
 		}
 	}
 

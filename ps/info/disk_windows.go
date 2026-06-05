@@ -87,3 +87,8 @@ func QueryDisks() (disks []Disk, err error) {
 	}
 	return disks, nil
 }
+
+func QueryOneDisk(diskPath string) (d Disk, err error) {
+	_ = diskPath
+	return Disk{}, err
+}
