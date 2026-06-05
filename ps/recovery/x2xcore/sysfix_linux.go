@@ -32,6 +32,9 @@ type linuxSystemFixer struct {
 }
 
 type offlineSystem struct {
+	// crypt_LUKs设备
+	luksDeviceList []LuksOpenResult
+
 	// 探测到的文件系统设备（ext4/xfs/btrfs/swap 等）
 	fsList []fsDevice
 
@@ -111,16 +114,30 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	logger.Debugf("Prepare: ++")
 	defer logger.Debugf("Prepare: --")
 
-	if err := fixer.activeLVM(); err != nil {
+	if err := fixer.closeAllLuksDevices(); err != nil {
+		return errors.Wrap(err, "close crypto_LUKS")
+	}
+
+	if err := fixer.deactiveLvm(); err != nil {
+		return errors.Wrap(err, "deactivate lvm")
+	}
+
+	if err := fixer.activeLVm(); err != nil {
 		return errors.Wrap(err, "active lvm")
 	}
 
-	fsDevs, e := enumFilesystem(fixer.opts.OfflineSysDisks)
+	if err := fixer.openCryptLUKS(); err != nil {
+		return errors.Wrap(err, "open crypto_LUKS")
+	}
+
+	fsDevs, e := enumFilesystem(fixer.opts.OfflineSysDisks, fixer.offsys.luksDeviceList)
 	if e != nil {
 		return errors.Wrap(e, "enum filesystem")
 	}
-	fixer.offsys.fsList = fsDevs
-	logger.Debugf("Prepare: fsList:\n%s", extend.Pretty(fixer.offsys.fsList))
+
+	fixer.offsys.fsList = append(fixer.offsys.fsList, fsDevs...)
+	logger.Debugf("Prepare: fsList:\n%s",
+		extend.Pretty(fixer.offsys.fsList))
 
 	if err := fixer.detectLastMount(); err != nil {
 		return errors.Wrap(err, "detect last mount")
@@ -249,6 +266,8 @@ func (fixer *linuxSystemFixer) Cleanup() error {
 	if fixer.opts.RecoveryParam.FsckFs {
 		fixer.fsckAllFs()
 	}
+
+	fixer.closeCryptLUKS()
 
 	return nil
 }
@@ -419,26 +438,60 @@ func (fixer *linuxSystemFixer) deprecateSysMountPoint() error {
 	return nil
 }
 
-// activeLVM 激活LVM
-func (fixer *linuxSystemFixer) activeLVM() error {
-	logger.Debugf("activeLVM ++")
-	defer logger.Debugf("activeLVM --")
+func (fixer *linuxSystemFixer) closeAllLuksDevices() error {
+	if _, _, e := command.Execute(`for dev in $(sudo dmsetup ls --target crypt | awk '{print $1}'); do
+    sudo cryptsetup luksClose "$dev"
+done`, command.WithDebug()); e != nil {
+		return e
+	}
+	return nil
+}
 
-	if _, _, e := command.Execute("vgchange -an", command.WithDebug()); e != nil {
-		return e
+func (fixer *linuxSystemFixer) deactiveLvm() error {
+	logger.Debugf("deactiveLvm ++")
+	defer logger.Debugf("deactiveLvm --")
+
+	return DeactivateVgs()
+}
+
+// activeLVm 激活LVM
+func (fixer *linuxSystemFixer) activeLVm() error {
+	logger.Debugf("activeLVm ++")
+	defer logger.Debugf("activeLVm --")
+
+	return ActivateVgs()
+}
+
+func (fixer *linuxSystemFixer) openCryptLUKS() error {
+	logger.Debugf("openCryptLUKS: ++")
+	defer logger.Debugf("openCryptLUKS: --")
+
+	if fixer.opts.RecoveryParam.LuksGlobalPassword == "" {
+		return nil
 	}
-	if _, _, e := command.Execute("rm -f /etc/lvm/devices/system.devices", command.WithDebug()); e != nil {
-		return e
+
+	rets, err := OpenAllLUKS(fixer.opts.RecoveryParam.LuksGlobalPassword)
+	if err != nil {
+		return err
 	}
-	if _, _, e := command.Execute("pvscan", command.WithDebug()); e != nil {
-		return e
+
+	for _, ret := range rets {
+		if ret.Skipped {
+			logger.Debugf("openCryptLUKS: skip %s(%s)", ret.Device, ret.Mapper)
+			continue
+		}
+		logger.Debugf("openCryptLUKS: open %s -> %s", ret.Device, ret.Mapper)
+		_, _, _ = command.Execute("partprobe "+ret.Mapper, command.WithDebug())
+
+		fixer.offsys.luksDeviceList = append(fixer.offsys.luksDeviceList, ret)
 	}
-	if _, _, e := command.Execute("vgscan", command.WithDebug()); e != nil {
-		return e
+
+	if len(fixer.offsys.luksDeviceList) != 0 {
+		if err = fixer.activeLVm(); err != nil {
+			return errors.Wrap(err, "active lvm")
+		}
 	}
-	if _, _, e := command.Execute("vgchange -ay", command.WithDebug()); e != nil {
-		return e
-	}
+
 	return nil
 }
 
@@ -447,13 +500,13 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 	logger.Debugf("detectSysDevice ++")
 	defer logger.Debugf("detectSysDevice --")
 
-	if len(fixer.offsys.fsList) == 0 {
-		fsDevs, err := enumFilesystem(fixer.opts.OfflineSysDisks)
-		if err != nil {
-			return err
-		}
-		fixer.offsys.fsList = fsDevs
-	}
+	//if len(fixer.offsys.fsList) == 0 {
+	//	fsDevs, err := enumFilesystem(fixer.opts.OfflineSysDisks)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	fixer.offsys.fsList = fsDevs
+	//}
 
 	for _, dev := range fixer.offsys.fsList {
 		if dev.FsType == "swap" {
@@ -1161,7 +1214,7 @@ func (fixer *linuxSystemFixer) executeWithChroot(cmdline string) (exitcode int, 
 	return command.Execute(chrootCmdline, command.WithDebug())
 }
 
-// cleanDattoSnapshot 清理datto(/elastio)快照
+// cleanDattoSnapshot 清理 datto(/elastio) 快照
 func (fixer *linuxSystemFixer) cleanDattoSnapshot() error {
 	logger.Debugf("cleanDattoSnapshot: ++")
 	defer logger.Debugf("cleanDattoSnapshot: --")
@@ -1171,50 +1224,78 @@ func (fixer *linuxSystemFixer) cleanDattoSnapshot() error {
 		return err
 	}
 	defer func() {
-		_ = Umount(tmpMp, false)
-		_ = os.RemoveAll(tmpMp)
+		if extend.IsEmptyDir(tmpMp) {
+			_ = os.RemoveAll(tmpMp)
+		}
 	}()
 
 	logger.Debugf("cleanDattoSnapshot: tmpMp=%s", tmpMp)
+
+	for _, dev := range fixer.offsys.fsList {
+		if dev.FsType == "swap" {
+			continue
+		}
+
+		if err := fixer.cleanDattoSnapshotOnDevice(dev, tmpMp); err != nil {
+			logger.Warnf("cleanDattoSnapshot: device=%s err=%v", dev.Device, err)
+		}
+	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) cleanDattoSnapshotOnDevice(
+	dev fsDevice,
+	tmpMp string,
+) error {
+	_, err := Mount(fixer.ctx, dev.Device, tmpMp, false)
+	if err != nil {
+		return fmt.Errorf("mount %s: %w", dev.Device, err)
+	}
+	defer func() {
+		if err := Umount(tmpMp, false); err != nil {
+			logger.Warnf("cleanDattoSnapshot: umount %s failed: %v", tmpMp, err)
+		}
+	}()
+
+	logger.Debugf("cleanDattoSnapshot: device=%s", dev.Device)
 
 	candDirs := []string{
 		filepath.Join(tmpMp, "lost+found"),
 		filepath.Join(tmpMp, ".runstorsnap"),
 	}
 
-	for _, dev := range fixer.offsys.fsList {
-		if dev.FsType == "swap" {
-			continue
-		}
-		_ = Umount(tmpMp, false)
+	for _, cand := range candDirs {
+		foundCmdline := fmt.Sprintf("find %s -name '*.cow'", cand)
 
-		_, em := Mount(fixer.ctx, dev.Device, tmpMp, false)
-		if em != nil {
-			logger.Warnf("cleanDattoSnapshot: Mount %s failed: %v", dev, em)
+		_, output, err := command.Execute(foundCmdline)
+		if err != nil {
 			continue
 		}
 
-		logger.Debugf("cleanDattoSnapshot: device=%s", dev)
-
-		for _, cand := range candDirs {
-			foundCmdline := fmt.Sprintf("find %s -name *.cow", cand)
-			_, o, ef := command.Execute(foundCmdline)
-			if ef != nil {
+		for _, line := range strings.Split(output, "\n") {
+			cowPath := strings.TrimSpace(line)
+			if cowPath == "" {
 				continue
 			}
-			for _, line := range strings.Split(o, "\n") {
-				cowPath := strings.TrimSpace(line)
-				if cowPath == "" {
-					continue
-				}
-				rmCmdline := fmt.Sprintf("chattr -i %s; rm -f %s", cowPath, cowPath)
-				_, _, er := command.Execute(rmCmdline)
-				if er != nil {
-					logger.Warnf("cleanDattoSnapshot: rm -f %s failed: %v", cowPath, er)
-					continue
-				}
-				logger.Debugf("cleanDattoSnapshot: rm -f %s", cowPath)
+
+			rmCmdline := fmt.Sprintf(
+				"chattr -i %q && rm -f %q",
+				cowPath,
+				cowPath,
+			)
+
+			_, _, err := command.Execute(rmCmdline)
+			if err != nil {
+				logger.Warnf(
+					"cleanDattoSnapshot: remove %s failed: %v",
+					cowPath,
+					err,
+				)
+				continue
 			}
+
+			logger.Debugf("cleanDattoSnapshot: removed %s", cowPath)
 		}
 	}
 
@@ -2458,6 +2539,19 @@ func (fixer *linuxSystemFixer) kernelContainsModule(k kernel, module string) (bo
 		return false, ew
 	}
 	return foundFromLib, nil
+}
+
+func (fixer *linuxSystemFixer) closeCryptLUKS() {
+	_ = fixer.deactiveLvm()
+	for _, luk := range fixer.offsys.luksDeviceList {
+		_, _, _ = command.Execute(
+			"kpartx -d "+luk.Mapper,
+			command.WithDebug())
+		_, _, _ = command.Execute(
+			"cryptsetup close "+luk.Mapper,
+			command.WithDebug())
+	}
+	_ = fixer.deactiveLvm()
 }
 
 func (fixer *linuxSystemFixer) fsckAllFs() {

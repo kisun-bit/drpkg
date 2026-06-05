@@ -19,72 +19,80 @@ func QueryDisks() (disks []Disk, err error) {
 		return nil, err
 	}
 	for _, diskPath := range diskPaths {
-		d := Disk{}
-		d.Name = diskPath
-		d.Device = diskPath
-
-		name, ok := extend.FindSymlinkByDeviceName("/dev/disk/by-path", diskPath)
-		if ok {
-			d.PathId = name
-		} else {
-			// 兼容VIRTIO总线
-			name, ok = extend.FindSymlinkByDeviceName("/dev/disk/by-id", diskPath)
-			if ok {
-				d.PathId = name
-			}
-		}
-
-		// 兼容XEN总线
-		if d.PathId == "" {
-			d.PathId = filepath.Base(diskPath)
-		}
-
-		d.LogicalSectorSize, err = extend.DiskLogicalSectorSize(diskPath)
-		if err != nil {
-			return nil, err
-		}
-		d.PhysicalSectorSize, err = extend.DiskPhysicalSectorSize(diskPath)
-		if err != nil {
-			return nil, err
-		}
-
-		sectors, e := extend.GetDiskSectors(diskPath)
+		d, e := QueryOneDisk(diskPath)
 		if e != nil {
 			return nil, e
 		}
-		d.Size = sectors * 512
-		d.Sectors = d.Size / int64(d.LogicalSectorSize)
-
-		d.Vendor, err = extend.GetDiskVendor(diskPath)
-		if err != nil {
-			return nil, err
-		}
-		d.Model, err = extend.GetDiskModel(diskPath)
-		if err != nil {
-			return nil, err
-		}
-		d.SerialNumber, err = extend.GetDiskSerialNumber(diskPath)
-		if err != nil {
-			return nil, err
-		}
-		d.Bus, _ = GetDiskBusType(diskPath)
-
-		d.IsReadOnly, err = extend.IsDiskReadonly(diskPath)
-		if err != nil {
-			return nil, err
-		}
-		d.Table, err = GetDiskTable(diskPath)
-		if err != nil {
-			return nil, err
-		}
-		if err = extendDiskGUID(&d); err != nil {
-			return nil, err
-		}
-		d.IsMsDynamic = false
-		d.IsOnline = true
 		disks = append(disks, d)
 	}
 	return disks, nil
+}
+
+func QueryOneDisk(diskPath string) (d Disk, err error) {
+	d.Name = diskPath
+	d.Device = diskPath
+
+	name, ok := extend.FindSymlinkByDeviceName("/dev/disk/by-path", diskPath)
+	if ok {
+		d.PathId = name
+	} else {
+		// 兼容VIRTIO总线
+		name, ok = extend.FindSymlinkByDeviceName("/dev/disk/by-id", diskPath)
+		if ok {
+			d.PathId = name
+		}
+	}
+
+	// 兼容XEN总线
+	if d.PathId == "" {
+		d.PathId = filepath.Base(diskPath)
+	}
+
+	d.LogicalSectorSize, err = extend.DiskLogicalSectorSize(diskPath)
+	if err != nil {
+		return d, err
+	}
+	d.PhysicalSectorSize, err = extend.DiskPhysicalSectorSize(diskPath)
+	if err != nil {
+		return d, err
+	}
+
+	sectors, e := extend.GetDiskSectors(diskPath)
+	if e != nil {
+		return d, e
+	}
+	d.Size = sectors * 512
+	d.Sectors = d.Size / int64(d.LogicalSectorSize)
+
+	d.Vendor, err = extend.GetDiskVendor(diskPath)
+	if err != nil {
+		return d, err
+	}
+	d.Model, err = extend.GetDiskModel(diskPath)
+	if err != nil {
+		return d, err
+	}
+	d.SerialNumber, err = extend.GetDiskSerialNumber(diskPath)
+	if err != nil {
+		return d, err
+	}
+	d.Bus, _ = GetDiskBusType(diskPath)
+
+	d.IsReadOnly, err = extend.IsDiskReadonly(diskPath)
+	if err != nil {
+		return d, err
+	}
+	d.Table, err = GetDiskTable(diskPath)
+	if err != nil {
+		return d, err
+	}
+	if err = extendDiskGUID(&d); err != nil {
+		return d, err
+	}
+	d.IsMsDynamic = false
+	d.IsOnline = true
+
+	return d, nil
 }
 
 func GetDiskBusType(dev string) (string, error) {

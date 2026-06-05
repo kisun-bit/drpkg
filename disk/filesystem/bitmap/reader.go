@@ -60,3 +60,11 @@ func (r *fsRegionReader) String() string {
 func (r *fsRegionReader) Close() error {
 	return r.file.Close()
 }
+
+func (r *fsRegionReader) ReadAt(p []byte, off int64) (int, error) {
+	return r.r.ReadAt(p, off)
+}
+
+func (r *fsRegionReader) Size() int64 {
+	return r.size
+}

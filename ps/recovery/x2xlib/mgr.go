@@ -22,32 +22,30 @@ type X2XLib struct {
 
 // NewX2XLib 创建驱动库实例。
 func NewX2XLib(libraryDir string, readonly bool) (*X2XLib, error) {
-	if !extend.IsExisted(libraryDir) {
-		return nil, errors.Wrapf(
-			os.ErrNotExist,
-			"%s",
-			libraryDir,
-		)
-	}
-
 	drvStoreDir := filepath.Join(libraryDir, driverStoreDirName)
 	if err := ensureDir(drvStoreDir); err != nil {
 		return nil, err
 	}
 
 	drvStoreDB := filepath.Join(libraryDir, driverStoreDBName)
-	db, err := InitDB(drvStoreDB, readonly)
-	if err != nil {
-		return nil, err
-	}
 
-	return &X2XLib{
+	l := &X2XLib{
 		library:        libraryDir,
 		driverStoreDir: drvStoreDir,
 		driverStoreDB:  drvStoreDB,
 		readonly:       readonly,
-		db:             db,
-	}, nil
+		db:             new(gorm.DB),
+	}
+
+	db, err := InitDB(drvStoreDB, readonly)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if err == nil {
+		l.db = db
+	}
+
+	return l, nil
 }
 
 func (x *X2XLib) String() string {

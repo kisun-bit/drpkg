@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/define"
@@ -118,6 +119,15 @@ func Umount(deviceOrMountpoint string, recursive bool) error {
 		if strings.Contains(output, "not mounted") {
 			return nil
 		}
+		if strings.Contains(output, "busy") {
+			logger.Warnf("Umount() failed: busy=%s output=%s. retry after 3s...", deviceOrMountpoint, output)
+			// 避免挂载后立即卸载报错target is busy
+			time.Sleep(3 * time.Second)
+			_, _, e := command.Execute(cmd)
+			if e == nil {
+				return nil
+			}
+		}
 		return errors.Wrapf(err, "umount %s", deviceOrMountpoint)
 	}
 
@@ -126,7 +136,6 @@ func Umount(deviceOrMountpoint string, recursive bool) error {
 
 func DeactivateVgs() error {
 	logger.Debugf("DeactivateVgs() ++")
-	defer logger.Debugf("DeactivateVgs() --")
 
 	cmdline := fmt.Sprintf("vgchange -an")
 	_, output, err := command.Execute(cmdline)

@@ -2,12 +2,15 @@ package x2xlib
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
+	"github.com/kisun-bit/drpkg/extend"
+	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -95,6 +98,9 @@ func (HardwareCompat) TableName() string {
 }
 
 func InitDB(dbFile string, readonly bool) (*gorm.DB, error) {
+	if readonly && !extend.IsExisted(dbFile) {
+		return nil, errors.Wrapf(os.ErrNotExist, dbFile)
+	}
 
 	// https://github.com/glebarez/sqlite/issues/52#issuecomment-1214160902
 	dsnCfgs := make([]string, 0)

@@ -228,11 +228,12 @@ type fsDevice struct {
 	FsType string
 }
 
-func enumFilesystem(offline []string) ([]fsDevice, error) {
+func enumFilesystem(offline []string, luksDeviceList []LuksOpenResult) ([]fsDevice, error) {
 	logger.Debugf("enumFilesystem: ++")
 	defer logger.Debugf("enumFilesystem: --")
 
-	logger.Debugf("enumFilesystem: offline = %s", extend.Pretty(offline))
+	logger.Debugf("enumFilesystem: offline = \n%s", extend.Pretty(offline))
+	logger.Debugf("enumFilesystem: luksDeviceList = \n%s", extend.Pretty(luksDeviceList))
 
 	psinfo, err := info.QueryPsInfo()
 	if err != nil {
@@ -272,7 +273,26 @@ func enumFilesystem(offline []string) ([]fsDevice, error) {
 		}
 	}
 
-	// 1. 普通磁盘
+	// 1. 加密设备下的子设备（分区、自身）
+	// 加密设备下的lvm无需探测，因为他的底层磁盘已经被扩充到了offline列表中
+
+	for _, luk := range luksDeviceList {
+		fsDevList = append(fsDevList, luk.Mapper)
+		offline = append(offline, luk.Device)
+		d, e := info.QueryOneDisk(luk.Mapper)
+		if e != nil {
+			return nil, errors.Wrapf(e, "query %s", luk.Mapper)
+		}
+		logger.Debugf("enumFilesystem: luks disk: \n%s", extend.Pretty(d))
+		for _, p := range d.Table.Partitions {
+			fsDevList = append(fsDevList, p.Device)
+			offline = append(offline, p.Device)
+		}
+	}
+
+	logger.Debugf("enumFilesystem: offline = \n%s", extend.Pretty(offline))
+
+	// 2. 普通磁盘
 	for _, d := range psinfo.Public.Disks {
 		if !funk.InStrings(offline, d.Device) {
 			continue
@@ -283,23 +303,25 @@ func enumFilesystem(offline []string) ([]fsDevice, error) {
 		handleDevice(d.Device, d.Table)
 	}
 
-	// 2. multipath
+	// 3. multipath
 	for _, mp := range psinfo.Private.Linux.Multipath {
 		if !allInOffline(mp.Slaves, offline) {
 			continue
 		}
+		offline = append(offline, mp.Device)
 		handleDevice(mp.Device, mp.Table)
 	}
 
-	// 3. raid
+	// 4. raid
 	for _, rd := range psinfo.Private.Linux.Raid {
 		if !allInOffline(rd.Slaves, offline) {
 			continue
 		}
+		offline = append(offline, rd.Device)
 		handleDevice(rd.Device, rd.Table)
 	}
 
-	// 4. lvm
+	// 5. lvm
 	for _, vg := range psinfo.Private.Linux.LVM.VGList {
 		for _, lv := range vg.LVList {
 			// 非标准卷
@@ -325,7 +347,9 @@ func enumFilesystem(offline []string) ([]fsDevice, error) {
 		fsStr, _ := DetectFSTypeByBlkid(dev)
 		if funk.InStrings(SupportedFsTypes, fsStr) || fsStr == define.FsTypeSwap {
 			devs = append(devs, fsDevice{dev, fsStr})
+			continue
 		}
+		logger.Debugf("enumFilesystem: ignore %s(%s)", dev, fsStr)
 	}
 
 	return devs, nil

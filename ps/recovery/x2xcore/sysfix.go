@@ -75,9 +75,9 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 	if opts.RecoveryParam.X2xLibrary == "" {
 		opts.RecoveryParam.X2xLibrary = filepath.Join(extend.ExecDir(), "library")
 	}
-	if !extend.IsExisted(opts.RecoveryParam.X2xLibrary) {
-		return errors.Errorf("FixerCreateOptions X2XLibrary(%s) is empty", opts.RecoveryParam.X2xLibrary)
-	}
+	//if !extend.IsExisted(opts.RecoveryParam.X2xLibrary) {
+	//	return errors.Errorf("FixerCreateOptions X2XLibrary(%s) is empty", opts.RecoveryParam.X2xLibrary)
+	//}
 
 	//
 	// 修正

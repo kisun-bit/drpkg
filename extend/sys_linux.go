@@ -307,12 +307,20 @@ func ListDisks() (disks []string, err error) {
 }
 
 func GetDiskSectors(disk string) (int64, error) {
-	r, e := ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "size"))
+	base := filepath.Base(disk)
+	if linkTarget, err := filepath.EvalSymlinks(disk); err == nil {
+		base = filepath.Base(linkTarget)
+	}
+	r, e := ReadIntFromFile(filepath.Join("/sys/class/block", base, "size"))
 	return r, errors.Wrapf(e, "get disk sectos")
 }
 
 func GetDiskVendor(disk string) (string, error) {
-	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/vendor"))
+	base := filepath.Base(disk)
+	if linkTarget, err := filepath.EvalSymlinks(disk); err == nil {
+		base = filepath.Base(linkTarget)
+	}
+	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", base, "device/vendor"))
 	if err == nil {
 		return ret, nil
 	}
@@ -323,7 +331,11 @@ func GetDiskVendor(disk string) (string, error) {
 }
 
 func GetDiskModel(disk string) (string, error) {
-	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/model"))
+	base := filepath.Base(disk)
+	if linkTarget, err := filepath.EvalSymlinks(disk); err == nil {
+		base = filepath.Base(linkTarget)
+	}
+	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", base, "device/model"))
 	if err == nil {
 		return ret, nil
 	}
@@ -334,7 +346,11 @@ func GetDiskModel(disk string) (string, error) {
 }
 
 func GetDiskSerialNumber(disk string) (string, error) {
-	path := filepath.Join("/sys/class/block", filepath.Base(disk), "device/wwid")
+	base := filepath.Base(disk)
+	if linkTarget, err := filepath.EvalSymlinks(disk); err == nil {
+		base = filepath.Base(linkTarget)
+	}
+	path := filepath.Join("/sys/class/block", base, "device/wwid")
 	ret, err := os.ReadFile(path)
 	if err == nil && len(ret) > 4 {
 		return strings.TrimSpace(string(ret[4:])), nil
@@ -354,12 +370,20 @@ func GetDiskSerialNumber(disk string) (string, error) {
 }
 
 func IsDiskReadonly(disk string) (bool, error) {
-	r, e := ReadIntFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "ro"))
+	base := filepath.Base(disk)
+	if linkTarget, err := filepath.EvalSymlinks(disk); err == nil {
+		base = filepath.Base(linkTarget)
+	}
+	r, e := ReadIntFromFile(filepath.Join("/sys/class/block", base, "ro"))
 	return r != 0, errors.Wrapf(e, "get disk read-only attribute")
 }
 
 func IsDiskRemovable(disk string) (bool, error) {
-	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", filepath.Base(disk), "removable"))
+	base := filepath.Base(disk)
+	if linkTarget, err := filepath.EvalSymlinks(disk); err == nil {
+		base = filepath.Base(linkTarget)
+	}
+	ret, err := ReadStringFromFile(filepath.Join("/sys/class/block", base, "removable"))
 	if err == nil {
 		return ret != "0", nil
 	}
@@ -864,7 +888,6 @@ func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 		}
 	}
 
-	//fmt.Println(len(es))
 	return es, nil
 }
 

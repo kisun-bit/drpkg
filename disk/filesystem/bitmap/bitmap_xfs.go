@@ -1,5 +1,9 @@
 package bitmap
 
+import (
+	"github.com/pkg/errors"
+)
+
 type xfsBitmapParser struct {
 	fr *fsRegionReader
 }
@@ -9,9 +13,7 @@ func NewXfsBitmapParser(device string, fsStart int64, fsSize int64) (FsBitmapPar
 	if err != nil {
 		return nil, err
 	}
-	_ = fr
-
-	return nil, nil
+	return &xfsBitmapParser{fr: fr}, nil
 }
 
 func (b *xfsBitmapParser) String() string {
@@ -20,5 +22,5 @@ func (b *xfsBitmapParser) String() string {
 
 // Dump 导出位图数据
 func (b *xfsBitmapParser) Dump() (bitmap *FsBitmap, err error) {
-	return nil, err
+	return nil, errors.New("xfs bitmap parser is not implemented yet")
 }

@@ -160,6 +160,9 @@ type RecoveryParameter struct {
 	// FsckFs 强制修复文件系统
 	FsckFs bool `json:"fsckFs"`
 
+	// LuksGlobalPassword 原机的crypto_LUKS卷的全局密钥
+	LuksGlobalPassword string `json:"luksGlobalPassword"`
+
 	// X2xLibrary x2xlib的library路径
 	X2xLibrary string `json:"x2xLibrary"`
 }

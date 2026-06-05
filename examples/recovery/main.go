@@ -31,7 +31,8 @@ func main() {
 				Base: "virtual",
 				Virt: "xen",
 			},
-			X2xLibrary: "/root/library",
+			X2xLibrary:         "/root/library",
+			LuksGlobalPassword: "Jrsa1234/",
 		},
 	})
 
