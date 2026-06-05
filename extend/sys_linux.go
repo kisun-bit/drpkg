@@ -455,6 +455,9 @@ func IsDirectAccessBlockDevice(device string) (bool, error) {
 func IsNormalDiskDevice(device string) (bool, error) {
 	_, diskName, err := ResolveDevice(device)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
 		return false, err
 	}
 
