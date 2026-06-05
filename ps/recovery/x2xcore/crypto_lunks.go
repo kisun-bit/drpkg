@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/kisun-bit/drpkg/command"
 )
 
 type LuksOpenResult struct {
@@ -15,19 +17,19 @@ type LuksOpenResult struct {
 }
 
 func ListLUKSDevices() ([]string, error) {
-	out, err := exec.Command(
-		"blkid",
-		"-t",
-		"TYPE=crypto_LUKS",
-		"-o",
-		"device",
-	).Output()
+	r, out, err := command.Execute(
+		"blkid -t TYPE=crypto_LUKS -o device",
+		command.WithDebug(),
+	)
 
 	if err != nil {
+		if r == 2 {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("blkid failed: %w", err)
 	}
 
-	return strings.Fields(string(out)), nil
+	return strings.Fields(out), nil
 }
 
 func OpenedLUKSDevices() (map[string]string, error) {
@@ -42,11 +44,10 @@ func OpenedLUKSDevices() (map[string]string, error) {
 
 		mapper := filepath.Base(mapperPath)
 
-		out, err := exec.Command(
-			"cryptsetup",
-			"status",
-			mapper,
-		).Output()
+		_, out, err := command.Execute(
+			"cryptsetup status "+mapper,
+			command.WithDebug(),
+		)
 
 		if err != nil {
 			continue
@@ -54,7 +55,7 @@ func OpenedLUKSDevices() (map[string]string, error) {
 
 		var device string
 
-		for _, line := range strings.Split(string(out), "\n") {
+		for _, line := range strings.Split(out, "\n") {
 
 			line = strings.TrimSpace(line)
 
@@ -106,26 +107,6 @@ func OpenLUKS(
 	return nil
 }
 
-func ActivateLVM() error {
-
-	cmd := exec.Command(
-		"vgchange",
-		"-ay",
-	)
-
-	out, err := cmd.CombinedOutput()
-
-	if err != nil {
-		return fmt.Errorf(
-			"vgchange -ay failed: %s (%w)",
-			strings.TrimSpace(string(out)),
-			err,
-		)
-	}
-
-	return nil
-}
-
 func OpenAllLUKS(password string) ([]LuksOpenResult, error) {
 
 	devices, err := ListLUKSDevices()
@@ -134,7 +115,7 @@ func OpenAllLUKS(password string) ([]LuksOpenResult, error) {
 	}
 
 	if len(devices) == 0 {
-		return nil, fmt.Errorf("no luks devices found")
+		return nil, nil
 	}
 
 	opened, err := OpenedLUKSDevices()
@@ -176,7 +157,7 @@ func OpenAllLUKS(password string) ([]LuksOpenResult, error) {
 		})
 	}
 
-	_ = ActivateLVM()
+	_, _, _ = command.Execute("vgchange -ay", command.WithDebug())
 
 	if len(errs) > 0 {
 		return results, fmt.Errorf(

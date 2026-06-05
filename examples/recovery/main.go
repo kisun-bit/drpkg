@@ -29,7 +29,7 @@ func main() {
 			Target: x2xcore.Platform{
 				Arch: "amd64",
 				Base: "virtual",
-				Virt: "xen",
+				Virt: "kvm",
 			},
 			X2xLibrary:         "/root/library",
 			LuksGlobalPassword: "Jrsa1234/",

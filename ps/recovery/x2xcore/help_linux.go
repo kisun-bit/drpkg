@@ -136,14 +136,13 @@ func Umount(deviceOrMountpoint string, recursive bool) error {
 
 func DeactivateVgs() error {
 	logger.Debugf("DeactivateVgs() ++")
+	defer logger.Debugf("DeactivateVgs() --")
 
-	cmdline := fmt.Sprintf("vgchange -an")
-	_, output, err := command.Execute(cmdline)
+	_, output, err := command.Execute("vgchange -an", command.WithDebug())
 	if err == nil {
 		return nil
 	}
 
-	logger.Warnf("DeactivateVgs() failed\noutput:\n%s\nerror:\n%v", output, err)
 	return errors.Wrapf(err, "deactivateVg failed: %s", output)
 }
 
@@ -152,15 +151,14 @@ func ActivateVgs() error {
 	defer logger.Debugf("ActivateVgs() --")
 
 	e := os.RemoveAll("/etc/lvm/devices/system.devices")
-	logger.Debugf("ActivateVgs() Remove system.devices: %s", e)
+	logger.Debugf("ActivateVgs() Remove system.devices: %v", e)
 
 	rescanLvmCmd := "pvscan; vgscan; vgchange -ay"
-	_, output, err := command.Execute(rescanLvmCmd)
+	_, output, err := command.Execute(rescanLvmCmd, command.WithDebug())
 	if err == nil {
 		return nil
 	}
 
-	logger.Warnf("ActivateVgs() Scan lvm failed\noutput:\n%s\nerror:\n%v", output, err)
 	return errors.Wrapf(err, "scan lvm failed: %s", output)
 }
 
