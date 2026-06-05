@@ -162,6 +162,10 @@ func (dm DevMajor) IsMultipath() bool {
 	return dm.hasPrefixInUUID("mpath-")
 }
 
+func (dm DevMajor) IsCrypt() bool {
+	return dm.hasPrefixInUUID("CRYPT-")
+}
+
 func VolumeMountpoints() (volumeMountpoints []DevMountpoint, err error) {
 	mountpointWithDev := make(map[string]string, 0)
 	mountBinText, err := os.ReadFile("/proc/self/mountinfo")

@@ -36,6 +36,11 @@ func QueryVolumes() ([]Volume, error) {
 				Start:  0,
 				Size:   size,
 			})
+		case devMount.Major.IsCrypt():
+			v.SegmentLayoutType = extend.SegmentLayoutTypeCrypt
+			// [root@localhost ~]# dmsetup table /dev/mapper/luks-e0a6d6d5-e764-47cc-b45f-1e427116890a
+			// 0 22433792 crypt aes-xts-plain64 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 0 253:3 4096
+			// do nothing
 		default:
 			isDA, err := extend.IsNormalDiskDevice(devMount.Device)
 			if err != nil {

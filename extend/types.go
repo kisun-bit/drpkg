@@ -6,6 +6,7 @@ const (
 	SegmentLayoutTypeUnknown SegmentLayoutType = "unknown"
 	SegmentLayoutTypeLine    SegmentLayoutType = "line"
 	SegmentLayoutTypeMirror  SegmentLayoutType = "mirror"
+	SegmentLayoutTypeCrypt   SegmentLayoutType = "crypt"
 )
 
 // Segment 表示卷在设备上的连续数据区间
