@@ -20,6 +20,12 @@ type X2XLib struct {
 	db             *gorm.DB
 }
 
+type DriverResource struct {
+	FriendlyName string
+	Modules      []string
+	Dir          string
+}
+
 // NewX2XLib 创建驱动库实例。
 func NewX2XLib(libraryDir string, readonly bool) (*X2XLib, error) {
 	drvStoreDir := filepath.Join(libraryDir, driverStoreDirName)
@@ -87,6 +93,7 @@ func (x *X2XLib) AddWindowsVirtualDriver(
 	sourceDir string,
 	remark string,
 	signatures []Signature,
+	modules []string,
 	minCompatibleNT string,
 	maxCompatibleNT string,
 ) (
@@ -113,6 +120,7 @@ func (x *X2XLib) AddWindowsVirtualDriver(
 		sourceDir,
 		remark,
 		signatures,
+		modules,
 		drvType,
 	)
 	if err != nil {
@@ -142,6 +150,7 @@ func (x *X2XLib) AddWindowsNormalDriver(
 	sourceDir string,
 	remark string,
 	signatures []Signature,
+	module string,
 	minCompatibleNT string,
 	maxCompatibleNT string,
 	hardwareIdsArr [][]string,
@@ -171,6 +180,7 @@ func (x *X2XLib) AddWindowsNormalDriver(
 		sourceDir,
 		remark,
 		signatures,
+		[]string{module},
 		driverTypeNormal,
 	)
 	if err != nil {
@@ -212,6 +222,7 @@ func (x *X2XLib) AddLinuxVirtualDriver(
 	remark string,
 	family string,
 	signature Signature,
+	modules []string,
 	compatibleKernels []string,
 ) (
 	driverID string,
@@ -241,6 +252,7 @@ func (x *X2XLib) AddLinuxVirtualDriver(
 		remark,
 		family,
 		signature,
+		modules,
 		drvType,
 	)
 	if err != nil {
@@ -270,6 +282,7 @@ func (x *X2XLib) AddLinuxNormalDriver(
 	remark string,
 	family string,
 	signature Signature,
+	modules []string,
 	compatibleKernels []string,
 	compatibleAlias []string,
 ) (
@@ -302,6 +315,7 @@ func (x *X2XLib) AddLinuxNormalDriver(
 		remark,
 		family,
 		signature,
+		modules,
 		driverTypeNormal,
 	)
 	if err != nil {
@@ -338,23 +352,22 @@ func (x *X2XLib) SelectWindowsBestVirtualDriver(
 	ntVersion string,
 	ignoreCheckSignature bool,
 ) (
-	driverFriendly string,
-	driverDir string,
+	dr *DriverResource,
 	err error,
 ) {
 	drvType, err := getDriverTypeByVirtType(virtual)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if err = checkArchitecture(architecture); err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if err = checkNtVersion(ntVersion); err != nil {
-		return "", "", err
+		return nil, err
 	}
 	ntweight, err := versionWeight(ntVersion)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	var drivers []Driver
@@ -374,7 +387,7 @@ func (x *X2XLib) SelectWindowsBestVirtualDriver(
 		Error
 
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	driver, err := x.pickWindowsDriver(
@@ -383,7 +396,7 @@ func (x *X2XLib) SelectWindowsBestVirtualDriver(
 		ignoreCheckSignature,
 	)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	return x.driverResult(driver)
@@ -396,26 +409,25 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 	unipci string,
 	ignoreCheckSignature bool,
 ) (
-	driverFriendly string,
-	driverDir string,
+	dr *DriverResource,
 	err error,
 ) {
 	if err = checkArchitecture(architecture); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	if err = checkNtVersion(ntVersion); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	ntWeight, err := versionWeight(ntVersion)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	compatIds, err := compatIdsFromUniPci(unipci)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	var drivers []Driver
@@ -454,7 +466,7 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 		Error
 
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	driver, err := x.pickWindowsDriver(
@@ -463,7 +475,7 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 		ignoreCheckSignature,
 	)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	return x.driverResult(driver)
@@ -476,26 +488,25 @@ func (x *X2XLib) SelectLinuxBestNormalDriver(
 	kernel string,
 	unipci string,
 ) (
-	driverFriendly string,
-	driverDir string,
+	dr *DriverResource,
 	err error,
 ) {
 
 	if err = checkArchitecture(architecture); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	if err = checkFamily(family); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	if kernel == "" {
-		return "", "", errors.New("kernel is required")
+		return nil, errors.New("kernel is required")
 	}
 
 	compatIds, err := compatIdsFromUniPci(unipci)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	var drivers []Driver
@@ -528,11 +539,11 @@ func (x *X2XLib) SelectLinuxBestNormalDriver(
 		Error
 
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	if len(drivers) == 0 {
-		return "", "", errors.New("driver not found")
+		return nil, errors.Wrap(os.ErrNotExist, "driver not found")
 	}
 
 	return x.driverResult(&drivers[0])
@@ -546,19 +557,18 @@ func (x *X2XLib) SelectLinuxBestVirtualDriver(
 	kernel string,
 	vendor string,
 ) (
-	driverFriendly string,
-	driverDir string,
+	dr *DriverResource,
 	err error,
 ) {
 	drvType, err := getDriverTypeByVirtType(virtual)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if err = checkArchitecture(architecture); err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if err = checkFamily(family); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	var drivers []Driver
@@ -577,7 +587,7 @@ func (x *X2XLib) SelectLinuxBestVirtualDriver(
 		Error
 
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	driver, err := x.findDriverByVendor(
@@ -585,7 +595,7 @@ func (x *X2XLib) SelectLinuxBestVirtualDriver(
 		vendor,
 	)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	return x.driverResult(driver)
@@ -759,7 +769,7 @@ func (x *X2XLib) pickWindowsDriver(
 ) (*Driver, error) {
 
 	if len(drivers) == 0 {
-		return nil, errors.New("driver not found")
+		return nil, errors.Wrap(os.ErrNotExist, "driver not found")
 	}
 
 	// Win8(6.2) 开始支持 SHA2
@@ -783,23 +793,25 @@ func (x *X2XLib) pickWindowsDriver(
 		}
 	}
 
-	return nil, errors.New("driver not found")
+	return nil, errors.Wrap(os.ErrNotExist, "driver not found")
 }
 
 func (x *X2XLib) driverResult(
 	d *Driver,
 ) (
-	string,
-	string,
+	*DriverResource,
 	error,
 ) {
 	if d == nil {
-		return "", "", errors.New("driver not found")
+		return nil, errors.Wrap(os.ErrNotExist, "driver not found")
 	}
 
-	return d.Pretty(),
-		d.Directory(x.driverStoreDir),
-		nil
+	dr := new(DriverResource)
+	dr.FriendlyName = d.Name
+	dr.Modules = d.ModuleList()
+	dr.Dir = d.Directory(x.driverStoreDir)
+
+	return dr, nil
 }
 
 func (x *X2XLib) findDriverByVendor(
@@ -808,7 +820,7 @@ func (x *X2XLib) findDriverByVendor(
 ) (*Driver, error) {
 
 	if len(drivers) == 0 {
-		return nil, errors.New("driver not found")
+		return nil, errors.Wrap(os.ErrNotExist, "driver not found")
 	}
 
 	if vendor == "" {
@@ -821,5 +833,5 @@ func (x *X2XLib) findDriverByVendor(
 		}
 	}
 
-	return nil, errors.New("driver not found")
+	return nil, errors.Wrap(os.ErrNotExist, "driver not found")
 }

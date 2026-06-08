@@ -1,6 +1,7 @@
 package x2xlib
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -271,6 +272,8 @@ type createDriverOption struct {
 	DrvType uint16
 
 	Signature DriverSignature
+
+	Modules []string
 }
 
 func buildDriver(opt createDriverOption) (*Driver, error) {
@@ -291,10 +294,15 @@ func buildDriver(opt createDriverOption) (*Driver, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(opt.Modules) == 0 {
+		return nil, errors.Errorf("modules is required")
+	}
+	modulesJson, _ := json.Marshal(opt.Modules)
 
 	return &Driver{
 		ID:            strings.ReplaceAll(uuid.New().String(), "-", ""),
 		Name:          opt.Name,
+		Modules:       string(modulesJson),
 		Version:       opt.Version,
 		VersionWeight: verWeight,
 		Vendor:        opt.Vendor,
@@ -447,6 +455,7 @@ func buildWindowsDriver(
 	sourceDir string,
 	remark string,
 	signatures []Signature,
+	modules []string,
 	drvType uint16,
 ) (
 	*Driver,
@@ -474,6 +483,8 @@ func buildWindowsDriver(
 		DrvType: drvType,
 
 		Signature: *sign,
+
+		Modules: modules,
 	})
 }
 
@@ -486,6 +497,7 @@ func buildLinuxDriver(
 	remark string,
 	family string,
 	signature Signature,
+	modules []string,
 	drvType uint16,
 ) (
 	*Driver,
@@ -513,5 +525,7 @@ func buildLinuxDriver(
 		DrvType: drvType,
 
 		Signature: *sign,
+
+		Modules: modules,
 	})
 }

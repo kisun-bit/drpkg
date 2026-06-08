@@ -1,6 +1,7 @@
 package x2xlib
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 type Driver struct {
 	ID            string    `gorm:"column:id;primaryKey;size:64"`
 	Name          string    `gorm:"column:name;size:128;not null"`
+	Modules       string    `gorm:"column:modules;type:text;not null"`
 	Version       string    `gorm:"column:version;size:64"`
 	VersionWeight uint64    `gorm:"column:version_weight;"`
 	Vendor        string    `gorm:"column:vendor;size:128"`
@@ -57,6 +59,12 @@ func (d *Driver) Directory(baseDir string) string {
 		id = uuid.New().String()
 	}
 	return filepath.Join(baseDir, d.OS, d.Family, d.Arch, id)
+}
+
+func (d *Driver) ModuleList() []string {
+	ret := make([]string, 0)
+	_ = json.Unmarshal([]byte(d.Modules), &ret)
+	return ret
 }
 
 // KernelCompat Linux内核兼容关系

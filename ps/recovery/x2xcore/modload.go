@@ -2,6 +2,7 @@ package x2xcore
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,6 +235,14 @@ func NewModuleLoader(root, kernel string) (*Loader, error) {
 	}, nil
 }
 
+func (l *Loader) String() string {
+	return fmt.Sprintf("Loader(root=%s,kernel=%s)", l.root, l.kernel)
+}
+
+func (l *Loader) KernelVersion() string {
+	return l.kernel
+}
+
 // ================================
 // 按模块名加载
 // ================================
@@ -259,7 +268,7 @@ func (l *Loader) LoadByDevice(device string) ([]string, error) {
 	modules := ResolveAlias(l.aliasMap, device)
 
 	if len(modules) == 0 {
-		return nil, errors.Errorf("no module for device: %s", device)
+		return nil, errors.Wrapf(os.ErrNotExist, "no module for device: %s", device)
 	}
 
 	var fullModules []string

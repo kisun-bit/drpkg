@@ -2653,7 +2653,7 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByDnf(
 ) error {
 	return fixer.batchInjectPackages(
 		pkgDir,
-		"dnf install -y *.rpm",
+		"dnf install -y *.rpm --disablerepo='*'",
 	)
 }
 
@@ -2662,7 +2662,7 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByYum(
 ) error {
 	return fixer.batchInjectPackages(
 		pkgDir,
-		"yum install -y *.rpm",
+		"yum localinstall -y *.rpm",
 	)
 }
 
@@ -2682,4 +2682,17 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByApt(
 		pkgDir,
 		"apt install -y ./*.deb",
 	)
+}
+
+func (fixer *linuxSystemFixer) batchInjectPackage(
+	pkgDir string,
+) error {
+	switch fixer.offsys.pkgMgrType {
+	case PackageManagerRPM:
+		return fixer.batchInjectPackagesByRpm(pkgDir)
+	case PackageManagerDEB:
+		return fixer.batchInjectPackagesByDpkg(pkgDir)
+	default:
+		return errors.Errorf("unsupported package manager type: %s", fixer.offsys.pkgMgrType)
+	}
 }

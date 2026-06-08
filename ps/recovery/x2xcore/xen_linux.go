@@ -213,7 +213,7 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 		if isOldSLES || isOldOpenSUSE {
 
 			// 离线安装xen相关的包
-			name, dir, e := fixer.x2xLib.SelectLinuxBestVirtualDriver(
+			dr, e := fixer.x2xLib.SelectLinuxBestVirtualDriver(
 				define.HPVTXen,
 				runtime.GOARCH,
 				fixer.offsys.distro.Family,
@@ -223,9 +223,9 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 				logger.Warnf("patchOneKernelXen: GetLinuxVirtualizationDriver: %v", e)
 				return errors.Wrap(e, "xen drivers not installed")
 			}
-			logger.Debugf("patchOneKernelXen: Package: %s", name)
-			if e = fixer.batchInjectPackagesByZypper(dir); e != nil {
-				return errors.Wrapf(e, "install %s", name)
+			logger.Debugf("patchOneKernelXen: Package: %s", dr.FriendlyName)
+			if e = fixer.batchInjectPackagesByZypper(dr.Dir); e != nil {
+				return errors.Wrapf(e, "install %s", dr.FriendlyName)
 			}
 			installed = true
 			xenCand1ModulesFound = true
