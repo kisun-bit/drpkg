@@ -13,6 +13,7 @@ import (
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/define"
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 )
@@ -441,5 +442,33 @@ func isValidFstabDevice(device string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+func DetectSystemd(root string) bool {
+
+	// 1. systemd 主程序
+	if extend.IsExisted(filepath.Join(root,
+		"usr/lib/systemd/systemd")) {
+		return true
+	}
+
+	if extend.IsExisted(filepath.Join(root,
+		"lib/systemd/systemd")) {
+		return true
+	}
+
+	// 2. systemctl
+	if extend.IsExisted(filepath.Join(root,
+		"usr/bin/systemctl")) {
+		return true
+	}
+
+	// 3. systemd 配置目录
+	if extend.IsExisted(filepath.Join(root,
+		"etc/systemd")) {
+		return true
+	}
+
 	return false
 }

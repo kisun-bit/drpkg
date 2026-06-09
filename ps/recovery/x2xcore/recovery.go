@@ -165,6 +165,9 @@ type RecoveryParameter struct {
 
 	// X2xLibrary x2xlib的library路径
 	X2xLibrary string `json:"x2xLibrary"`
+
+	// Network 网络配置
+	Network NetworkConfig `json:"network"`
 }
 
 type DeviceMap struct {

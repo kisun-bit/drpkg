@@ -89,6 +89,9 @@ type offlineSystem struct {
 
 	// udev 是否支持 UUID 寻址
 	udevSupportUuid bool
+
+	// supportSystemd 是否支持 systemd
+	supportSystemd bool
 }
 
 type kernel struct {
@@ -187,6 +190,9 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	fixer.detectBootMode()
 	fixer.detectUdevSupportUuid()
 
+	fixer.offsys.supportSystemd = DetectSystemd(fixer.offsys.root)
+	logger.Debugf("Prepare: supportSystemd=%v", fixer.offsys.supportSystemd)
+
 	return nil
 }
 
@@ -213,6 +219,11 @@ func (fixer *linuxSystemFixer) Repair() error {
 
 	if err := fixer.fixGrub(); err != nil {
 		return errors.Wrap(err, "fix grub")
+	}
+
+	if err := NetworkInject(fixer.offsys.root, &fixer.opts.RecoveryParam.Network); err != nil {
+		// TODO 抛出警告
+		logger.Warnf("Network inject fail: %v", err)
 	}
 
 	var unconfigFun = fixer.unconfigBareMetal
