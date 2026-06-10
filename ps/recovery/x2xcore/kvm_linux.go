@@ -35,8 +35,10 @@ func (fixer *linuxSystemFixer) patchVirtIO() error {
 	for _, k := range fixer.offsys.kernels {
 		if err := fixer.patchOneKernelVirtIO(k); err != nil {
 			// TODO 提示警告，此内核不兼容virtio硬件设备
-			logger.Warnf("patchVirtIO: patchOneKernelVirtIO: %v", err)
-			fixer.offsys.kvmDiskBus = define.DiskBusIde
+			logger.Warnf(
+				"patchVirtIO: patchOneKernelVirtIO: %v, disk-bus changes to `%s`",
+				err, define.DiskBusSata)
+			fixer.offsys.kvmDiskBus = define.DiskBusSata
 			return nil
 		}
 	}
@@ -120,6 +122,16 @@ func (fixer *linuxSystemFixer) patchOneKernelVirtIO(k kernel) error {
 			if foundFromLib {
 				logger.Debugf("patchOneKernelVirtIO: module file of %s found in %s", m, k.Name)
 				missedMods = append(missedMods, m)
+			} else {
+				if m == "virtio_scsi" {
+					logger.Debugf(
+						"patchOneKernelVirtIO: module file of %s found in %s, change `%s` to `%s`",
+						m,
+						k.Name,
+						fixer.offsys.kvmDiskBus,
+						define.DiskBusVirtio)
+					fixer.offsys.kvmDiskBus = define.DiskBusVirtio
+				}
 			}
 			continue
 		}

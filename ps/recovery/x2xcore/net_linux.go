@@ -12,6 +12,7 @@ import (
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
+	"github.com/thoas/go-funk"
 	"gopkg.in/yaml.v3"
 )
 
@@ -53,6 +54,23 @@ func NetworkInject(
 
 	logger.Debugf("LinuxNetworkInjector.Inject: NetworkConfig:\n%s",
 		extend.Pretty(cfg))
+
+	macs := make([]string, 0)
+	for _, nic := range cfg.Interfaces {
+		macs = append(macs, nic.MAC)
+	}
+	if err := renameAllFileIfContainsMac(macs, []string{
+		filepath.Join(root, "etc/systemd/network"),
+		filepath.Join(root, "etc/udev/rules.d"),
+		filepath.Join(root, "lib/udev/rules.d"),
+		filepath.Join(root, "etc/netplan"),
+		filepath.Join(root, "etc/sysconfig/network-scripts"),
+		filepath.Join(root, "etc/NetworkManager/system-connections"),
+		filepath.Join(root, "etc/network/interfaces.d"),
+		filepath.Join(root, "etc/sysconfig/network"),
+	}); err != nil {
+		return err
+	}
 
 	if err := disableLegacyPersistentNetRules(root); err != nil {
 		return err
@@ -160,6 +178,59 @@ func cleanupNetworkRenameRules(root string) error {
 		),
 	)
 
+	return nil
+}
+
+func renameAllFileIfContainsMac(macs []string, dirs []string) error {
+	if len(macs) == 0 {
+		return nil
+	}
+
+	for _, dir := range dirs {
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			logger.Debugf("renameAllFileIfContainsMac: ignore %s: %v", dir, err)
+			continue
+		}
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			path := filepath.Join(dir, f.Name())
+			fi, e := f.Info()
+			if e != nil {
+				logger.Warnf("renameAllFileIfContainsMac: file info %s failed: %v", path, err)
+				continue
+			}
+			if fi.Size() > 1<<20 {
+				logger.Debugf("renameAllFileIfContainsMac: file %s is too large", path)
+				continue
+			}
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				logger.Warnf("renameAllFileIfContainsMac: read file %s failed: %v", path, err)
+				continue
+			}
+			logger.Debugf("renameAllFileIfContainsMac: detecing %s", path)
+
+			for _, mac := range macs {
+				if bytes.Contains(data, []byte(strings.ToLower(mac))) ||
+					bytes.Contains(data, []byte(strings.ToUpper(mac))) {
+
+					//logger.Debugf("renameAllFileIfContainsMac: file %s is renamed. contains mac(%s)", path, mac)
+					//if err = backupIfExists(path); err != nil {
+					//	return err
+					//}
+
+					logger.Debugf("renameAllFileIfContainsMac: file %s is delete. contains mac(%s)", path, mac)
+					if err = os.RemoveAll(path); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -341,9 +412,9 @@ func hasIfcfg(root string) bool {
 			continue
 		}
 
-		if name == "ifcfg-lo" {
-			continue
-		}
+		//if name == "ifcfg-lo" {
+		//	continue
+		//}
 
 		return true
 	}
@@ -432,7 +503,7 @@ func (w *netplanWriter) Write(
 		dns = append(dns, cfg.GlobalDNS...)
 		if len(dns) > 0 {
 			eth["nameservers"] = map[string]interface{}{
-				"addresses": uniqueStrings(dns),
+				"addresses": funk.UniqString(dns),
 			}
 		}
 
@@ -489,7 +560,7 @@ func (w *netplanWriter) Write(
 	}
 
 	file := filepath.Join(root, "etc/netplan/99-drfbtk.yaml")
-	if err = backupNetworkIfExists(file); err != nil {
+	if err = backupIfExists(file); err != nil {
 		return err
 	}
 
@@ -605,11 +676,13 @@ func (w *ifcfgWriter) Write(
 			)
 		}
 
+		sb.WriteString("ARPCHECK=no")
+
 		path := filepath.Join(
 			baseDir,
 			"ifcfg-"+iface.Name,
 		)
-		if err := backupNetworkIfExists(path); err != nil {
+		if err := backupIfExists(path); err != nil {
 			return err
 		}
 
@@ -830,7 +903,7 @@ func (w *nmWriter) Write(
 			name+".nmconnection",
 		)
 
-		if err := backupNetworkIfExists(file); err != nil {
+		if err := backupIfExists(file); err != nil {
 			return err
 		}
 
@@ -957,7 +1030,7 @@ func (w *interfacesWriter) Write(
 			iface.Name,
 		)
 
-		if err := backupNetworkIfExists(file); err != nil {
+		if err := backupIfExists(file); err != nil {
 			return err
 		}
 
@@ -1036,7 +1109,7 @@ func (w *wickedWriter) Write(
 			"ifcfg-"+iface.Name,
 		)
 
-		if err := backupNetworkIfExists(file); err != nil {
+		if err := backupIfExists(file); err != nil {
 			return err
 		}
 
@@ -1160,29 +1233,6 @@ func parseCIDR(
 	return addr.String(), ones, nil
 }
 
-func uniqueStrings(in []string) []string {
-
-	seen := make(map[string]struct{})
-
-	var out []string
-
-	for _, v := range in {
-
-		if v == "" {
-			continue
-		}
-
-		if _, ok := seen[v]; ok {
-			continue
-		}
-
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-
-	return out
-}
-
 func equalMAC(a, b string) bool {
 
 	return strings.EqualFold(
@@ -1191,8 +1241,8 @@ func equalMAC(a, b string) bool {
 	)
 }
 
-// backupNetworkIfExists 如果文件存在，则备份一份，文件名为原文件名 + 时间戳
-func backupNetworkIfExists(filePath string) error {
+// backupIfExists 如果文件存在，则备份一份，文件名为原文件名 + 时间戳
+func backupIfExists(filePath string) error {
 
 	// 检查文件是否存在
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
