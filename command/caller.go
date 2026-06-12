@@ -1,6 +1,9 @@
 package command
 
-import "runtime"
+import (
+	"os/exec"
+	"runtime"
+)
 
 var (
 	callerMap = map[string][]string{
@@ -20,6 +23,9 @@ var (
 func init() {
 	if runtime.GOOS == "windows" {
 		defaultCaller = "cmd.exe"
+		if _, e := exec.LookPath(defaultCaller); e != nil {
+			defaultCaller = "C:\\Windows\\System32\\cmd.exe"
+		}
 		defaultCmdOptions.caller = defaultCaller
 		defaultCmdOptions.callerArgs = callerMap[defaultCaller]
 	}
