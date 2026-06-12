@@ -43,6 +43,9 @@ func QueryDisks() (disks []Disk, err error) {
 
 		size, e := extend.FileSize(diskPath)
 		if e != nil {
+			if errors.Is(e, windows.ERROR_NOT_READY) {
+				continue
+			}
 			return nil, errors.Wrapf(e, "FileSize for %s", diskPath)
 		}
 		d.Size = int64(size)
