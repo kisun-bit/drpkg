@@ -3,9 +3,12 @@ package x2xcore
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/define"
@@ -373,4 +376,81 @@ func allInOffline(slaves []string, offline []string) bool {
 		}
 	}
 	return true
+}
+
+func parseCIDR(
+	cidr string,
+) (ip string, prefix int, err error) {
+
+	addr, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "", 0, err
+	}
+
+	ones, _ := ipnet.Mask.Size()
+
+	return addr.String(), ones, nil
+}
+
+func equalMAC(a, b string) bool {
+
+	return strings.EqualFold(
+		strings.TrimSpace(a),
+		strings.TrimSpace(b),
+	)
+}
+
+// backupIfExists 如果文件存在，则备份一份，文件名为原文件名 + 时间戳
+func backupIfExists(filePath string) error {
+
+	// 检查文件是否存在
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// 文件不存在，不需要备份
+		return nil
+	}
+
+	// 构造备份文件名
+	timestamp := time.Now().Format("20060102-150405")
+	dir := filepath.Dir(filePath)
+	base := filepath.Base(filePath)
+	backupName := fmt.Sprintf("%s.%s.bak", base, timestamp)
+	backupPath := filepath.Join(dir, backupName)
+
+	// 复制文件内容到备份文件
+	input, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	if err = os.WriteFile(backupPath, input, 0644); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func mergeDNS(
+	global []string,
+	local []string,
+) []string {
+
+	seen := make(map[string]struct{})
+
+	var result []string
+
+	for _, dns := range append(local, global...) {
+
+		if dns == "" {
+			continue
+		}
+
+		if _, ok := seen[dns]; ok {
+			continue
+		}
+
+		seen[dns] = struct{}{}
+		result = append(result, dns)
+	}
+
+	return result
 }

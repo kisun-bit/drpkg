@@ -52,3 +52,14 @@ var (
 var (
 	ErrorRootEnvNotMounted = errors.New("root environment is not mounted")
 )
+
+type NetworkBackend string
+
+const (
+	BackendUnknown    NetworkBackend = "unknown"
+	BackendIfcfg      NetworkBackend = "rhel-ifcfg"        // RHEL ifcfg
+	BackendInterfaces NetworkBackend = "debian-interfaces" // Debian interfaces
+	BackendNetplan    NetworkBackend = "ubuntu-netplan"    // Ubuntu netplan
+	BackendWicked     NetworkBackend = "suse-wicked"       // SUSE wicked
+	BackendNMKeyfile  NetworkBackend = "network-manager"   // NetworkManager
+)

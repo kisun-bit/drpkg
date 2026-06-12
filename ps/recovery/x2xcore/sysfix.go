@@ -1,6 +1,7 @@
 package x2xcore
 
 import (
+	"fmt"
 	"path/filepath"
 	"runtime"
 
@@ -23,6 +24,9 @@ type SysFixer interface {
 
 	// GetLog 获取日志
 	GetLog() (LogEntry, bool)
+
+	// GetKvmPreferConfig 获取推荐配置
+	GetPreferHostConfig(define.HPVirtType) (PreferConfig, error)
 }
 
 type FixerCreateOptions struct {
@@ -31,6 +35,15 @@ type FixerCreateOptions struct {
 
 	// RecoveryParam 恢复参数
 	RecoveryParam RecoveryParameter
+}
+
+type PreferConfig struct {
+	Chipset     string // 芯片组
+	Video       string // 显卡类型
+	DiskBus     string // 磁盘总线
+	NetworkType string // 网卡类型
+
+	// TODO 更多
 }
 
 func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
@@ -108,6 +121,18 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 			if uniPci.VendorId() == 0x15ad {
 				plats[i].Base = define.HPVirt
 				plats[i].Virt = define.HPVTVmware
+				break
+			}
+		}
+	}
+
+	usedInterfaceNames := make(map[string]struct{})
+	for i := 0; i < len(opts.RecoveryParam.Network.Interfaces); i++ {
+		for idx := 0; ; idx++ {
+			name := fmt.Sprintf("eth%d", idx)
+			if _, ok := usedInterfaceNames[name]; !ok {
+				opts.RecoveryParam.Network.Interfaces[i].Name = name
+				usedInterfaceNames[name] = struct{}{}
 				break
 			}
 		}

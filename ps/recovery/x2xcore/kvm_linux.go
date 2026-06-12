@@ -93,6 +93,27 @@ func (fixer *linuxSystemFixer) patchOneKernelVirtIO(k kernel) error {
 	//	return errors.Wrapf(e, "execute `%s`", cmdline)
 	//}
 
+	supportedNetVirtio := false
+	supportedDiskVirtio := false
+	supportedDiskScsi := false
+
+	kvmPreferDetect := func(_moduleName string, _netVirtio, _diskVirtio, _diskScsi *bool) {
+		switch _moduleName {
+		case "virtio_net":
+			if !*_netVirtio {
+				*_netVirtio = true
+			}
+		case "virtio_blk":
+			if !*_diskVirtio {
+				*_diskVirtio = true
+			}
+		case "virtio_scsi":
+			if !*_diskScsi {
+				*_diskScsi = true
+			}
+		}
+	}
+
 	// 本次需要打入initrd的模块
 	missedMods := make([]string, 0)
 
@@ -121,17 +142,8 @@ func (fixer *linuxSystemFixer) patchOneKernelVirtIO(k kernel) error {
 			foundFromLib, _ := fixer.kernelContainsModule(k, m)
 			if foundFromLib {
 				logger.Debugf("patchOneKernelVirtIO: module file of %s found in %s", m, k.Name)
+				kvmPreferDetect(m, &supportedNetVirtio, &supportedDiskVirtio, &supportedDiskScsi)
 				missedMods = append(missedMods, m)
-			} else {
-				if m == "virtio_scsi" {
-					logger.Debugf(
-						"patchOneKernelVirtIO: module file of %s found in %s, change `%s` to `%s`",
-						m,
-						k.Name,
-						fixer.offsys.kvmDiskBus,
-						define.DiskBusVirtio)
-					fixer.offsys.kvmDiskBus = define.DiskBusVirtio
-				}
 			}
 			continue
 		}
@@ -140,12 +152,15 @@ func (fixer *linuxSystemFixer) patchOneKernelVirtIO(k kernel) error {
 
 		// builtin支持
 		if mval == "y" {
+			kvmPreferDetect(m, &supportedNetVirtio, &supportedDiskVirtio, &supportedDiskScsi)
 			continue
 		}
 
 		if mval != "m" {
 			return errors.Errorf("KCONFIG of %s is `%s`", m, mval)
 		}
+
+		kvmPreferDetect(m, &supportedNetVirtio, &supportedDiskVirtio, &supportedDiskScsi)
 
 		//// 驱动是否已打入initrd
 		//patched := false
@@ -176,5 +191,20 @@ func (fixer *linuxSystemFixer) patchOneKernelVirtIO(k kernel) error {
 	if err := fixer.initrdAddModule(k, missedMods...); err != nil {
 		return err
 	}
+
+	if supportedNetVirtio {
+		fixer.offsys.kvmNetworkType = define.NetworkTypeVIRTIO
+	}
+	if supportedDiskVirtio {
+		fixer.offsys.kvmDiskBus = define.DiskBusVirtio
+	}
+	if supportedDiskScsi {
+		fixer.offsys.kvmDiskBus = define.DiskBusVirtioScsi
+	}
+
+	logger.Debugf(
+		"patchOneKernelVirtIO: network=`%s` disk-bus=`%s`",
+		fixer.offsys.kvmNetworkType, fixer.offsys.kvmDiskBus)
+
 	return nil
 }

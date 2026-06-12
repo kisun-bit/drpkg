@@ -24,11 +24,12 @@ import (
 )
 
 type linuxSystemFixer struct {
-	ctx    context.Context
-	opts   *FixerCreateOptions // 恢复参数
-	logs   <-chan LogEntry     // 日志缓存通道
-	x2xLib *x2xlib.X2XLib      // 驱动库
-	offsys offlineSystem       // 离线系统的私有信息
+	ctx          context.Context
+	opts         *FixerCreateOptions // 恢复参数
+	logs         <-chan LogEntry     // 日志缓存通道
+	x2xLib       *x2xlib.X2XLib      // 驱动库
+	offsys       offlineSystem       // 离线系统的私有信息
+	repairFinish bool
 }
 
 type offlineSystem struct {
@@ -52,9 +53,10 @@ type offlineSystem struct {
 	devSwaps []string // swap 设备列表
 
 	// KVM 硬件配置
-	kvmChipset string // 主板芯片组（i440fx、q35）
-	kvmVideo   string // 显卡类型（bochs、vga、virtio、ramfb）
-	kvmDiskBus string // 磁盘总线（ide、scsi、virtio、sata）
+	kvmChipset     string // 主板芯片组（i440fx、q35）
+	kvmVideo       string // 显卡类型（bochs、vga、virtio、ramfb）
+	kvmDiskBus     string // 磁盘总线（ide、scsi、virtio、sata）
+	kvmNetworkType string // 网卡类型（e1000e、rtl8192、virtio）
 
 	// 启动模式（bios、uefi）
 	bootMode define.BootMode
@@ -201,6 +203,10 @@ func (fixer *linuxSystemFixer) Repair() error {
 	logger.Debugf("Repair: ++")
 	defer logger.Debugf("Repair: --")
 
+	defer func() {
+		fixer.repairFinish = true
+	}()
+
 	if err := fixer.disableSeLinux(); err != nil {
 		return errors.Wrap(err, "disable selinux")
 	}
@@ -258,9 +264,7 @@ func (fixer *linuxSystemFixer) Repair() error {
 		return errors.Wrapf(err, "config %s", fixer.opts.RecoveryParam.Target.Virt)
 	}
 
-	// TODO
-
-	return errors.New("not implemented")
+	return nil
 }
 
 // Cleanup 清理修复环境（卸载/释放资源）
@@ -290,6 +294,23 @@ func (fixer *linuxSystemFixer) GetLog() (LogEntry, bool) {
 		return entry, true
 	default:
 		return LogEntry{}, false
+	}
+}
+
+func (fixer *linuxSystemFixer) GetPreferHostConfig(virtual define.HPVirtType) (cfg PreferConfig, err error) {
+	if !fixer.repairFinish {
+		return cfg, errors.New("please repair firstly")
+	}
+
+	switch virtual {
+	case define.HPVTKvm:
+		cfg.Chipset = fixer.offsys.kvmChipset
+		cfg.Video = fixer.offsys.kvmVideo
+		cfg.DiskBus = fixer.offsys.kvmDiskBus
+		cfg.NetworkType = fixer.offsys.kvmNetworkType
+		return cfg, nil
+	default:
+		return cfg, errors.New("GetPreferHostConfig: unsupported virtual type")
 	}
 }
 
@@ -1016,10 +1037,11 @@ func (fixer *linuxSystemFixer) detectKvmCfg() {
 	fixer.offsys.kvmVideo = define.VideoBochs
 	// FIXME: 后续不要根据主板去决定显卡类型
 	if fixer.offsys.kvmChipset == define.ChipsetQ35 {
-		fixer.offsys.kvmChipset = define.VideoVGA
+		fixer.offsys.kvmVideo = define.VideoVGA
 	}
 
-	fixer.offsys.kvmDiskBus = define.DiskBusScsi
+	fixer.offsys.kvmDiskBus = define.DiskBusVirtioScsi
+	fixer.offsys.kvmNetworkType = define.NetworkTypeE1000
 
 	// FIXME:
 	// 但在实际测试中发现，SUSE11 SP4（kernel 3.0.101）是一个例外：

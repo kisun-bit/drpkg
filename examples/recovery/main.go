@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/kisun-bit/drpkg/define"
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/info"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
@@ -36,17 +39,18 @@ func main() {
 			Network: x2xcore.NetworkConfig{
 				Interfaces: []x2xcore.InterfaceConfig{
 					{
-						//MAC:     "00:0c:29:b7:23:41", // vmware 张凯加密系统
+						MAC: "00:0c:29:b7:23:41", // vmware 张凯加密系统
 						//MAC:     "00:0c:29:ed:76:c2", // vmware 张凯suse12sp4
 						//MAC:     "00:50:56:ac:30:ca", // vmwaer 罗潇centos6.5uefi
 						//MAC:     "00:50:56:ac:84:14", // vmware 罗潇ubuntu22
-						MAC:     "00:50:56:ac:66:16", // vmware centos4_oracle
-						Name:    "zk01",
+						//MAC:     "00:50:56:ac:66:16", // vmware centos4_oracle
+						//MAC:     "00:50:56:ac:a0:5b", // vmware 罗潇最新centos-123测试
+						Name:    "zktestif01",
 						Enabled: true,
 						MTU:     1500,
 						DHCP:    false,
 						IPAddr: []x2xcore.IPConfig{
-							{"192.168.1.12/24"},
+							{"192.168.1.43/24"},
 						},
 						DNS:     []string{"8.8.4.4"},
 						Gateway: "192.168.1.1",
@@ -72,4 +76,7 @@ func main() {
 		logger.Errorf("Repair: %v\n", err)
 		return
 	}
+
+	cfg, _ := fixer.GetPreferHostConfig(define.HPVTKvm)
+	fmt.Println(extend.Pretty(cfg))
 }

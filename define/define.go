@@ -81,10 +81,17 @@ const (
 
 // 磁盘总线类型
 const (
-	DiskBusIde    = "ide"
-	DiskBusSata   = "sata"
-	DiskBusScsi   = "scsi"
-	DiskBusVirtio = "virtio"
+	DiskBusIde        = "ide"
+	DiskBusSata       = "sata"
+	DiskBusVirtioScsi = "scsi"
+	DiskBusVirtio     = "virtio"
+)
+
+// 网卡类型
+const (
+	NetworkTypeE1000   = "e1000"
+	NetworkTypeRTL8192 = "rtl8192"
+	NetworkTypeVIRTIO  = "virtio"
 )
 
 // 文件系统类型

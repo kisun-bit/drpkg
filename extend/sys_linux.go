@@ -720,6 +720,7 @@ func LVSegments(lvPath string) (segments []Segment, err error) {
 		return nil, err
 	}
 
+	segMap := make(map[int]Segment)
 	for _, d := range des {
 		diskOrPartitionName := d.Name()
 		devicePath := filepath.Join("/dev", diskOrPartitionName)
@@ -742,7 +743,7 @@ func LVSegments(lvPath string) (segments []Segment, err error) {
 		}
 
 		lvPartialSegment := seg
-		for _, tableLine := range strings.Split(o, "\n") {
+		for i, tableLine := range strings.Split(o, "\n") {
 			tableLine = strings.TrimSpace(tableLine)
 			tableLineFields := strings.Fields(tableLine)
 			if tableLine == "" {
@@ -776,12 +777,118 @@ func LVSegments(lvPath string) (segments []Segment, err error) {
 			// """
 			lvPartialSegment.Start += lvPartialStartSector * 512
 			lvPartialSegment.Size = lvPartialSectors * 512
-			segments = append(segments, lvPartialSegment)
+			segMap[i] = lvPartialSegment
+			//segments = append(segments, lvPartialSegment)
 		}
 	}
 
+	segments = SortSegments(segMap)
+
 	return segments, nil
 }
+
+func SortSegments(segMap map[int]Segment) []Segment {
+	keys := make([]int, 0, len(segMap))
+	for k := range segMap {
+		keys = append(keys, k)
+	}
+
+	sort.Ints(keys)
+
+	ret := make([]Segment, 0, len(keys))
+	for _, k := range keys {
+		ret = append(ret, segMap[k])
+	}
+
+	return ret
+}
+
+//func LVSegments(lvPath string) (segments []Segment, err error) {
+//
+//	// 解析符号链接
+//	if newPath, err := filepath.EvalSymlinks(lvPath); err == nil {
+//		lvPath = newPath
+//	}
+//
+//	// 排除快照 LV
+//	if strings.HasPrefix(lvPath, "/dev/mapper") && !IsExisted(lvPath) {
+//		return nil, nil
+//	}
+//
+//	if !IsExisted(lvPath) {
+//		return nil, errors.Errorf("LV %s does not exist", lvPath)
+//	}
+//
+//	_, output, err := command.Execute("dmsetup table " + lvPath)
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	for _, line := range strings.Split(output, "\n") {
+//
+//		line = strings.TrimSpace(line)
+//		if line == "" {
+//			continue
+//		}
+//
+//		fields := strings.Fields(line)
+//
+//		// linear格式:
+//		// start sectors linear major:minor offset
+//		//
+//		// 例如:
+//		// 0 2097152 linear 8:1 2048
+//
+//		if len(fields) != 5 {
+//			return nil, errors.Errorf(
+//				"unsupported dm-table line: %s",
+//				line,
+//			)
+//		}
+//
+//		if fields[2] != "linear" {
+//			// 非线性LV(raid/striped/thin等)
+//			return segments, nil
+//		}
+//
+//		majorMinor := fields[3]
+//
+//		lvSectors, err := strconv.ParseUint(fields[1], 10, 64)
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		devOffset, err := strconv.ParseUint(fields[4], 10, 64)
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		// 通过 major:minor 找真实块设备
+//		devPath := filepath.Join("/dev/block", majorMinor)
+//
+//		realDevPath, err := filepath.EvalSymlinks(devPath)
+//		if err != nil {
+//			return nil, errors.Wrapf(
+//				err,
+//				"resolve %s",
+//				devPath,
+//			)
+//		}
+//
+//		seg, err := DiskOrPartitionSegment(realDevPath)
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		// dm 永远使用512字节扇区
+//		seg.Start += devOffset * 512
+//		seg.Size = lvSectors * 512
+//
+//		segments = append(segments, seg)
+//	}
+//
+//	return segments, nil
+//}
 
 func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 	f, err := os.Open(file)

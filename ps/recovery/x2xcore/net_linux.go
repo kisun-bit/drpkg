@@ -3,11 +3,9 @@ package x2xcore
 import (
 	"bytes"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
@@ -24,16 +22,16 @@ const (
 	drfbtkUdevRule   = "80-drfbtk-net.rules"
 )
 
-type NetworkBackend string
-
-const (
-	BackendUnknown    NetworkBackend = "unknown"
-	BackendIfcfg      NetworkBackend = "rhel-ifcfg"        // RHEL ifcfg
-	BackendInterfaces NetworkBackend = "debian-interfaces" // Debian interfaces
-	BackendNetplan    NetworkBackend = "ubuntu-netplan"    // Ubuntu netplan
-	BackendWicked     NetworkBackend = "suse-wicked"       // SUSE wicked
-	BackendNMKeyfile  NetworkBackend = "network-manager"   // NetworkManager
-)
+var cleanupDirs = []string{
+	"etc/systemd/network",
+	"etc/udev/rules.d",
+	"lib/udev/rules.d",
+	"etc/netplan",
+	"etc/sysconfig/network-scripts",
+	"etc/NetworkManager/system-connections",
+	"etc/network/interfaces.d",
+	"etc/sysconfig/network",
+}
 
 type netplanWriter struct{}
 type nmWriter struct{}
@@ -45,6 +43,7 @@ func NetworkInject(
 	root string,
 	cfg *NetworkConfig,
 ) error {
+
 	logger.Debugf("LinuxNetworkInjector.Inject: ++")
 	defer logger.Debugf("LinuxNetworkInjector.Inject: -")
 
@@ -52,39 +51,93 @@ func NetworkInject(
 		return nil
 	}
 
-	logger.Debugf("LinuxNetworkInjector.Inject: NetworkConfig:\n%s",
-		extend.Pretty(cfg))
+	logger.Debugf(
+		"LinuxNetworkInjector.Inject: NetworkConfig:\n%s",
+		extend.Pretty(cfg),
+	)
 
-	macs := make([]string, 0)
-	for _, nic := range cfg.Interfaces {
-		macs = append(macs, nic.MAC)
-	}
-	if err := renameAllFileIfContainsMac(macs, []string{
-		filepath.Join(root, "etc/systemd/network"),
-		filepath.Join(root, "etc/udev/rules.d"),
-		filepath.Join(root, "lib/udev/rules.d"),
-		filepath.Join(root, "etc/netplan"),
-		filepath.Join(root, "etc/sysconfig/network-scripts"),
-		filepath.Join(root, "etc/NetworkManager/system-connections"),
-		filepath.Join(root, "etc/network/interfaces.d"),
-		filepath.Join(root, "etc/sysconfig/network"),
-	}); err != nil {
-		return err
+	macs := collectMACs(cfg)
+
+	steps := []struct {
+		name string
+		fn   func() error
+	}{
+		{
+			name: "cleanup old network config",
+			fn: func() error {
+				return renameAllFileIfContainsMac(
+					macs,
+					buildCleanupPaths(root),
+				)
+			},
+		},
+		{
+			name: "disable persistent net rules",
+			fn: func() error {
+				return disableLegacyPersistentNetRules(root)
+			},
+		},
+		{
+			name: "generate rename rules",
+			fn: func() error {
+				return generateNetworkRenameRules(root, cfg)
+			},
+		},
+		{
+			name: "inject network config",
+			fn: func() error {
+				return injectNetworkConfig(root, cfg)
+			},
+		},
 	}
 
-	if err := disableLegacyPersistentNetRules(root); err != nil {
-		return err
-	}
-
-	if err := generateNetworkRenameRules(root, cfg); err != nil {
-		return err
-	}
-
-	if err := injectNetworkConfig(root, cfg); err != nil {
-		return err
+	for _, step := range steps {
+		if err := step.fn(); err != nil {
+			return fmt.Errorf("%s: %w", step.name, err)
+		}
 	}
 
 	return nil
+}
+
+func collectMACs(cfg *NetworkConfig) []string {
+
+	seen := make(map[string]struct{})
+	macs := make([]string, 0, len(cfg.Interfaces))
+
+	for _, nic := range cfg.Interfaces {
+
+		mac := strings.TrimSpace(
+			strings.ToLower(nic.MAC),
+		)
+
+		if mac == "" {
+			continue
+		}
+
+		if _, ok := seen[mac]; ok {
+			continue
+		}
+
+		seen[mac] = struct{}{}
+		macs = append(macs, mac)
+	}
+
+	return macs
+}
+
+func buildCleanupPaths(root string) []string {
+
+	paths := make([]string, 0, len(cleanupDirs))
+
+	for _, dir := range cleanupDirs {
+		paths = append(
+			paths,
+			filepath.Join(root, dir),
+		)
+	}
+
+	return paths
 }
 
 func disableLegacyPersistentNetRules(
@@ -1191,81 +1244,4 @@ func lookupInterfaceName(
 	}
 
 	return ""
-}
-
-func mergeDNS(
-	global []string,
-	local []string,
-) []string {
-
-	seen := make(map[string]struct{})
-
-	var result []string
-
-	for _, dns := range append(local, global...) {
-
-		if dns == "" {
-			continue
-		}
-
-		if _, ok := seen[dns]; ok {
-			continue
-		}
-
-		seen[dns] = struct{}{}
-		result = append(result, dns)
-	}
-
-	return result
-}
-
-func parseCIDR(
-	cidr string,
-) (ip string, prefix int, err error) {
-
-	addr, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return "", 0, err
-	}
-
-	ones, _ := ipnet.Mask.Size()
-
-	return addr.String(), ones, nil
-}
-
-func equalMAC(a, b string) bool {
-
-	return strings.EqualFold(
-		strings.TrimSpace(a),
-		strings.TrimSpace(b),
-	)
-}
-
-// backupIfExists 如果文件存在，则备份一份，文件名为原文件名 + 时间戳
-func backupIfExists(filePath string) error {
-
-	// 检查文件是否存在
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		// 文件不存在，不需要备份
-		return nil
-	}
-
-	// 构造备份文件名
-	timestamp := time.Now().Format("20060102-150405")
-	dir := filepath.Dir(filePath)
-	base := filepath.Base(filePath)
-	backupName := fmt.Sprintf("%s.%s.bak", base, timestamp)
-	backupPath := filepath.Join(dir, backupName)
-
-	// 复制文件内容到备份文件
-	input, err := os.ReadFile(filePath)
-	if err != nil {
-		return err
-	}
-
-	if err = os.WriteFile(backupPath, input, 0644); err != nil {
-		return err
-	}
-
-	return nil
 }
