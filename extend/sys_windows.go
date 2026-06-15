@@ -476,7 +476,7 @@ func ListDisks() ([]string, error) {
 
 func ListDisksV2() ([]Win32DiskDrive, error) {
 	var dst []Win32DiskDrive
-	err := wmi_.Query("SELECT DeviceID, PNPDeviceID FROM Win32_DiskDrive", &dst)
+	err := wmi_.Query("SELECT DeviceID, PNPDeviceID, SIZE FROM Win32_DiskDrive", &dst)
 	if err != nil {
 		return nil, err
 	}
@@ -491,13 +491,14 @@ func ListDisksV2() ([]Win32DiskDrive, error) {
 type Win32DiskDrive struct {
 	DeviceID    string
 	PNPDeviceID string
+	Size        int64
 }
 
 func PnpDeviceID(deviceID string) (string, error) {
 	var dst []Win32DiskDrive
 
 	err := wmi_.Query(
-		"SELECT DeviceID, PNPDeviceID FROM Win32_DiskDrive",
+		"SELECT DeviceID, PNPDeviceID, SIZE FROM Win32_DiskDrive",
 		&dst,
 	)
 	if err != nil {
@@ -511,6 +512,26 @@ func PnpDeviceID(deviceID string) (string, error) {
 	}
 
 	return "", errors.Errorf("PNPDeviceID of %s not found", deviceID)
+}
+
+func Win32DiskSize(deviceID string) (int64, error) {
+	var dst []Win32DiskDrive
+
+	err := wmi_.Query(
+		"SELECT DeviceID, PNPDeviceID, SIZE FROM Win32_DiskDrive",
+		&dst,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, d := range dst {
+		if strings.EqualFold(d.DeviceID, deviceID) {
+			return d.Size, nil
+		}
+	}
+
+	return 0, errors.Errorf("Win32DiskSize of %s not found", deviceID)
 }
 
 type DISK_GEOMETRY struct {

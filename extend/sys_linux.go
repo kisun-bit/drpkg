@@ -1024,3 +1024,8 @@ func PnpDeviceID(deviceID string) (string, error) {
 	_ = deviceID
 	return "", errors.New("PnpDeviceID: not implemented")
 }
+
+func Win32DiskSize(deviceID string) (int64, error) {
+	_ = deviceID
+	return 0, errors.New("Win32DiskSize: not implemented")
+}
