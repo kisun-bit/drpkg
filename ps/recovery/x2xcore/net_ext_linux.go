@@ -1,0 +1,387 @@
+package x2xcore
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/logger"
+)
+
+const (
+	systemdNetworkDir = "etc/systemd/network"
+	udevRulesDir      = "etc/udev/rules.d"
+
+	drfbtkLinkPrefix = "10-drfbtk-"
+	drfbtkUdevRule   = "80-drfbtk-net.rules"
+)
+
+func collectMACs(cfg *NetworkConfig) []string {
+
+	seen := make(map[string]struct{})
+	macs := make([]string, 0, len(cfg.Interfaces))
+
+	for _, nic := range cfg.Interfaces {
+
+		mac := strings.TrimSpace(
+			strings.ToLower(nic.MAC),
+		)
+
+		if mac == "" {
+			continue
+		}
+
+		if _, ok := seen[mac]; ok {
+			continue
+		}
+
+		seen[mac] = struct{}{}
+		macs = append(macs, mac)
+	}
+
+	return macs
+}
+
+func buildCleanupPaths(root string) []string {
+	var cleanupDirs = []string{
+		"etc/systemd/network",
+		"etc/udev/rules.d",
+		"lib/udev/rules.d",
+		"etc/netplan",
+		"etc/sysconfig/network-scripts",
+		"etc/NetworkManager/system-connections",
+		"etc/network/interfaces.d",
+		"etc/sysconfig/network",
+	}
+
+	paths := make([]string, 0, len(cleanupDirs))
+
+	for _, dir := range cleanupDirs {
+		paths = append(
+			paths,
+			filepath.Join(root, dir),
+		)
+	}
+
+	return paths
+}
+
+func disableLegacyPersistentNetRules(root string) error {
+
+	files := []string{
+		"etc/udev/rules.d/70-persistent-net.rules",
+		"lib/udev/rules.d/75-persistent-net-generator.rules",
+	}
+
+	for _, f := range files {
+
+		src := filepath.Join(root, f)
+		if _, err := os.Stat(src); err != nil {
+			continue
+		}
+
+		dst := src + ".drfbtk.disabled"
+
+		logger.Debugf("disableLegacyPersistentNetRules: moving %s to %s", src, dst)
+
+		_ = os.Remove(dst)
+
+		if err := os.Rename(src, dst); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func generateNetworkRenameRules(root string, cfg *NetworkConfig) error {
+	if err := cleanupNetworkRenameRules(root); err != nil {
+		return err
+	}
+	if err := generateLinkFiles(root, cfg); err != nil {
+		return err
+	}
+	if err := generateUdevRules(root, cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func cleanupNetworkRenameRules(root string) error {
+
+	//
+	// *.link
+	//
+
+	pattern := filepath.Join(
+		root,
+		systemdNetworkDir,
+		drfbtkLinkPrefix+"*.link",
+	)
+
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return err
+	}
+
+	for _, f := range files {
+		_ = os.Remove(f)
+		logger.Debugf("cleanupNetworkRenameRules: remove %s", f)
+	}
+
+	//
+	// udev
+	//
+
+	_ = os.Remove(
+		filepath.Join(
+			root,
+			udevRulesDir,
+			drfbtkUdevRule,
+		),
+	)
+
+	return nil
+}
+
+func renameAllFileIfContainsMac(macs []string, dirs []string) error {
+	if len(macs) == 0 {
+		return nil
+	}
+
+	for _, dir := range dirs {
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			logger.Debugf("renameAllFileIfContainsMac: ignore %s: %v", dir, err)
+			continue
+		}
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			path := filepath.Join(dir, f.Name())
+			fi, e := f.Info()
+			if e != nil {
+				logger.Warnf("renameAllFileIfContainsMac: file info %s failed: %v", path, err)
+				continue
+			}
+			if fi.Size() > 1<<20 {
+				logger.Debugf("renameAllFileIfContainsMac: file %s is too large", path)
+				continue
+			}
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				logger.Warnf("renameAllFileIfContainsMac: read file %s failed: %v", path, err)
+				continue
+			}
+			logger.Debugf("renameAllFileIfContainsMac: detecing %s", path)
+
+			for _, mac := range macs {
+				if bytes.Contains(data, []byte(strings.ToLower(mac))) ||
+					bytes.Contains(data, []byte(strings.ToUpper(mac))) {
+
+					//logger.Debugf("renameAllFileIfContainsMac: file %s is renamed. contains mac(%s)", path, mac)
+					//if err = backupIfExists(path); err != nil {
+					//	return err
+					//}
+
+					logger.Debugf("renameAllFileIfContainsMac: file %s is delete. contains mac(%s)", path, mac)
+					if err = os.RemoveAll(path); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func generateLinkFiles(
+	root string,
+	cfg *NetworkConfig,
+) error {
+
+	dir := filepath.Join(
+		root,
+		systemdNetworkDir,
+	)
+
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	for _, nic := range cfg.Interfaces {
+
+		if nic.Name == "" {
+			continue
+		}
+
+		content := fmt.Sprintf(
+			`[Match]
+MACAddress=%s
+
+[Link]
+Name=%s
+NamePolicy=
+MACAddressPolicy=none
+`,
+			strings.ToLower(nic.MAC),
+			nic.Name,
+		)
+
+		file := filepath.Join(
+			dir,
+			fmt.Sprintf(
+				"%s%s.link",
+				drfbtkLinkPrefix,
+				nic.Name,
+			),
+		)
+
+		logger.Debugf("generateLinkFiles: %s:\n%s", file, content)
+
+		if err := os.WriteFile(
+			file,
+			[]byte(content),
+			0644,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func generateUdevRules(
+	root string,
+	cfg *NetworkConfig,
+) error {
+
+	dir := filepath.Join(root, udevRulesDir)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString(
+		"# generated by drfbtk\n",
+	)
+
+	if len(cfg.Interfaces) == 0 {
+		logger.Debugf("generateUdevRules: no interfaces")
+		return nil
+	}
+
+	for _, nic := range cfg.Interfaces {
+		if nic.Name == "" {
+			continue
+		}
+		_, _ = fmt.Fprintf(
+			&buf,
+			`SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="%s", NAME="%s"`+"\n",
+			strings.ToLower(nic.MAC),
+			nic.Name,
+		)
+	}
+
+	logger.Debugf("generateUdevRules: %s:\n%s", udevRulesDir, buf.String())
+
+	return os.WriteFile(
+		filepath.Join(
+			dir,
+			drfbtkUdevRule,
+		),
+		buf.Bytes(),
+		0644,
+	)
+}
+
+func detectNetworkBackend(root string) NetworkBackend {
+
+	// Ubuntu 18+
+	if extend.IsExisted(
+		filepath.Join(root, "etc/netplan"),
+	) {
+		return BackendNetplan
+	}
+
+	// Debian
+	if extend.IsExisted(
+		filepath.Join(root, "etc/network/interfaces"),
+	) {
+		return BackendInterfaces
+	}
+
+	// SUSE
+	if extend.IsExisted(
+		filepath.Join(root, "etc/sysconfig/network"),
+	) &&
+		extend.IsExisted(
+			filepath.Join(root, "usr/sbin/wicked"),
+		) {
+		return BackendWicked
+	}
+
+	if hasNMConnection(root) {
+		return BackendNMKeyfile
+	}
+
+	if hasIfcfg(root) {
+		return BackendIfcfg
+	}
+
+	return BackendUnknown
+}
+
+func hasNMConnection(root string) bool {
+	dir := filepath.Join(
+		root,
+		"etc/NetworkManager/system-connections",
+	)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".nmconnection") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasIfcfg(root string) bool {
+	dir := filepath.Join(
+		root,
+		"etc/sysconfig/network-scripts",
+	)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+
+	for _, e := range entries {
+
+		name := e.Name()
+
+		if !strings.HasPrefix(name, "ifcfg-") {
+			continue
+		}
+
+		//if name == "ifcfg-lo" {
+		//	continue
+		//}
+
+		return true
+	}
+
+	return false
+}

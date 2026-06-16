@@ -227,9 +227,15 @@ func (fixer *linuxSystemFixer) Repair() error {
 		return errors.Wrap(err, "fix grub")
 	}
 
-	if err := NetworkInject(fixer.offsys.root, &fixer.opts.RecoveryParam.Network); err != nil {
+	netijt, err := NewNetworkInjector(fixer.offsys.root, &fixer.opts.RecoveryParam.Network)
+	if err != nil {
 		// TODO 抛出警告
-		logger.Warnf("Network inject fail: %v", err)
+		logger.Warnf("NewNetworkInjector: %v", err)
+	} else {
+		if err = netijt.Inject(); err != nil {
+			// TODO 抛出警告
+			logger.Warnf("Inject: %v", err)
+		}
 	}
 
 	var unconfigFun = fixer.unconfigBareMetal
@@ -265,6 +271,17 @@ func (fixer *linuxSystemFixer) Repair() error {
 	}
 
 	return nil
+}
+
+func (fixer *linuxSystemFixer) CustomProcess(fn func() error) error {
+	logger.Debugf("CustomProcess: ++")
+	defer logger.Debugf("CustomProcess: --")
+
+	if fn == nil {
+		return errors.New("custom process is nil")
+	}
+
+	return fn()
 }
 
 // Cleanup 清理修复环境（卸载/释放资源）

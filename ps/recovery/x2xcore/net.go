@@ -59,3 +59,7 @@ type RouteConfig struct {
 	// 策略路由预留
 	Table int `json:"table,omitempty"`
 }
+
+type NetworkInjector interface {
+	Inject() error
+}

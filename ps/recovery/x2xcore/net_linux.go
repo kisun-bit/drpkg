@@ -1,10 +1,10 @@
 package x2xcore
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/extend"
@@ -14,49 +14,50 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	systemdNetworkDir = "etc/systemd/network"
-	udevRulesDir      = "etc/udev/rules.d"
+type linuxNetworkInjector struct {
+	root string
+	cfg  *NetworkConfig
 
-	drfbtkLinkPrefix = "10-drfbtk-"
-	drfbtkUdevRule   = "80-drfbtk-net.rules"
-)
-
-var cleanupDirs = []string{
-	"etc/systemd/network",
-	"etc/udev/rules.d",
-	"lib/udev/rules.d",
-	"etc/netplan",
-	"etc/sysconfig/network-scripts",
-	"etc/NetworkManager/system-connections",
-	"etc/network/interfaces.d",
-	"etc/sysconfig/network",
+	backend NetworkBackend
 }
 
-type netplanWriter struct{}
-type nmWriter struct{}
-type ifcfgWriter struct{}
-type interfacesWriter struct{}
-type wickedWriter struct{}
+func NewNetworkInjector(root string, cfg *NetworkConfig) (NetworkInjector, error) {
+	logger.Debugf("newLinuxNetworkInjector(%q) ++", root)
+	defer logger.Debugf("newLinuxNetworkInjector(%q) --", root)
 
-func NetworkInject(
-	root string,
-	cfg *NetworkConfig,
-) error {
-
-	logger.Debugf("LinuxNetworkInjector.Inject: ++")
-	defer logger.Debugf("LinuxNetworkInjector.Inject: -")
-
+	if !extend.IsDir(root) {
+		return nil, errors.New("root is not a directory")
+	}
 	if cfg == nil {
-		return nil
+		return nil, errors.New("network configuration is nil")
 	}
 
-	logger.Debugf(
-		"LinuxNetworkInjector.Inject: NetworkConfig:\n%s",
-		extend.Pretty(cfg),
-	)
+	lni := &linuxNetworkInjector{
+		root:    root,
+		cfg:     cfg,
+		backend: detectNetworkBackend(root),
+	}
 
-	macs := collectMACs(cfg)
+	logger.Debugf("newLinuxNetworkInjector: config=\n%s", extend.Pretty(cfg))
+
+	if err := lni.reset(); err != nil {
+		return nil, err
+	}
+
+	logger.Debugf("%s initialized", lni)
+
+	return lni, nil
+}
+
+func (n *linuxNetworkInjector) String() string {
+	return fmt.Sprintf("NetworkInjector(%q,%s)", n.root, n.backend)
+}
+
+func (n *linuxNetworkInjector) reset() error {
+	logger.Debugf("%s.reset: ++", n)
+	defer logger.Debugf("%s.reset: --", n)
+
+	macs := collectMACs(n.cfg)
 
 	steps := []struct {
 		name string
@@ -67,26 +68,20 @@ func NetworkInject(
 			fn: func() error {
 				return renameAllFileIfContainsMac(
 					macs,
-					buildCleanupPaths(root),
+					buildCleanupPaths(n.root),
 				)
 			},
 		},
 		{
 			name: "disable persistent net rules",
 			fn: func() error {
-				return disableLegacyPersistentNetRules(root)
+				return disableLegacyPersistentNetRules(n.root)
 			},
 		},
 		{
 			name: "generate rename rules",
 			fn: func() error {
-				return generateNetworkRenameRules(root, cfg)
-			},
-		},
-		{
-			name: "inject network config",
-			fn: func() error {
-				return injectNetworkConfig(root, cfg)
+				return generateNetworkRenameRules(n.root, n.cfg)
 			},
 		},
 	}
@@ -100,70 +95,301 @@ func NetworkInject(
 	return nil
 }
 
-func collectMACs(cfg *NetworkConfig) []string {
+func (n *linuxNetworkInjector) Inject() error {
+	logger.Debugf("%s.Inject: ++", n)
+	defer logger.Debugf("%s.Inject: --", n)
 
-	seen := make(map[string]struct{})
-	macs := make([]string, 0, len(cfg.Interfaces))
-
-	for _, nic := range cfg.Interfaces {
-
-		mac := strings.TrimSpace(
-			strings.ToLower(nic.MAC),
-		)
-
-		if mac == "" {
-			continue
-		}
-
-		if _, ok := seen[mac]; ok {
-			continue
-		}
-
-		seen[mac] = struct{}{}
-		macs = append(macs, mac)
+	var injectFun func() error = nil
+	switch n.backend {
+	case BackendIfcfg:
+		injectFun = n.injectNetworkByIfCfg
+	case BackendNetplan:
+		injectFun = n.injectNetworkByNetplan
+	case BackendInterfaces:
+		injectFun = n.injectNetworkByInterfaces
+	case BackendNMKeyfile:
+		injectFun = n.injectNetworkByNetworkManager
+	case BackendWicked:
+		injectFun = n.injectNetworkBySuseWicked
+	default:
+		return errors.Errorf("unknown backend %q", n.backend)
 	}
 
-	return macs
+	if err := injectFun(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func buildCleanupPaths(root string) []string {
+func (n *linuxNetworkInjector) injectNetworkByIfCfg() error {
+	logger.Debugf("%s.injectNetworkByIfCfg: ++", n)
+	defer logger.Debugf("%s.injectNetworkByIfCfg: --", n)
 
-	paths := make([]string, 0, len(cleanupDirs))
+	if len(n.cfg.Interfaces) == 0 {
+		return nil
+	}
 
-	for _, dir := range cleanupDirs {
-		paths = append(
-			paths,
-			filepath.Join(root, dir),
+	baseDir := filepath.Join(
+		n.root,
+		"etc/sysconfig/network-scripts",
+	)
+
+	logger.Debugf(
+		"%s.injectNetworkByIfCfg: base dir: %s",
+		n,
+		baseDir,
+	)
+
+	for _, iface := range n.cfg.Interfaces {
+
+		var sb strings.Builder
+
+		sb.WriteString("TYPE=Ethernet\n")
+
+		sb.WriteString(
+			fmt.Sprintf("DEVICE=%s\n", iface.Name),
 		)
-	}
 
-	return paths
-}
+		sb.WriteString(
+			fmt.Sprintf("NAME=%s\n", iface.Name),
+		)
 
-func disableLegacyPersistentNetRules(
-	root string,
-) error {
-
-	files := []string{
-		"etc/udev/rules.d/70-persistent-net.rules",
-		"lib/udev/rules.d/75-persistent-net-generator.rules",
-	}
-
-	for _, f := range files {
-
-		src := filepath.Join(root, f)
-
-		if _, err := os.Stat(src); err != nil {
-			continue
+		if iface.MAC != "" {
+			sb.WriteString(
+				fmt.Sprintf(
+					"HWADDR=%s\n",
+					iface.MAC,
+				),
+			)
 		}
 
-		dst := src + ".drfbtk.disabled"
+		if iface.Enabled {
+			sb.WriteString("ONBOOT=yes\n")
+		} else {
+			sb.WriteString("ONBOOT=no\n")
+		}
 
-		logger.Debugf("disableLegacyPersistentNetRules: moving %s to %s", src, dst)
+		sb.WriteString("NM_CONTROLLED=no\n")
 
-		_ = os.Remove(dst)
+		if iface.MTU > 0 {
+			sb.WriteString(
+				fmt.Sprintf(
+					"MTU=%d\n",
+					iface.MTU,
+				),
+			)
+		}
 
-		if err := os.Rename(src, dst); err != nil {
+		if iface.DHCP {
+			sb.WriteString("BOOTPROTO=dhcp\n")
+		} else {
+			sb.WriteString("BOOTPROTO=none\n")
+		}
+
+		sb.WriteString("ARPCHECK=no\n")
+
+		//
+		// IP地址
+		//
+
+		var (
+			ipv4Index int
+			ipv6List  []string
+		)
+
+		for _, ipcfg := range iface.IPAddr {
+
+			ip, prefix, err := parseCIDR(
+				ipcfg.Address,
+			)
+			if err != nil {
+
+				logger.Warnf(
+					"invalid ip %s: %v",
+					ipcfg.Address,
+					err,
+				)
+
+				continue
+			}
+
+			//
+			// IPv6
+			//
+
+			if strings.Contains(ip, ":") {
+
+				ipv6List = append(
+					ipv6List,
+					fmt.Sprintf(
+						"%s/%d",
+						ip,
+						prefix,
+					),
+				)
+
+				continue
+			}
+
+			//
+			// IPv4
+			//
+
+			if ipv4Index == 0 {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"IPADDR=%s\n",
+						ip,
+					),
+				)
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"PREFIX=%d\n",
+						prefix,
+					),
+				)
+
+			} else {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"IPADDR%d=%s\n",
+						ipv4Index,
+						ip,
+					),
+				)
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"PREFIX%d=%d\n",
+						ipv4Index,
+						prefix,
+					),
+				)
+			}
+
+			ipv4Index++
+		}
+
+		//
+		// IPv6
+		//
+
+		if len(ipv6List) > 0 {
+
+			sb.WriteString("IPV6INIT=yes\n")
+			sb.WriteString("IPV6_AUTOCONF=no\n")
+
+			sb.WriteString(
+				fmt.Sprintf(
+					"IPV6ADDR=%s\n",
+					ipv6List[0],
+				),
+			)
+
+			if len(ipv6List) > 1 {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"IPV6ADDR_SECONDARIES=\"%s\"\n",
+						strings.Join(
+							ipv6List[1:],
+							" ",
+						),
+					),
+				)
+			}
+		}
+
+		//
+		// 默认网关
+		//
+
+		if iface.Gateway != "" {
+
+			sb.WriteString("DEFROUTE=yes\n")
+
+			if strings.Contains(
+				iface.Gateway,
+				":",
+			) {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"IPV6_DEFAULTGW=%s\n",
+						iface.Gateway,
+					),
+				)
+
+			} else {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"GATEWAY=%s\n",
+						iface.Gateway,
+					),
+				)
+			}
+		}
+
+		//
+		// DNS
+		//
+
+		dnsList := mergeDNS(
+			iface.DNS,
+			n.cfg.GlobalDNS,
+		)
+
+		if len(dnsList) > 0 {
+			sb.WriteString("PEERDNS=no\n")
+		}
+
+		for i, dns := range dnsList {
+
+			sb.WriteString(
+				fmt.Sprintf(
+					"DNS%d=%s\n",
+					i+1,
+					dns,
+				),
+			)
+		}
+
+		path := filepath.Join(
+			baseDir,
+			"ifcfg-"+iface.Name,
+		)
+
+		if err := backupIfExists(path); err != nil {
+			return err
+		}
+
+		logger.Debugf(
+			"ifcfgWriter: %s:\n%s",
+			path,
+			sb.String(),
+		)
+
+		if err := os.WriteFile(
+			path,
+			[]byte(sb.String()),
+			0644,
+		); err != nil {
+			return err
+		}
+
+		//
+		// route文件
+		//
+
+		if err := n.writeIfcfgRoutes(
+			baseDir,
+			iface,
+		); err != nil {
 			return err
 		}
 	}
@@ -171,169 +397,97 @@ func disableLegacyPersistentNetRules(
 	return nil
 }
 
-func generateNetworkRenameRules(
-	root string,
-	cfg *NetworkConfig,
+func (n *linuxNetworkInjector) writeIfcfgRoutes(
+	baseDir string,
+	iface InterfaceConfig,
 ) error {
 
-	if err := cleanupNetworkRenameRules(root); err != nil {
-		return err
-	}
-
-	if err := generateLinkFiles(
-		root,
-		cfg,
-	); err != nil {
-		return err
-	}
-
-	if err := generateUdevRules(
-		root,
-		cfg,
-	); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func cleanupNetworkRenameRules(root string) error {
-
-	//
-	// *.link
-	//
-
-	pattern := filepath.Join(
-		root,
-		systemdNetworkDir,
-		drfbtkLinkPrefix+"*.link",
+	var (
+		route4 strings.Builder
+		route6 strings.Builder
 	)
 
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		return err
-	}
+	for _, route := range n.cfg.Routes {
 
-	for _, f := range files {
-		_ = os.Remove(f)
-		logger.Debugf("cleanupNetworkRenameRules: remove %s", f)
-	}
-
-	//
-	// udev
-	//
-
-	_ = os.Remove(
-		filepath.Join(
-			root,
-			udevRulesDir,
-			drfbtkUdevRule,
-		),
-	)
-
-	return nil
-}
-
-func renameAllFileIfContainsMac(macs []string, dirs []string) error {
-	if len(macs) == 0 {
-		return nil
-	}
-
-	for _, dir := range dirs {
-		files, err := os.ReadDir(dir)
-		if err != nil {
-			logger.Debugf("renameAllFileIfContainsMac: ignore %s: %v", dir, err)
-			continue
-		}
-		for _, f := range files {
-			if f.IsDir() {
-				continue
-			}
-			path := filepath.Join(dir, f.Name())
-			fi, e := f.Info()
-			if e != nil {
-				logger.Warnf("renameAllFileIfContainsMac: file info %s failed: %v", path, err)
-				continue
-			}
-			if fi.Size() > 1<<20 {
-				logger.Debugf("renameAllFileIfContainsMac: file %s is too large", path)
-				continue
-			}
-
-			data, err := os.ReadFile(path)
-			if err != nil {
-				logger.Warnf("renameAllFileIfContainsMac: read file %s failed: %v", path, err)
-				continue
-			}
-			logger.Debugf("renameAllFileIfContainsMac: detecing %s", path)
-
-			for _, mac := range macs {
-				if bytes.Contains(data, []byte(strings.ToLower(mac))) ||
-					bytes.Contains(data, []byte(strings.ToUpper(mac))) {
-
-					//logger.Debugf("renameAllFileIfContainsMac: file %s is renamed. contains mac(%s)", path, mac)
-					//if err = backupIfExists(path); err != nil {
-					//	return err
-					//}
-
-					logger.Debugf("renameAllFileIfContainsMac: file %s is delete. contains mac(%s)", path, mac)
-					if err = os.RemoveAll(path); err != nil {
-						return err
-					}
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func generateLinkFiles(
-	root string,
-	cfg *NetworkConfig,
-) error {
-
-	dir := filepath.Join(
-		root,
-		systemdNetworkDir,
-	)
-
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	for _, nic := range cfg.Interfaces {
-
-		if nic.Name == "" {
+		if route.InterfaceMAC != "" &&
+			!equalMAC(
+				route.InterfaceMAC,
+				iface.MAC,
+			) {
 			continue
 		}
 
-		content := fmt.Sprintf(
-			`[Match]
-MACAddress=%s
+		line := route.Destination
 
-[Link]
-Name=%s
-NamePolicy=
-MACAddressPolicy=none
-`,
-			strings.ToLower(nic.MAC),
-			nic.Name,
+		if route.Gateway != "" {
+			line += " via " + route.Gateway
+		}
+
+		if route.Metric > 0 {
+			line += fmt.Sprintf(
+				" metric %d",
+				route.Metric,
+			)
+		}
+
+		line += "\n"
+
+		if strings.Contains(
+			route.Destination,
+			":",
+		) {
+			route6.WriteString(line)
+		} else {
+			route4.WriteString(line)
+		}
+	}
+
+	if route4.Len() > 0 {
+
+		path := filepath.Join(
+			baseDir,
+			"route-"+iface.Name,
 		)
 
-		file := filepath.Join(
-			dir,
-			fmt.Sprintf(
-				"%s%s.link",
-				drfbtkLinkPrefix,
-				nic.Name,
-			),
-		)
+		if err := backupIfExists(path); err != nil {
+			return err
+		}
 
-		logger.Debugf("generateLinkFiles: %s:\n%s", file, content)
+		logger.Debugf(
+			"routeWriter: %s:\n%s",
+			path,
+			route4.String(),
+		)
 
 		if err := os.WriteFile(
-			file,
-			[]byte(content),
+			path,
+			[]byte(route4.String()),
+			0644,
+		); err != nil {
+			return err
+		}
+	}
+
+	if route6.Len() > 0 {
+
+		path := filepath.Join(
+			baseDir,
+			"route6-"+iface.Name,
+		)
+
+		if err := backupIfExists(path); err != nil {
+			return err
+		}
+
+		logger.Debugf(
+			"route6Writer: %s:\n%s",
+			path,
+			route6.String(),
+		)
+
+		if err := os.WriteFile(
+			path,
+			[]byte(route6.String()),
 			0644,
 		); err != nil {
 			return err
@@ -343,187 +497,26 @@ MACAddressPolicy=none
 	return nil
 }
 
-func generateUdevRules(
-	root string,
-	cfg *NetworkConfig,
-) error {
+func (n *linuxNetworkInjector) injectNetworkByNetplan() error {
+	logger.Debugf("%s.injectNetworkByNetplan: ++", n)
+	defer logger.Debugf("%s.injectNetworkByNetplan: --", n)
 
-	dir := filepath.Join(
-		root,
-		udevRulesDir,
-	)
-
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	var buf bytes.Buffer
-
-	buf.WriteString(
-		"# generated by drfbtk\n",
-	)
-
-	for _, nic := range cfg.Interfaces {
-
-		if nic.Name == "" {
-			continue
-		}
-
-		_, _ = fmt.Fprintf(
-			&buf,
-			`SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="%s", NAME="%s"`+"\n",
-			strings.ToLower(nic.MAC),
-			nic.Name,
-		)
-	}
-
-	logger.Debugf("generateUdevRules: %s:\n%s", udevRulesDir, buf.String())
-
-	return os.WriteFile(
-		filepath.Join(
-			dir,
-			drfbtkUdevRule,
-		),
-		buf.Bytes(),
-		0644,
-	)
-}
-
-func detectNetworkBackend(root string) NetworkBackend {
-
-	// Ubuntu 18+
-	if extend.IsExisted(
-		filepath.Join(root, "etc/netplan"),
-	) {
-		return BackendNetplan
-	}
-
-	// Debian
-	if extend.IsExisted(
-		filepath.Join(root, "etc/network/interfaces"),
-	) {
-		return BackendInterfaces
-	}
-
-	// SUSE
-	if extend.IsExisted(
-		filepath.Join(root, "etc/sysconfig/network"),
-	) &&
-		extend.IsExisted(
-			filepath.Join(root, "usr/sbin/wicked"),
-		) {
-		return BackendWicked
-	}
-
-	if hasNMConnection(root) {
-		return BackendNMKeyfile
-	}
-
-	if hasIfcfg(root) {
-		return BackendIfcfg
-	}
-
-	return BackendUnknown
-}
-
-func hasNMConnection(root string) bool {
-	dir := filepath.Join(
-		root,
-		"etc/NetworkManager/system-connections",
-	)
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".nmconnection") {
-			return true
-		}
-	}
-
-	return false
-}
-
-func hasIfcfg(root string) bool {
-	dir := filepath.Join(
-		root,
-		"etc/sysconfig/network-scripts",
-	)
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-
-	for _, e := range entries {
-
-		name := e.Name()
-
-		if !strings.HasPrefix(name, "ifcfg-") {
-			continue
-		}
-
-		//if name == "ifcfg-lo" {
-		//	continue
-		//}
-
-		return true
-	}
-
-	return false
-}
-
-func injectNetworkConfig(
-	root string,
-	cfg *NetworkConfig,
-) error {
-
-	if cfg == nil || len(cfg.Interfaces) == 0 {
+	if len(n.cfg.Interfaces) == 0 {
 		return nil
 	}
 
-	backend := detectNetworkBackend(root)
-	logger.Debugf("injectNetworkConfig: backend: %s", backend)
-
-	switch backend {
-
-	case BackendNetplan:
-		return (&netplanWriter{}).Write(root, cfg)
-
-	case BackendNMKeyfile:
-		return (&nmWriter{}).Write(root, cfg)
-
-	case BackendIfcfg:
-		return (&ifcfgWriter{}).Write(root, cfg)
-
-	case BackendInterfaces:
-		return (&interfacesWriter{}).Write(root, cfg)
-
-	case BackendWicked:
-		return (&wickedWriter{}).Write(root, cfg)
-
-	default:
-		return errors.New("unsupported network backend")
-	}
-}
-
-func (w *netplanWriter) Write(
-	root string,
-	cfg *NetworkConfig,
-) error {
-
 	ethernets := make(map[string]interface{})
 
-	for _, iface := range cfg.Interfaces {
+	for _, iface := range n.cfg.Interfaces {
 
 		name := iface.Name
 		if name == "" {
-			name = iface.MAC
+			return errors.Errorf(
+				"empty interface name for %s",
+				iface.MAC,
+			)
 		}
 
-		// 基础配置
 		eth := map[string]interface{}{
 			"match": map[string]interface{}{
 				"macaddress": iface.MAC,
@@ -531,46 +524,103 @@ func (w *netplanWriter) Write(
 			"set-name": name,
 		}
 
-		// DHCP 控制，只要 DHCP=true 就启用 IPv4 DHCP
+		//
+		// DHCP
+		//
+
 		if iface.DHCP {
 			eth["dhcp4"] = true
+			eth["dhcp6"] = false
+		} else {
+			eth["dhcp4"] = false
+			eth["dhcp6"] = false
 		}
 
+		//
+		// IPv6 RA
+		//
+
+		eth["accept-ra"] = false
+
+		//
 		// MTU
+		//
+
 		if iface.MTU > 0 {
 			eth["mtu"] = iface.MTU
 		}
 
-		// 静态地址
+		//
+		// IP地址
+		//
+
 		if len(iface.IPAddr) > 0 {
-			var addresses []string
+
+			addresses := make(
+				[]string,
+				0,
+				len(iface.IPAddr),
+			)
+
 			for _, ip := range iface.IPAddr {
-				addresses = append(addresses, ip.Address)
+
+				if ip.Address == "" {
+					continue
+				}
+
+				addresses = append(
+					addresses,
+					ip.Address,
+				)
 			}
-			eth["addresses"] = addresses
+
+			if len(addresses) > 0 {
+				eth["addresses"] = addresses
+			}
 		}
 
+		//
 		// DNS
-		var dns []string
-		dns = append(dns, iface.DNS...)
-		dns = append(dns, cfg.GlobalDNS...)
+		//
+
+		dns := mergeDNS(
+			iface.DNS,
+			n.cfg.GlobalDNS,
+		)
+
 		if len(dns) > 0 {
+
 			eth["nameservers"] = map[string]interface{}{
 				"addresses": funk.UniqString(dns),
 			}
 		}
 
+		//
 		// 路由
+		//
+
 		var routes []map[string]interface{}
+
+		// 默认路由
 		if iface.Gateway != "" {
-			routes = append(routes, map[string]interface{}{
-				"to":  "default",
-				"via": iface.Gateway,
-			})
+
+			routes = append(
+				routes,
+				map[string]interface{}{
+					"to":  "default",
+					"via": iface.Gateway,
+				},
+			)
 		}
 
-		for _, route := range cfg.Routes {
-			if route.InterfaceMAC != "" && !equalMAC(route.InterfaceMAC, iface.MAC) {
+		// 静态路由
+		for _, route := range n.cfg.Routes {
+
+			if route.InterfaceMAC != "" &&
+				!equalMAC(
+					route.InterfaceMAC,
+					iface.MAC,
+				) {
 				continue
 			}
 
@@ -590,7 +640,10 @@ func (w *netplanWriter) Write(
 				r["table"] = route.Table
 			}
 
-			routes = append(routes, r)
+			routes = append(
+				routes,
+				r,
+			)
 		}
 
 		if len(routes) > 0 {
@@ -603,6 +656,7 @@ func (w *netplanWriter) Write(
 	netplan := map[string]interface{}{
 		"network": map[string]interface{}{
 			"version":   2,
+			"renderer":  "networkd",
 			"ethernets": ethernets,
 		},
 	}
@@ -612,171 +666,53 @@ func (w *netplanWriter) Write(
 		return err
 	}
 
-	file := filepath.Join(root, "etc/netplan/99-drfbtk.yaml")
+	file := filepath.Join(
+		n.root,
+		"etc/netplan/99-drfbtk.yaml",
+	)
+
 	if err = backupIfExists(file); err != nil {
 		return err
 	}
 
-	logger.Debugf("netplanWriter: %s:\n%s", file, string(data))
-
-	return os.WriteFile(file, data, 0644)
-}
-
-func (w *ifcfgWriter) Write(
-	root string,
-	cfg *NetworkConfig,
-) error {
-
-	baseDir := filepath.Join(
-		root,
-		"etc/sysconfig/network-scripts",
+	logger.Debugf(
+		"netplanWriter: %s:\n%s",
+		file,
+		string(data),
 	)
 
-	for _, iface := range cfg.Interfaces {
-
-		var sb strings.Builder
-
-		sb.WriteString(
-			fmt.Sprintf(
-				"DEVICE=%s\n",
-				iface.Name,
-			),
-		)
-
-		sb.WriteString(
-			fmt.Sprintf(
-				"NAME=%s\n",
-				iface.Name,
-			),
-		)
-
-		sb.WriteString(
-			fmt.Sprintf(
-				"HWADDR=%s\n",
-				iface.MAC,
-			),
-		)
-
-		if iface.Enabled {
-			sb.WriteString("ONBOOT=yes\n")
-		} else {
-			sb.WriteString("ONBOOT=no\n")
-		}
-
-		if iface.MTU > 0 {
-			sb.WriteString(
-				fmt.Sprintf(
-					"MTU=%d\n",
-					iface.MTU,
-				),
-			)
-		}
-
-		if iface.DHCP {
-
-			sb.WriteString(
-				"BOOTPROTO=dhcp\n",
-			)
-
-		} else {
-
-			sb.WriteString(
-				"BOOTPROTO=none\n",
-			)
-
-			if len(iface.IPAddr) > 0 {
-
-				ip, mask, err := parseCIDR(
-					iface.IPAddr[0].Address,
-				)
-				if err == nil {
-
-					sb.WriteString(
-						fmt.Sprintf(
-							"IPADDR=%s\n",
-							ip,
-						),
-					)
-
-					sb.WriteString(
-						fmt.Sprintf(
-							"PREFIX=%d\n",
-							mask,
-						),
-					)
-				}
-			}
-
-			if iface.Gateway != "" {
-
-				sb.WriteString(
-					fmt.Sprintf(
-						"GATEWAY=%s\n",
-						iface.Gateway,
-					),
-				)
-			}
-		}
-
-		for i, dns := range iface.DNS {
-
-			sb.WriteString(
-				fmt.Sprintf(
-					"DNS%d=%s\n",
-					i+1,
-					dns,
-				),
-			)
-		}
-
-		sb.WriteString("ARPCHECK=no")
-
-		path := filepath.Join(
-			baseDir,
-			"ifcfg-"+iface.Name,
-		)
-		if err := backupIfExists(path); err != nil {
-			return err
-		}
-
-		logger.Debugf("ifcfgWriter: %s:\n%s", path, sb.String())
-
-		err := os.WriteFile(
-			path,
-			[]byte(sb.String()),
-			0644,
-		)
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return os.WriteFile(
+		file,
+		data,
+		0644,
+	)
 }
 
-func (w *nmWriter) Write(
-	root string,
-	cfg *NetworkConfig,
-) error {
+func (n *linuxNetworkInjector) injectNetworkByNetworkManager() error {
+	logger.Debugf("%s.injectNetworkByNetworkManager: ++", n)
+	defer logger.Debugf("%s.injectNetworkByNetworkManager: --", n)
+
+	if len(n.cfg.Interfaces) == 0 {
+		return nil
+	}
 
 	dir := filepath.Join(
-		root,
+		n.root,
 		"etc/NetworkManager/system-connections",
 	)
 
-	if err := os.MkdirAll(
-		dir,
-		0700,
-	); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 
-	for _, iface := range cfg.Interfaces {
+	for _, iface := range n.cfg.Interfaces {
 
 		name := iface.Name
 		if name == "" {
-			name = iface.MAC
+			return errors.Errorf(
+				"empty interface name for %s",
+				iface.MAC,
+			)
 		}
 
 		var sb strings.Builder
@@ -786,25 +722,14 @@ func (w *nmWriter) Write(
 		//
 
 		sb.WriteString("[connection]\n")
-
-		sb.WriteString(
-			fmt.Sprintf(
-				"id=%s\n",
-				name,
-			),
-		)
-
+		sb.WriteString(fmt.Sprintf("id=%s\n", name))
 		sb.WriteString("type=ethernet\n")
-
-		sb.WriteString(
-			fmt.Sprintf(
-				"interface-name=%s\n",
-				name,
-			),
-		)
+		sb.WriteString(fmt.Sprintf("interface-name=%s\n", name))
 
 		if iface.Enabled {
 			sb.WriteString("autoconnect=true\n")
+		} else {
+			sb.WriteString("autoconnect=false\n")
 		}
 
 		//
@@ -814,7 +739,6 @@ func (w *nmWriter) Write(
 		sb.WriteString("\n[ethernet]\n")
 
 		if iface.MAC != "" {
-
 			sb.WriteString(
 				fmt.Sprintf(
 					"mac-address=%s\n",
@@ -824,7 +748,6 @@ func (w *nmWriter) Write(
 		}
 
 		if iface.MTU > 0 {
-
 			sb.WriteString(
 				fmt.Sprintf(
 					"mtu=%d\n",
@@ -875,7 +798,11 @@ func (w *nmWriter) Write(
 				)
 			}
 
-			if iface.Gateway != "" {
+			if iface.Gateway != "" &&
+				!strings.Contains(
+					iface.Gateway,
+					":",
+				) {
 
 				sb.WriteString(
 					fmt.Sprintf(
@@ -890,9 +817,13 @@ func (w *nmWriter) Write(
 			sb.WriteString("method=disabled\n")
 		}
 
+		//
+		// DNS
+		//
+
 		dnsList := mergeDNS(
-			cfg.GlobalDNS,
 			iface.DNS,
+			n.cfg.GlobalDNS,
 		)
 
 		if len(dnsList) > 0 {
@@ -906,6 +837,66 @@ func (w *nmWriter) Write(
 					),
 				),
 			)
+
+			sb.WriteString("ignore-auto-dns=true\n")
+		}
+
+		//
+		// IPv4 Route
+		//
+
+		routeIndex := 1
+
+		for _, route := range n.cfg.Routes {
+
+			if route.InterfaceMAC != "" &&
+				!equalMAC(
+					route.InterfaceMAC,
+					iface.MAC,
+				) {
+				continue
+			}
+
+			if strings.Contains(
+				route.Destination,
+				":",
+			) {
+				continue
+			}
+
+			var parts []string
+
+			parts = append(
+				parts,
+				route.Destination,
+			)
+
+			if route.Gateway != "" {
+				parts = append(
+					parts,
+					route.Gateway,
+				)
+			}
+
+			if route.Metric > 0 {
+				parts = append(
+					parts,
+					strconv.Itoa(route.Metric),
+				)
+			}
+
+			sb.WriteString(
+				fmt.Sprintf(
+					"route%d=%s\n",
+					routeIndex,
+					strings.Join(
+						parts,
+						",",
+					),
+				),
+			)
+
+			routeIndex++
 		}
 
 		//
@@ -934,6 +925,7 @@ func (w *nmWriter) Write(
 		if len(ipv6Addrs) > 0 {
 
 			sb.WriteString("method=manual\n")
+			sb.WriteString("addr-gen-mode=stable-privacy\n")
 
 			for i, addr := range ipv6Addrs {
 
@@ -946,9 +938,81 @@ func (w *nmWriter) Write(
 				)
 			}
 
+			if iface.Gateway != "" &&
+				strings.Contains(
+					iface.Gateway,
+					":",
+				) {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"gateway=%s\n",
+						iface.Gateway,
+					),
+				)
+			}
+
 		} else {
 
 			sb.WriteString("method=ignore\n")
+		}
+
+		//
+		// IPv6 Route
+		//
+
+		ipv6RouteIndex := 1
+
+		for _, route := range n.cfg.Routes {
+
+			if route.InterfaceMAC != "" &&
+				!equalMAC(
+					route.InterfaceMAC,
+					iface.MAC,
+				) {
+				continue
+			}
+
+			if !strings.Contains(
+				route.Destination,
+				":",
+			) {
+				continue
+			}
+
+			var parts []string
+
+			parts = append(
+				parts,
+				route.Destination,
+			)
+
+			if route.Gateway != "" {
+				parts = append(
+					parts,
+					route.Gateway,
+				)
+			}
+
+			if route.Metric > 0 {
+				parts = append(
+					parts,
+					strconv.Itoa(route.Metric),
+				)
+			}
+
+			sb.WriteString(
+				fmt.Sprintf(
+					"route%d=%s\n",
+					ipv6RouteIndex,
+					strings.Join(
+						parts,
+						",",
+					),
+				),
+			)
+
+			ipv6RouteIndex++
 		}
 
 		file := filepath.Join(
@@ -960,7 +1024,11 @@ func (w *nmWriter) Write(
 			return err
 		}
 
-		logger.Debugf("nmWriter: %s:\n%s", file, sb.String())
+		logger.Debugf(
+			"nmWriter: %s:\n%s",
+			file,
+			sb.String(),
+		)
 
 		if err := os.WriteFile(
 			file,
@@ -974,25 +1042,25 @@ func (w *nmWriter) Write(
 	return nil
 }
 
-func (w *interfacesWriter) Write(
-	root string,
-	cfg *NetworkConfig,
-) error {
+func (n *linuxNetworkInjector) injectNetworkByInterfaces() error {
+	logger.Debugf("%s.injectNetworkByInterfaces: ++", n)
+	defer logger.Debugf("%s.injectNetworkByInterfaces: --", n)
+
+	if len(n.cfg.Interfaces) == 0 {
+		return nil
+	}
 
 	dir := filepath.Join(
-		root,
+		n.root,
 		"etc/network/interfaces.d",
 	)
 
-	if err := os.MkdirAll(
-		dir,
-		0755,
-	); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
 	mainFile := filepath.Join(
-		root,
+		n.root,
 		"etc/network/interfaces",
 	)
 
@@ -1007,18 +1075,42 @@ func (w *interfacesWriter) Write(
 		)
 	}
 
-	for _, iface := range cfg.Interfaces {
+	for _, iface := range n.cfg.Interfaces {
 
 		var sb strings.Builder
 
 		if iface.Enabled {
-
 			sb.WriteString(
 				fmt.Sprintf(
 					"auto %s\n\n",
 					iface.Name,
 				),
 			)
+		}
+
+		//
+		// IPv4
+		//
+
+		var ipv4Addrs []string
+		var ipv6Addrs []string
+
+		for _, ip := range iface.IPAddr {
+
+			if strings.Contains(
+				ip.Address,
+				":",
+			) {
+				ipv6Addrs = append(
+					ipv6Addrs,
+					ip.Address,
+				)
+			} else {
+				ipv4Addrs = append(
+					ipv4Addrs,
+					ip.Address,
+				)
+			}
 		}
 
 		if iface.DHCP {
@@ -1039,17 +1131,32 @@ func (w *interfacesWriter) Write(
 				),
 			)
 
-			for _, ip := range iface.IPAddr {
+			if len(ipv4Addrs) > 0 {
 
 				sb.WriteString(
 					fmt.Sprintf(
 						"    address %s\n",
-						ip.Address,
+						ipv4Addrs[0],
 					),
 				)
+
+				for _, addr := range ipv4Addrs[1:] {
+
+					sb.WriteString(
+						fmt.Sprintf(
+							"    up ip addr add %s dev %s\n",
+							addr,
+							iface.Name,
+						),
+					)
+				}
 			}
 
-			if iface.Gateway != "" {
+			if iface.Gateway != "" &&
+				!strings.Contains(
+					iface.Gateway,
+					":",
+				) {
 
 				sb.WriteString(
 					fmt.Sprintf(
@@ -1060,9 +1167,13 @@ func (w *interfacesWriter) Write(
 			}
 		}
 
+		//
+		// DNS
+		//
+
 		dnsList := mergeDNS(
-			cfg.GlobalDNS,
 			iface.DNS,
+			n.cfg.GlobalDNS,
 		)
 
 		if len(dnsList) > 0 {
@@ -1078,6 +1189,130 @@ func (w *interfacesWriter) Write(
 			)
 		}
 
+		//
+		// IPv4 Route
+		//
+
+		for _, route := range n.cfg.Routes {
+
+			if route.InterfaceMAC != "" &&
+				!equalMAC(
+					route.InterfaceMAC,
+					iface.MAC,
+				) {
+				continue
+			}
+
+			if strings.Contains(
+				route.Destination,
+				":",
+			) {
+				continue
+			}
+
+			cmd := fmt.Sprintf(
+				"    up ip route add %s",
+				route.Destination,
+			)
+
+			if route.Gateway != "" {
+				cmd += " via " + route.Gateway
+			}
+
+			if route.Metric > 0 {
+				cmd += fmt.Sprintf(
+					" metric %d",
+					route.Metric,
+				)
+			}
+
+			sb.WriteString(cmd + "\n")
+		}
+
+		//
+		// IPv6
+		//
+
+		if len(ipv6Addrs) > 0 {
+
+			sb.WriteString("\n")
+
+			sb.WriteString(
+				fmt.Sprintf(
+					"iface %s inet6 static\n",
+					iface.Name,
+				),
+			)
+
+			sb.WriteString(
+				fmt.Sprintf(
+					"    address %s\n",
+					ipv6Addrs[0],
+				),
+			)
+
+			for _, addr := range ipv6Addrs[1:] {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"    up ip -6 addr add %s dev %s\n",
+						addr,
+						iface.Name,
+					),
+				)
+			}
+
+			if iface.Gateway != "" &&
+				strings.Contains(
+					iface.Gateway,
+					":",
+				) {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"    gateway %s\n",
+						iface.Gateway,
+					),
+				)
+			}
+
+			for _, route := range n.cfg.Routes {
+
+				if route.InterfaceMAC != "" &&
+					!equalMAC(
+						route.InterfaceMAC,
+						iface.MAC,
+					) {
+					continue
+				}
+
+				if !strings.Contains(
+					route.Destination,
+					":",
+				) {
+					continue
+				}
+
+				cmd := fmt.Sprintf(
+					"    up ip -6 route add %s",
+					route.Destination,
+				)
+
+				if route.Gateway != "" {
+					cmd += " via " + route.Gateway
+				}
+
+				if route.Metric > 0 {
+					cmd += fmt.Sprintf(
+						" metric %d",
+						route.Metric,
+					)
+				}
+
+				sb.WriteString(cmd + "\n")
+			}
+		}
+
 		file := filepath.Join(
 			dir,
 			iface.Name,
@@ -1087,7 +1322,11 @@ func (w *interfacesWriter) Write(
 			return err
 		}
 
-		logger.Debugf("interfacesWriter: %s:\n%s", file, sb.String())
+		logger.Debugf(
+			"interfacesWriter: %s:\n%s",
+			file,
+			sb.String(),
+		)
 
 		if err := os.WriteFile(
 			file,
@@ -1101,31 +1340,27 @@ func (w *interfacesWriter) Write(
 	return nil
 }
 
-func (w *wickedWriter) Write(
-	root string,
-	cfg *NetworkConfig,
-) error {
+func (n *linuxNetworkInjector) injectNetworkBySuseWicked() error {
+	logger.Debugf("%s.injectNetworkBySuseWicked: ++", n)
+	defer logger.Debugf("%s.injectNetworkBySuseWicked: --", n)
+
+	if len(n.cfg.Interfaces) == 0 {
+		return nil
+	}
 
 	dir := filepath.Join(
-		root,
+		n.root,
 		"etc/sysconfig/network",
 	)
 
-	for _, iface := range cfg.Interfaces {
+	for _, iface := range n.cfg.Interfaces {
 
 		var sb strings.Builder
 
 		if iface.DHCP {
-
-			sb.WriteString(
-				"BOOTPROTO='dhcp'\n",
-			)
-
+			sb.WriteString("BOOTPROTO='dhcp'\n")
 		} else {
-
-			sb.WriteString(
-				"BOOTPROTO='static'\n",
-			)
+			sb.WriteString("BOOTPROTO='static'\n")
 		}
 
 		if iface.Enabled {
@@ -1135,7 +1370,6 @@ func (w *wickedWriter) Write(
 		}
 
 		if iface.MTU > 0 {
-
 			sb.WriteString(
 				fmt.Sprintf(
 					"MTU='%d'\n",
@@ -1144,18 +1378,46 @@ func (w *wickedWriter) Write(
 			)
 		}
 
-		if len(iface.IPAddr) > 0 {
+		var ipIndex int
+
+		for _, ip := range iface.IPAddr {
+
+			if ipIndex == 0 {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"IPADDR='%s'\n",
+						ip.Address,
+					),
+				)
+
+			} else {
+
+				sb.WriteString(
+					fmt.Sprintf(
+						"IPADDR_%d='%s'\n",
+						ipIndex,
+						ip.Address,
+					),
+				)
+			}
+
+			ipIndex++
+		}
+
+		if iface.Gateway != "" {
 
 			sb.WriteString(
 				fmt.Sprintf(
-					"IPADDR='%s'\n",
-					iface.IPAddr[0].Address,
+					"GATEWAY='%s'\n",
+					iface.Gateway,
 				),
 			)
 		}
 
 		sb.WriteString(
-			"CHECK_DUPLICATE_IP='no'\n")
+			"CHECK_DUPLICATE_IP='no'\n",
+		)
 
 		file := filepath.Join(
 			dir,
@@ -1166,7 +1428,11 @@ func (w *wickedWriter) Write(
 			return err
 		}
 
-		logger.Debugf("wickedWriter: %s:\n%s", file, sb.String())
+		logger.Debugf(
+			"wickedWriter: %s:\n%s",
+			file,
+			sb.String(),
+		)
 
 		if err := os.WriteFile(
 			file,
@@ -1177,49 +1443,80 @@ func (w *wickedWriter) Write(
 		}
 	}
 
-	return w.writeRoutes(
-		root,
-		cfg,
-	)
+	if err := n.writeWickedRoutes(dir); err != nil {
+		return err
+	}
+
+	if err := n.writeWickedDNS(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (w *wickedWriter) writeRoutes(
-	root string,
-	cfg *NetworkConfig,
+func (n *linuxNetworkInjector) writeWickedRoutes(
+	dir string,
 ) error {
-
-	if len(cfg.Routes) == 0 {
-		return nil
-	}
 
 	var sb strings.Builder
 
-	for _, route := range cfg.Routes {
+	for _, route := range n.cfg.Routes {
 
-		dev := lookupInterfaceName(
-			cfg,
-			route.InterfaceMAC,
-		)
-
-		if dev == "" {
+		if route.InterfaceMAC == "" {
 			continue
+		}
+
+		var ifaceName string
+
+		for _, iface := range n.cfg.Interfaces {
+
+			if equalMAC(
+				iface.MAC,
+				route.InterfaceMAC,
+			) {
+				ifaceName = iface.Name
+				break
+			}
+		}
+
+		if ifaceName == "" {
+			continue
+		}
+
+		gw := "-"
+
+		if route.Gateway != "" {
+			gw = route.Gateway
 		}
 
 		sb.WriteString(
 			fmt.Sprintf(
 				"%s %s - %s\n",
 				route.Destination,
-				route.Gateway,
-				dev,
+				gw,
+				ifaceName,
 			),
 		)
 	}
 
+	if sb.Len() == 0 {
+		return nil
+	}
+
 	file := filepath.Join(
-		root,
-		"etc/sysconfig/network/routes",
+		dir,
+		"routes",
 	)
-	logger.Debugf("wickedWriter.writeRoutes: %s:\n%s", file, sb.String())
+
+	if err := backupIfExists(file); err != nil {
+		return err
+	}
+
+	logger.Debugf(
+		"wickedRouteWriter: %s:\n%s",
+		file,
+		sb.String(),
+	)
 
 	return os.WriteFile(
 		file,
@@ -1228,20 +1525,44 @@ func (w *wickedWriter) writeRoutes(
 	)
 }
 
-func lookupInterfaceName(
-	cfg *NetworkConfig,
-	mac string,
-) string {
+func (n *linuxNetworkInjector) writeWickedDNS() error {
 
-	for _, nic := range cfg.Interfaces {
+	dnsList := make(
+		[]string,
+		0,
+	)
 
-		if strings.EqualFold(
-			nic.MAC,
-			mac,
-		) {
-			return nic.Name
-		}
+	dnsList = append(
+		dnsList,
+		n.cfg.GlobalDNS...,
+	)
+
+	if len(dnsList) == 0 {
+		return nil
 	}
 
-	return ""
+	file := filepath.Join(
+		n.root,
+		"etc/sysconfig/network/config",
+	)
+
+	content := fmt.Sprintf(
+		"NETCONFIG_DNS_STATIC_SERVERS=\"%s\"\n",
+		strings.Join(
+			funk.UniqString(dnsList),
+			" ",
+		),
+	)
+
+	logger.Debugf(
+		"wickedDNSWriter: %s:\n%s",
+		file,
+		content,
+	)
+
+	return os.WriteFile(
+		file,
+		[]byte(content),
+		0644,
+	)
 }

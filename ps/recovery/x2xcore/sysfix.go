@@ -19,6 +19,9 @@ type SysFixer interface {
 	// Repair 执行修复流程
 	Repair() error
 
+	// CustomProcess 自定义的流程
+	CustomProcess(func() error) error
+
 	// Cleanup 清理修复环境（卸载/释放资源）
 	Cleanup() error
 
