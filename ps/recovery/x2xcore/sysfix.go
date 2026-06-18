@@ -28,7 +28,7 @@ type SysFixer interface {
 	// GetLog 获取日志
 	GetLog() (LogEntry, bool)
 
-	// GetKvmPreferConfig 获取推荐配置
+	// GetPreferHostConfig 获取推荐配置
 	GetPreferHostConfig(define.HPVirtType) (PreferConfig, error)
 }
 

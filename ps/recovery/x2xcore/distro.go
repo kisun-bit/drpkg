@@ -18,12 +18,12 @@ type DistroInfo struct {
 	ID      string // centos, rhel, ubuntu, debian...
 	Version string // 7.9.2009
 	Major   int
-	Pretty  string // 原始字符串
-	Source  string // 来源文件
-	Family  string // 来源：RHEL、ALT、SUSE、DEBIAN
+	Pretty  string          // 原始字符串
+	Source  string          // 来源文件
+	Family  define.OsFamily // 来源：RHEL、ALT、SUSE、DEBIAN
 }
 
-func GetFamilyByDistroID(distroID string) string {
+func GetFamilyByDistroID(distroID string) define.OsFamily {
 	switch distroID {
 	case define.DistroFedora,
 		define.DistroRHEL,

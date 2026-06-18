@@ -60,6 +60,10 @@ func ListUniPci() ([]*UniPci, error) {
 }
 
 func UniPciFromString(s string) (*UniPci, error) {
+	if strings.HasPrefix(s, "pci:") {
+		return UniPciFromModalias(s)
+	}
+
 	if !strings.HasPrefix(strings.ToUpper(s), upPrefix) {
 		return nil, errors.Errorf("invalid prefix")
 	}

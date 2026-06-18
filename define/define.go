@@ -1,34 +1,40 @@
 package define
 
-const (
-	OsWindows = "windows"
-	OsLinux   = "linux"
-)
+type OsType = string
 
 const (
-	ArchAmd64   = "amd64"
-	ArchArm64   = "arm64"
-	Arch386     = "386"
-	ArchLoong64 = "loong64"
-	ArchRiscv64 = "riscv64"
+	OsWindows OsType = "windows"
+	OsLinux          = "linux"
 )
+
+type OsArchitecture = string
+
+const (
+	ArchAmd64   OsArchitecture = "amd64"
+	ArchArm64                  = "arm64"
+	Arch386                    = "386"
+	ArchLoong64                = "loong64"
+	ArchRiscv64                = "riscv64"
+)
+
+type OsDistro = string
 
 // Linux发行版ID
 const (
 	// RHEL family
-	DistroFedora          = "fedora"
-	DistroRHEL            = "rhel"
-	DistroCentOS          = "centos"
-	DistroCircle          = "circle"
-	DistroScientificLinux = "scientificlinux"
-	DistroRedhatBased     = "redhat-based"
-	DistroOracleLinux     = "oraclelinux"
-	DistroRocky           = "rocky"
-	DistroKylin           = "kylin"
-	DistroNeoKylin        = "neokylin"
-	DistroAnolis          = "anolis"
-	DistroOpenEuler       = "openeuler"
-	DistroAlma            = "almalinux"
+	DistroFedora          OsDistro = "fedora"
+	DistroRHEL                     = "rhel"
+	DistroCentOS                   = "centos"
+	DistroCircle                   = "circle"
+	DistroScientificLinux          = "scientificlinux"
+	DistroRedhatBased              = "redhat-based"
+	DistroOracleLinux              = "oraclelinux"
+	DistroRocky                    = "rocky"
+	DistroKylin                    = "kylin"
+	DistroNeoKylin                 = "neokylin"
+	DistroAnolis                   = "anolis"
+	DistroOpenEuler                = "openeuler"
+	DistroAlma                     = "almalinux"
 
 	// ALT family
 	DistroALTLinux = "altlinux"
@@ -46,16 +52,97 @@ const (
 )
 
 const (
-	DistroMicrosoft = "microsoft"
+	DistroMicrosoft OsDistro = "microsoft"
 )
 
-// Linux 发行版家族
+type WindowsVersion = string
+
 const (
-	LinuxFamilyRHEL   = "RHEL"
-	LinuxFamilyALT    = "ALT"
-	LinuxFamilySUSE   = "SUSE"
-	LinuxFamilyDebian = "DEBIAN"
-	WindowsFamily     = "MICROSOFT"
+	Win2k    WindowsVersion = "win2k"
+	WinXP                   = "winxp"
+	WinVista                = "winvista"
+
+	Win7  = "win7"
+	Win8  = "win8"
+	Win81 = "win8.1"
+	Win10 = "win10"
+	Win11 = "win11"
+
+	Win2k3    = "win2k3"
+	Win2k8    = "win2k8"
+	Win2k8r2  = "win2k8r2"
+	Win2k12   = "win2k12"
+	Win2k12r2 = "win2k12r2"
+	Win2k16   = "win2k16"
+	Win2k19   = "win2k19"
+	Win2k22   = "win2k22"
+	Win2k25   = "win2k25"
+)
+
+type NTVersion = int
+
+const (
+	NTUnknown NTVersion = iota
+
+	// Windows 2000
+	NT50
+
+	// Windows XP / Server 2003
+	NT51
+	NT52
+
+	// Vista / Server 2008
+	NT60
+
+	// Windows 7 / Server 2008 R2
+	NT61
+
+	// Windows 8 / Server 2012
+	NT62
+
+	// Windows 8.1 / Server 2012 R2
+	NT63
+
+	// Windows 10 / 11 / Server 2016+
+	NT100
+)
+
+var OsNTVersion = map[WindowsVersion]NTVersion{
+	Win2k: NT50,
+
+	WinXP: NT51,
+
+	Win2k3: NT52,
+
+	WinVista: NT60,
+	Win2k8:   NT60,
+
+	Win7:     NT61,
+	Win2k8r2: NT61,
+
+	Win8:    NT62,
+	Win2k12: NT62,
+
+	Win81:     NT63,
+	Win2k12r2: NT63,
+
+	Win10: NT100,
+	Win11: NT100,
+
+	Win2k16: NT100,
+	Win2k19: NT100,
+	Win2k22: NT100,
+	Win2k25: NT100,
+}
+
+type OsFamily = string
+
+const (
+	LinuxFamilyRHEL   OsFamily = "RHEL"
+	LinuxFamilyALT             = "ALT"
+	LinuxFamilySUSE            = "SUSE"
+	LinuxFamilyDebian          = "DEBIAN"
+	WindowsFamily              = "MICROSOFT"
 )
 
 // Initrd生成工具的类型

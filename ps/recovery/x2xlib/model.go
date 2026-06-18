@@ -41,7 +41,7 @@ type Driver struct {
 	UpdatedAt     time.Time `gorm:"column:updated_at;autoUpdateTime"`
 }
 
-func (Driver) TableName() string {
+func (*Driver) TableName() string {
 	return "driver"
 }
 
@@ -74,34 +74,30 @@ type KernelCompat struct {
 	Kernel   string `gorm:"column:kernel;size:64;not null;"`
 }
 
-func (KernelCompat) TableName() string {
+func (*KernelCompat) TableName() string {
 	return "kernel_compat"
 }
 
 // NTCompat Windows NT版本兼容关系
 // 用于描述驱动支持的NT版本区间。
 type NTCompat struct {
-	ID          uint64 `gorm:"column:id;primaryKey;autoIncrement"`
-	DriverID    string `gorm:"column:driver_id;size:64;not null;index"`
-	NTMin       string `gorm:"column:nt_min;size:64;not null;"`
-	NTMinWeight uint64 `gorm:"column:nt_min_weight;"`
-	NTMax       string `gorm:"column:nt_max;size:64;not null;"`
-	NTMaxWeight uint64 `gorm:"column:nt_max_weight;"`
+	ID             uint64 `gorm:"column:id;primaryKey;autoIncrement"`
+	DriverID       string `gorm:"column:driver_id;size:64;not null;index"`
+	WindowsVersion string `gorm:"column:windows_version;size:64;not null;index"`
 }
 
-func (NTCompat) TableName() string {
+func (*NTCompat) TableName() string {
 	return "nt_compat"
 }
 
 // HardwareCompat 硬件兼容关系
 type HardwareCompat struct {
-	ID           uint64 `gorm:"column:id;primaryKey;autoIncrement"`
-	DriverID     string `gorm:"column:driver_id;size:64;not null;index"`
-	CompatID     string `gorm:"column:compat_id;size:128;not null;"`
-	CompatWeight uint64 `gorm:"column:compat_weight;not null;"`
+	ID       uint64 `gorm:"column:id;primaryKey;autoIncrement"`
+	DriverID string `gorm:"column:driver_id;size:64;not null;index"`
+	CompatID string `gorm:"column:compat_id;size:128;not null;"`
 }
 
-func (HardwareCompat) TableName() string {
+func (*HardwareCompat) TableName() string {
 	return "hardware_compat"
 }
 
