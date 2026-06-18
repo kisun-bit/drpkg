@@ -1990,77 +1990,13 @@ func (fixer *linuxSystemFixer) fixOneGrub(
 
 	content := before
 
-	// root=
-	rootRe := regexp.MustCompile(`(^|\s+)root=\S+`)
-	content = rootRe.ReplaceAllString(
+	content = fixGrubRootResume(
 		content,
-		`${1}root=UUID=`+rootUUID,
+		rootUUID,
+		resumeUUID,
 	)
 
-	// resume=
-	if resumeUUID != "" {
-		//	resumeRe := regexp.MustCompile(`(^|\s+)resume=\S+`)
-		resumeRe := regexp.MustCompile(
-			`resume=\S+`,
-		)
-
-		content = resumeRe.ReplaceAllString(
-			content,
-			"resume=UUID="+resumeUUID,
-		)
-	}
-
-	// rootdelay=10
-	rootDelayRe := regexp.MustCompile(`(^|\s+)rootdelay=\d+`)
-	if rootDelayRe.MatchString(content) {
-		content = rootDelayRe.ReplaceAllString(
-			content,
-			`${1}rootdelay=10`,
-		)
-	} else {
-		// 只加到 kernel/linux 行
-		lineRe := regexp.MustCompile(
-			`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
-		)
-
-		content = lineRe.ReplaceAllString(
-			content,
-			`${1} rootdelay=10`,
-		)
-	}
-
-	// rootwait 避免重复
-	rootWaitRe := regexp.MustCompile(`(^|\s+)rootwait(\s|$)`)
-	if !rootWaitRe.MatchString(content) {
-		lineRe := regexp.MustCompile(
-			`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
-		)
-
-		content = lineRe.ReplaceAllString(
-			content,
-			`${1} rootwait`,
-		)
-	}
-
-	// 去掉 quiet 启动参数（保留原缩进和格式）
-	quietRe := regexp.MustCompile(`\s+quiet(\s|$)`)
-
-	lineRe := regexp.MustCompile(
-		`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
-	)
-
-	content = lineRe.ReplaceAllStringFunc(
-		content,
-		func(line string) string {
-			// 删除 quiet
-			line = quietRe.ReplaceAllString(line, "$1")
-
-			// 清理 quiet 删除后可能出现的尾部空格
-			line = strings.TrimRight(line, " \t")
-
-			return line
-		},
-	)
+	content = fixGrubBootArgs(fixer.offsys.distro, content)
 
 	if content == before {
 		logger.Debugf("fixOneGrub: `%s` no change", file)
@@ -2081,6 +2017,96 @@ func (fixer *linuxSystemFixer) fixOneGrub(
 	logger.Infof("fixOneGrub: repaired `%s`", file)
 
 	return nil
+}
+
+func fixGrubRootResume(
+	content string,
+	rootUUID string,
+	resumeUUID string,
+) string {
+
+	// root=
+	rootRe := regexp.MustCompile(`(^|\s+)root=\S+`)
+	content = rootRe.ReplaceAllString(
+		content,
+		`${1}root=UUID=`+rootUUID,
+	)
+
+	// resume=
+	if resumeUUID != "" {
+		resumeRe := regexp.MustCompile(`resume=\S+`)
+		content = resumeRe.ReplaceAllString(
+			content,
+			"resume=UUID="+resumeUUID,
+		)
+	}
+
+	return content
+}
+
+func fixGrubBootArgs(distro DistroInfo, content string) string {
+
+	lineRe := regexp.MustCompile(
+		`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
+	)
+
+	// rootdelay=10
+	rootDelayRe := regexp.MustCompile(`(^|\s+)rootdelay=\d+`)
+	if rootDelayRe.MatchString(content) {
+		content = rootDelayRe.ReplaceAllString(
+			content,
+			`${1}rootdelay=10`,
+		)
+	} else {
+		content = lineRe.ReplaceAllString(
+			content,
+			`${1} rootdelay=10`,
+		)
+	}
+
+	// rootwait
+	rootWaitRe := regexp.MustCompile(`(^|\s+)rootwait(\s|$)`)
+	if !rootWaitRe.MatchString(content) {
+		content = lineRe.ReplaceAllString(
+			content,
+			`${1} rootwait`,
+		)
+	}
+
+	// 删除 quiet
+	quietRe := regexp.MustCompile(`\s+quiet(\s|$)`)
+
+	content = lineRe.ReplaceAllStringFunc(
+		content,
+		func(line string) string {
+			line = quietRe.ReplaceAllString(line, "$1")
+			return strings.TrimRight(line, " \t")
+		},
+	)
+
+	// 如果版本是oracle linux 6.5/6.6，则在引导参数kernel行中追加"nosmap"，否则可能在迁移后出现kernel panic:
+	// 触发原因：This crash occurs only on Intel Broadwell or newer CPU families.
+	// 参考：
+	// 1. https://portal.nutanix.com/page/documents/kbs/details?targetId=kA032000000bmytCAA
+	// 2. https://forums.oracle.com/ords/apexds/post/kernel-panic-not-syncing-fatal-exception-3897
+	if distro.ID == define.DistroOracleLinux &&
+		(distro.Version == "6.5" ||
+			distro.Version == "6.6") {
+
+		nosmapRe := regexp.MustCompile(`(^|\s+)nosmap(\s|$)`)
+
+		content = lineRe.ReplaceAllStringFunc(
+			content,
+			func(line string) string {
+				if nosmapRe.MatchString(line) {
+					return line
+				}
+				return line + " nosmap"
+			},
+		)
+	}
+
+	return content
 }
 
 func (fixer *linuxSystemFixer) initrdAddModule(k kernel, modules ...string) error {

@@ -28,7 +28,7 @@ const (
 	DistroCircle                   = "circle"
 	DistroScientificLinux          = "scientificlinux"
 	DistroRedhatBased              = "redhat-based"
-	DistroOracleLinux              = "oraclelinux"
+	DistroOracleLinux              = "ol"
 	DistroRocky                    = "rocky"
 	DistroKylin                    = "kylin"
 	DistroNeoKylin                 = "neokylin"

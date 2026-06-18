@@ -3,7 +3,10 @@ package x2xcore
 import (
 	"context"
 
+	"github.com/kisun-bit/drpkg/define"
+	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
+	"github.com/pkg/errors"
 )
 
 // 关闭arp探测
@@ -17,6 +20,8 @@ type windowsSystemFixer struct {
 }
 
 type offlineSystem struct {
+	volumes   []string
+	sysVolume string // 系统卷
 }
 
 //
@@ -54,3 +59,66 @@ type offlineSystem struct {
 // 1. 删除StartOverride项（若存在），如：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\stornvme\StartOverride
 // 2. 将Start的数据改成0，如：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\stornvme下的Start
 //
+
+func (fixer *windowsSystemFixer) Prepare() error {
+	logger.Debugf("Prepare: ++")
+	defer logger.Debugf("Prepare: --")
+
+	if err := fixer.importForeignDisk(); err != nil {
+		return errors.Wrap(err, "import foreign disk")
+	}
+
+	if err := fixer.detectSysVolume(); err != nil {
+		return errors.Wrap(err, "detect system volume")
+	}
+
+	return errors.New("not implemented")
+}
+
+func (fixer *windowsSystemFixer) Repair() error {
+	logger.Debugf("Repair: ++")
+	defer logger.Debugf("Repair: --")
+
+	return errors.New("not implemented")
+}
+
+func (fixer *windowsSystemFixer) CustomProcess(f func() error) error {
+	logger.Debugf("CustomProcess: ++")
+	defer logger.Debugf("CustomProcess: --")
+
+	return f()
+}
+
+func (fixer *windowsSystemFixer) Cleanup() error {
+	logger.Debugf("Cleanup: ++")
+	defer logger.Debugf("Cleanup: --")
+
+	return errors.New("not implemented")
+}
+
+func (fixer *windowsSystemFixer) GetLog() (LogEntry, bool) {
+	return LogEntry{}, false
+}
+
+func (fixer *windowsSystemFixer) GetPreferHostConfig(define.HPVirtType) (PreferConfig, error) {
+	return PreferConfig{}, errors.New("not implemented")
+}
+
+func (fixer *windowsSystemFixer) importForeignDisk() error {
+	logger.Debugf("importForeignDisk: ++")
+	defer logger.Debugf("importForeignDisk: --")
+
+	return ImportForeignDisk()
+}
+
+func (fixer *windowsSystemFixer) detectSysVolume() error {
+	logger.Debugf("detectSysVolume: ++")
+	defer logger.Debugf("detectSysVolume: --")
+
+	vs, e := ListLocalVolumes()
+	if e != nil {
+		return e
+	}
+	_ = vs
+	return errors.New("not implemented")
+}
