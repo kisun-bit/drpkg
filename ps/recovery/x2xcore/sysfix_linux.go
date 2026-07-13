@@ -2084,6 +2084,28 @@ func fixGrubBootArgs(distro DistroInfo, content string) string {
 		},
 	)
 
+	// net.ifnames=0
+	netIfNamesRe := regexp.MustCompile(`(^|\s+)net\.ifnames=\S+`)
+	if netIfNamesRe.MatchString(content) {
+		content = netIfNamesRe.ReplaceAllString(content, `${1}net.ifnames=0`)
+	} else {
+		content = lineRe.ReplaceAllString(
+			content,
+			`${1} net.ifnames=0`,
+		)
+	}
+
+	// biosdevname=0
+	biosDevNameRe := regexp.MustCompile(`(^|\s+)biosdevname=\S+`)
+	if biosDevNameRe.MatchString(content) {
+		content = biosDevNameRe.ReplaceAllString(content, `${1}biosdevname=0`)
+	} else {
+		content = lineRe.ReplaceAllString(
+			content,
+			`${1} biosdevname=0`,
+		)
+	}
+
 	// 如果版本是oracle linux 6.5/6.6，则在引导参数kernel行中追加"nosmap"，否则可能在迁移后出现kernel panic:
 	// 触发原因：This crash occurs only on Intel Broadwell or newer CPU families.
 	// 参考：
