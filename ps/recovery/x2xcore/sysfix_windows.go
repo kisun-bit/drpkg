@@ -2,11 +2,25 @@ package x2xcore
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 
+	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/define"
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
 	"github.com/pkg/errors"
+	"golang.org/x/sys/windows/registry"
+)
+
+type driverDatabaseType int
+
+const (
+	drvDbUnknown driverDatabaseType = iota
+	drvDbLegacy
+	drvDbDeviceIds
 )
 
 // 关闭arp探测
@@ -20,8 +34,12 @@ type windowsSystemFixer struct {
 }
 
 type offlineSystem struct {
-	volumes   []string
-	sysVolume string // 系统卷
+	volumeLtrList      []string
+	sysVolumeLtr       string // 系统卷
+	hklmPath           string
+	registryRootKey    string
+	driverDatabaseType driverDatabaseType
+	currentControlSet  int
 }
 
 //
@@ -72,12 +90,28 @@ func (fixer *windowsSystemFixer) Prepare() error {
 		return errors.Wrap(err, "detect system volume")
 	}
 
-	return errors.New("not implemented")
+	if err := fixer.loadRegistry(); err != nil {
+		return errors.Wrap(err, "mount registry")
+	}
+
+	if err := fixer.detectCurrentControlSet(); err != nil {
+		return errors.Wrap(err, "detect current control set")
+	}
+
+	if err := fixer.detectDriverDatabaseType(); err != nil {
+		return errors.Wrap(err, "detect driver database")
+	}
+
+	return nil
 }
 
 func (fixer *windowsSystemFixer) Repair() error {
 	logger.Debugf("Repair: ++")
 	defer logger.Debugf("Repair: --")
+
+	if err := fixer.disableArpCheck(); err != nil {
+		return errors.Wrap(err, "disable arp check")
+	}
 
 	return errors.New("not implemented")
 }
@@ -119,6 +153,148 @@ func (fixer *windowsSystemFixer) detectSysVolume() error {
 	if e != nil {
 		return e
 	}
-	_ = vs
+
+	for _, v := range vs {
+		if v.DriveLetter == "" {
+			existed, ltr := getFreeLtr()
+			if !existed {
+				return errors.New("no free ltr")
+			}
+			if err := AssignDriveLetter(v.DeviceID, ltr); err != nil {
+				return errors.Wrapf(err, "assign drive letter for %s", v.DeviceID)
+			}
+			v.DriveLetter = ltr
+		}
+		fixer.offsys.volumeLtrList = append(fixer.offsys.volumeLtrList, v.DriveLetter)
+	}
+	logger.Debugf("detectSysVolume: volumes:\n%s", extend.Pretty(fixer.offsys.volumeLtrList))
+
+	for _, v := range fixer.offsys.volumeLtrList {
+		vp := v + ":\\"
+		if !extend.IsRootDir(vp) {
+			continue
+		}
+		fixer.offsys.sysVolumeLtr = v
+		break
+	}
+	logger.Debugf("detectSysVolume: system volume: %v", fixer.offsys.sysVolumeLtr)
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) loadRegistry() error {
+	logger.Debugf("mountRegistry: ++")
+	defer logger.Debugf("mountRegistry: --")
+
+	hklmPath := filepath.Join(fixer.offsys.sysVolumeLtr+":\\", "Windows", "System32", "config", "SYSTEM")
+	if !extend.IsExisted(hklmPath) {
+		return errors.Wrapf(os.ErrNotExist, hklmPath)
+	}
+	if fixer.offsys.hklmPath == "" {
+		fixer.offsys.hklmPath = hklmPath
+	}
+	registryRootKey := "HKLM\\OFFLINESYSTEMH0NK1"
+
+	cmdline := fmt.Sprintf("REG LOAD %s %s", registryRootKey, fixer.offsys.hklmPath)
+	_, _, e := command.Execute(cmdline, command.WithDebug())
+	if e != nil {
+		return errors.Wrapf(e, "load registry file %s", hklmPath)
+	}
+	fixer.offsys.registryRootKey = registryRootKey
+
+	logger.Debugf("mountRegistry: %s is mounted", fixer.offsys.hklmPath)
+	return nil
+}
+
+func (fixer *windowsSystemFixer) unloadRegistry() error {
+	logger.Debugf("unloadRegistry: ++")
+	defer logger.Debugf("unloadRegistry: --")
+
+	if fixer.offsys.registryRootKey == "" {
+		return nil
+	}
+
+	cmdline := fmt.Sprintf("REG UNLOAD %s", fixer.offsys.registryRootKey)
+	_, _, e := command.Execute(cmdline, command.WithDebug())
+	if e != nil {
+		return errors.Wrapf(e, "unload registry %s", fixer.offsys.registryRootKey)
+	}
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) detectCurrentControlSet() error {
+	logger.Debugf("detectCurrentControlSet: ++")
+	defer logger.Debugf("detectCurrentControlSet: --")
+
+	selectKeyPath := fmt.Sprintf("%s\\Select", fixer.offsys.registryRootKey)
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, selectKeyPath, registry.READ)
+
+	if err == nil {
+		defer key.Close()
+
+		val, _, e := key.GetIntegerValue("Current")
+		if e == nil {
+			fixer.offsys.currentControlSet = int(val)
+			logger.Debugf("detectCurrentControlSet: current control set: %d", fixer.offsys.currentControlSet)
+			return nil
+		}
+
+		err = e
+	}
+
+	if errors.Is(err, registry.ErrNotExist) {
+		fixer.offsys.currentControlSet = 1
+		logger.Warnf("detectCurrentControlSet: current control set does not exist, force to set 1")
+		return nil
+	}
+
+	return errors.Wrapf(err, "detectCurrentControlSet")
+}
+
+func (fixer *windowsSystemFixer) detectDriverDatabaseType() error {
+	logger.Debugf("detectDriverDatabaseType: ++")
+	defer logger.Debugf("detectDriverDatabaseType: --")
+
+	paths := []struct {
+		path string
+		typ  driverDatabaseType
+	}{
+		{
+			fmt.Sprintf("%s\\ControlSet00%d\\Control\\CriticalDeviceDatabase",
+				fixer.offsys.registryRootKey,
+				fixer.offsys.currentControlSet),
+			drvDbLegacy,
+		},
+		{
+			fmt.Sprintf("%s\\DriverDatabase\\DeviceIds\\PCI",
+				fixer.offsys.registryRootKey),
+			drvDbDeviceIds,
+		},
+	}
+
+	for _, item := range paths {
+		key, err := registry.OpenKey(registry.LOCAL_MACHINE, item.path, registry.READ)
+		switch {
+		case err == nil:
+			_ = key.Close()
+			fixer.offsys.driverDatabaseType = item.typ
+			logger.Debugf("detectDriverDatabaseType: %s", item.typ)
+			return nil
+		case errors.Is(err, registry.ErrNotExist):
+			continue
+		default:
+			return errors.Wrap(err, "detectDriverDatabaseType")
+		}
+	}
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) disableArpCheck() error {
+	logger.Debugf("disableArpCheck: ++")
+	defer logger.Debugf("disableArpCheck: --")
+
+	// TODO
 	return errors.New("not implemented")
 }

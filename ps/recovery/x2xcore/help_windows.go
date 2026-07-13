@@ -141,7 +141,7 @@ func ImportForeignDisk() error {
 			return err
 		}
 
-		fmt.Fprintf(
+		_, _ = fmt.Fprintf(
 			&script,
 			"select disk %d\r\nimport\r\ndetail disk\r\n",
 			id,

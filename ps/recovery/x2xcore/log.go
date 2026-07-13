@@ -12,7 +12,8 @@ const (
 )
 
 type LogEntry struct {
-	Time    time.Time
-	Level   LogLevel
-	Message string
+	Time      time.Time
+	Level     LogLevel
+	MessageEn string
+	MessageZh string
 }
