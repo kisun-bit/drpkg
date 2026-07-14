@@ -262,11 +262,11 @@ func (fixer *linuxSystemFixer) Repair() error {
 		configFun = fixer.configHyperV
 	}
 
-	if err := unconfigFun(); err != nil {
+	if err = unconfigFun(); err != nil {
 		return errors.Wrapf(err, "unconfig %s", fixer.opts.RecoveryParam.Source.Virt)
 	}
 
-	if err := configFun(); err != nil {
+	if err = configFun(); err != nil {
 		return errors.Wrapf(err, "config %s", fixer.opts.RecoveryParam.Target.Virt)
 	}
 
@@ -1747,6 +1747,7 @@ func (fixer *linuxSystemFixer) fixPamLogin() error {
 			//offlineSoRootDir := parseRootDir(strings.TrimPrefix(offlineSoPath, fixer.offsys.root))
 			////logger.Debugf("fixPamLogin: offlineSoRootDir=`%s`", offlineSoRootDir)
 
+			// 忽略路径中带变量的
 			if strings.Contains(offlineSoPath, "$") {
 				logger.Debugf("fixPamLogin: ignore `%s`", offlineSoPath)
 				continue

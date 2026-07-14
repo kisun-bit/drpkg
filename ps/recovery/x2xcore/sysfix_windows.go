@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/define"
@@ -23,8 +25,6 @@ const (
 	drvDbDeviceIds
 )
 
-// 关闭arp探测
-
 type windowsSystemFixer struct {
 	ctx    context.Context
 	opts   *FixerCreateOptions // 恢复参数
@@ -40,6 +40,8 @@ type offlineSystem struct {
 	registryRootKey    string
 	driverDatabaseType driverDatabaseType
 	currentControlSet  int
+	windowsVersion     define.WindowsVersion
+	halType            define.HALType
 }
 
 //
@@ -102,6 +104,14 @@ func (fixer *windowsSystemFixer) Prepare() error {
 		return errors.Wrap(err, "detect driver database")
 	}
 
+	if err := fixer.detectWindowsVersion(); err != nil {
+		return errors.Wrap(err, "detect windows version")
+	}
+
+	if err := fixer.detectHAL(); err != nil {
+		return errors.Wrap(err, "detect hal")
+	}
+
 	return nil
 }
 
@@ -111,6 +121,14 @@ func (fixer *windowsSystemFixer) Repair() error {
 
 	if err := fixer.disableArpCheck(); err != nil {
 		return errors.Wrap(err, "disable arp check")
+	}
+
+	if err := fixer.enableIDE(); err != nil {
+		return errors.Wrap(err, "enable ide")
+	}
+
+	if err := fixer.enableSATA(); err != nil {
+		return errors.Wrap(err, "enable sata")
 	}
 
 	return errors.New("not implemented")
@@ -127,7 +145,11 @@ func (fixer *windowsSystemFixer) Cleanup() error {
 	logger.Debugf("Cleanup: ++")
 	defer logger.Debugf("Cleanup: --")
 
-	return errors.New("not implemented")
+	if err := fixer.unloadRegistry(); err != nil {
+		return errors.Wrap(err, "cleanup")
+	}
+
+	return nil
 }
 
 func (fixer *windowsSystemFixer) GetLog() (LogEntry, bool) {
@@ -195,9 +217,7 @@ func (fixer *windowsSystemFixer) loadRegistry() error {
 	}
 	registryRootKey := "HKLM\\OFFLINESYSTEMH0NK1"
 
-	cmdline := fmt.Sprintf("REG LOAD %s %s", registryRootKey, fixer.offsys.hklmPath)
-	_, _, e := command.Execute(cmdline, command.WithDebug())
-	if e != nil {
+	if e := loadReg(registryRootKey, fixer.offsys.hklmPath); e != nil {
 		return errors.Wrapf(e, "load registry file %s", hklmPath)
 	}
 	fixer.offsys.registryRootKey = registryRootKey
@@ -214,9 +234,7 @@ func (fixer *windowsSystemFixer) unloadRegistry() error {
 		return nil
 	}
 
-	cmdline := fmt.Sprintf("REG UNLOAD %s", fixer.offsys.registryRootKey)
-	_, _, e := command.Execute(cmdline, command.WithDebug())
-	if e != nil {
+	if e := unloadReg(fixer.offsys.registryRootKey); e != nil {
 		return errors.Wrapf(e, "unload registry %s", fixer.offsys.registryRootKey)
 	}
 
@@ -279,7 +297,7 @@ func (fixer *windowsSystemFixer) detectDriverDatabaseType() error {
 		case err == nil:
 			_ = key.Close()
 			fixer.offsys.driverDatabaseType = item.typ
-			logger.Debugf("detectDriverDatabaseType: %s", item.typ)
+			logger.Debugf("detectDriverDatabaseType: %v", item.typ)
 			return nil
 		case errors.Is(err, registry.ErrNotExist):
 			continue
@@ -291,10 +309,329 @@ func (fixer *windowsSystemFixer) detectDriverDatabaseType() error {
 	return nil
 }
 
+func (fixer *windowsSystemFixer) detectWindowsVersion() error {
+	logger.Debugf("detectWindowsVersion: ++")
+	defer logger.Debugf("detectWindowsVersion: --")
+
+	offlineSoftwareHivePath := filepath.Join(
+		fixer.offsys.sysVolumeLtr+":\\",
+		"Windows", "System32", "config", "SOFTWARE",
+	)
+
+	const offlineSoftwareKeyName = "OfflineSoftwareReg"
+	offlineSoftwareKey := "HKLM\\" + offlineSoftwareKeyName
+
+	if err := loadReg(offlineSoftwareKey, offlineSoftwareHivePath); err != nil {
+		return errors.Wrapf(err, "load registry %s", offlineSoftwareHivePath)
+	}
+	defer func() {
+		if err := unloadReg(offlineSoftwareKey); err != nil {
+			logger.Errorf("unload registry: %v", err)
+		}
+	}()
+
+	currentVersionKey := fmt.Sprintf(
+		`%s\Microsoft\Windows NT\CurrentVersion`,
+		offlineSoftwareKeyName,
+	)
+
+	key, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		currentVersionKey,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return errors.Wrapf(err, "open registry %s", currentVersionKey)
+	}
+	defer key.Close()
+
+	readString := func(name string) string {
+		v, _, err := key.GetStringValue(name)
+		if err != nil {
+			return ""
+		}
+		return v
+	}
+
+	readDWORD := func(name string) uint64 {
+		v, _, err := key.GetIntegerValue(name)
+		if err != nil {
+			return 0
+		}
+		return v
+	}
+
+	currentVersion := readString("CurrentVersion")
+	buildStr := readString("CurrentBuildNumber")
+	if buildStr == "" {
+		buildStr = readString("CurrentBuild")
+	}
+
+	build, _ := strconv.Atoi(buildStr)
+
+	major := readDWORD("CurrentMajorVersionNumber")
+	//minor := readDWORD("CurrentMinorVersionNumber")
+
+	productName := readString("ProductName")
+
+	winVer := detectWindowsVersion(
+		productName,
+		currentVersion,
+		build,
+		major,
+	)
+
+	logger.Infof(
+		"Detected Windows: %v (%s, Build=%d)",
+		winVer,
+		productName,
+		build,
+	)
+
+	fixer.offsys.windowsVersion = winVer
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) detectHAL() error {
+	logger.Debugf("detectHAL: ++")
+	defer logger.Debugf("detectHAL: --")
+
+	keyPath := fmt.Sprintf(
+		`%s\ControlSet00%d\Control\HAL`,
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet,
+	)
+
+	key, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		keyPath,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+
+	id, _, err := key.GetStringValue("Identifier")
+	if err != nil {
+		return err
+	}
+
+	switch {
+
+	case strings.Contains(id, "ACPI Multiprocessor"):
+		fixer.offsys.halType = define.HALACPIMultiprocessor
+		break
+
+	case strings.Contains(id, "ACPI Uniprocessor"):
+		fixer.offsys.halType = define.HALACPIUniprocessor
+		break
+
+	case strings.Contains(id, "Standard PC"):
+		fixer.offsys.halType = define.HALStandardPC
+		break
+
+	case strings.Contains(id, "MPS Multiprocessor"):
+		fixer.offsys.halType = define.HALMPSMultiprocessor
+		break
+
+	case strings.Contains(id, "MPS Uniprocessor"):
+		fixer.offsys.halType = define.HALMPSUniprocessor
+		break
+
+	default:
+		fixer.offsys.halType = define.HALUnknown
+		break
+	}
+
+	logger.Debugf("detectHAL: HAL: %v", fixer.offsys.halType)
+
+	return nil
+}
+
 func (fixer *windowsSystemFixer) disableArpCheck() error {
 	logger.Debugf("disableArpCheck: ++")
 	defer logger.Debugf("disableArpCheck: --")
 
-	// TODO
-	return errors.New("not implemented")
+	// 仅当存在静态 IP 配置时才关闭 ARP Retry。
+	hasStaticIP := false
+	for _, iface := range fixer.opts.RecoveryParam.Network.Interfaces {
+		if len(iface.IPAddr) > 0 {
+			hasStaticIP = true
+			break
+		}
+	}
+	if !hasStaticIP {
+		logger.Debugf("disableArpCheck: no static IP configuration, skip")
+		return nil
+	}
+
+	tcpipKeyPath := fmt.Sprintf(
+		"%s\\ControlSet00%d\\Services\\Tcpip\\Parameters",
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet,
+	)
+
+	key, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		tcpipKeyPath,
+		registry.SET_VALUE,
+	)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			logger.Warnf("disableArpCheck: registry key %s not found", tcpipKeyPath)
+			return nil
+		}
+		return errors.Wrapf(err, "open registry %s", tcpipKeyPath)
+	}
+	defer key.Close()
+
+	if err := key.SetDWordValue("ArpRetryCount", 0); err != nil {
+		return errors.Wrap(err, "set ArpRetryCount")
+	}
+
+	logger.Debugf("disableArpCheck: ArpRetryCount=0")
+	return nil
+}
+
+func (fixer *windowsSystemFixer) changeHal() error {
+	logger.Debugf("changeHal: ++")
+	defer logger.Debugf("changeHal: --")
+
+	// TODO Vista之前可能需要切换hal.dll、ntoskrnl.exe
+	return nil
+}
+
+func (fixer *windowsSystemFixer) setServiceStart(serviceName string, start uint32) error {
+	logger.Debugf("setServiceStart: ++")
+	defer logger.Debugf("setServiceStart: --")
+
+	logger.Debugf("setServiceStart: %s -> %d", serviceName, start)
+
+	serviceKeyPath := fmt.Sprintf(
+		"%s\\ControlSet00%d\\Services\\%s",
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet,
+		serviceName,
+	)
+
+	serviceKey, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		serviceKeyPath,
+		registry.QUERY_VALUE|registry.SET_VALUE,
+	)
+	if err != nil {
+		return errors.Wrapf(err, "open registry %s", serviceKeyPath)
+	}
+	defer serviceKey.Close()
+
+	// 设置 Start
+	if err = serviceKey.SetDWordValue("Start", start); err != nil {
+		return errors.Wrap(err, "set Start")
+	}
+
+	// 删除 StartOverride（Win8+）
+	startOverrideKeyPath := serviceKeyPath + `\StartOverride`
+	if err = registry.DeleteKey(registry.LOCAL_MACHINE, startOverrideKeyPath); err != nil &&
+		!errors.Is(err, registry.ErrNotExist) {
+		logger.Warnf("delete %s failed: %v", startOverrideKeyPath, err)
+	}
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) enableService(serviceName string) error {
+	return fixer.setServiceStart(serviceName, 0)
+}
+
+func (fixer *windowsSystemFixer) disableService(serviceName string) error {
+	return fixer.setServiceStart(serviceName, 3)
+}
+
+func (fixer *windowsSystemFixer) existedService(serviceName string) bool {
+	serviceKeyPath := fmt.Sprintf(
+		"%s\\ControlSet00%d\\Services\\%s",
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet,
+		serviceName,
+	)
+
+	serviceKey, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		serviceKeyPath,
+		registry.READ,
+	)
+	if err != nil {
+		return false
+	}
+	defer serviceKey.Close()
+
+	return true
+}
+
+func (fixer *windowsSystemFixer) deleteService(serviceName string) error {
+	serviceKeyPath := fmt.Sprintf(
+		"%s\\ControlSet00%d\\Services\\%s",
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet,
+		serviceName,
+	)
+
+	if !fixer.existedService(serviceName) {
+		return nil
+	}
+
+	return deleteRegistryTree(registry.LOCAL_MACHINE, serviceKeyPath)
+}
+
+func (fixer *windowsSystemFixer) addDrivers(ds *x2xlib.DriverResource) error {
+	logger.Debugf("addDrivers: --")
+	defer logger.Debugf("addDrivers: --")
+
+	logger.Debugf("addDrivers: directory: %s", ds.Dir)
+
+	cmdline := fmt.Sprintf(`dism /Image:%s:\ /Add-Driver /Driver:%s /Recurse /ForceUnsigned`)
+	_, _, e := command.Execute(cmdline, command.WithDebug())
+	if e != nil {
+		return errors.Wrapf(e, "add drivers(%s)", strings.Join(ds.Modules, ","))
+	}
+	return nil
+}
+
+func (fixer *windowsSystemFixer) enableIDE() error {
+	drivers := []string{
+		"atapi",
+		"pciide",
+		"intelide",
+	}
+
+	for _, d := range drivers {
+		if fixer.existedService(d) {
+			if err := fixer.enableService(d); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) enableSATA() error {
+	drivers := []string{
+		"storahci",
+		"msahci",
+		"iaStor",
+		"iaStorV",
+	}
+
+	for _, d := range drivers {
+		if fixer.existedService(d) {
+			if err := fixer.enableService(d); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }

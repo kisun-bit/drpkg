@@ -58,9 +58,10 @@ const (
 type WindowsVersion = string
 
 const (
-	Win2k    WindowsVersion = "win2k"
-	WinXP                   = "winxp"
-	WinVista                = "winvista"
+	WinUnknown WindowsVersion = "Unknown"
+	Win2k                     = "win2k"
+	WinXP                     = "winxp"
+	WinVista                  = "winvista"
 
 	Win7  = "win7"
 	Win8  = "win8"
@@ -134,6 +135,18 @@ var OsNTVersion = map[WindowsVersion]NTVersion{
 	Win2k22: NT100,
 	Win2k25: NT100,
 }
+
+type HALType int
+
+const (
+	HALUnknown HALType = iota
+
+	HALACPIMultiprocessor
+	HALACPIUniprocessor
+	HALStandardPC
+	HALMPSMultiprocessor
+	HALMPSUniprocessor
+)
 
 type OsFamily = string
 

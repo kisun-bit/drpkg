@@ -2,7 +2,6 @@ package x2xcore
 
 import (
 	"fmt"
-	"path/filepath"
 	"runtime"
 
 	"github.com/kisun-bit/drpkg/define"
@@ -89,7 +88,12 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 	}
 
 	if opts.RecoveryParam.X2xLibrary == "" {
-		opts.RecoveryParam.X2xLibrary = filepath.Join(extend.ExecDir(), "library")
+		//opts.RecoveryParam.X2xLibrary = filepath.Join(extend.ExecDir(), "library")
+		dir, err := FindX2xLibraryDir()
+		if err != nil {
+			return errors.Wrap(err, "FindX2xLibraryDir")
+		}
+		opts.RecoveryParam.X2xLibrary = dir
 	}
 	//if !extend.IsExisted(opts.RecoveryParam.X2xLibrary) {
 	//	return errors.Errorf("FixerCreateOptions X2XLibrary(%s) is empty", opts.RecoveryParam.X2xLibrary)

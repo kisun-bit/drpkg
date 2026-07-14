@@ -32,12 +32,12 @@ type DriverResource struct {
 
 // NewX2XLib 创建驱动库实例。
 func NewX2XLib(libraryDir string, readonly bool) (*X2XLib, error) {
-	drvStoreDir := filepath.Join(libraryDir, driverStoreDirName)
+	drvStoreDir := filepath.Join(libraryDir, DriverStoreDirName)
 	if err := ensureDir(drvStoreDir); err != nil {
 		return nil, err
 	}
 
-	drvStoreDB := filepath.Join(libraryDir, driverStoreDBName)
+	drvStoreDB := filepath.Join(libraryDir, DriverStoreDBName)
 
 	l := &X2XLib{
 		library:        libraryDir,
@@ -98,7 +98,7 @@ func (x *X2XLib) AddWindowsVirtualDriver(
 	remark string,
 	signatures []Signature,
 	modules []string,
-	windowsVersion define.WindowsVersion,
+	windowsVersions []define.WindowsVersion,
 ) (
 	driverID string,
 	driverDir string,
@@ -108,8 +108,10 @@ func (x *X2XLib) AddWindowsVirtualDriver(
 	if x.readonly {
 		return "", "", errors.New("readonly is enabled")
 	}
-	if err = checkWindowsVersion(windowsVersion); err != nil {
-		return "", "", err
+	for _, v := range windowsVersions {
+		if err = checkWindowsVersion(v); err != nil {
+			return "", "", err
+		}
 	}
 	drvType, err := getDriverTypeByVirtType(virtual)
 	if err != nil {
@@ -137,7 +139,7 @@ func (x *X2XLib) AddWindowsVirtualDriver(
 			return createNTCompat(
 				tx,
 				driverID,
-				windowsVersion,
+				windowsVersions,
 			)
 		},
 	)
@@ -153,7 +155,7 @@ func (x *X2XLib) AddWindowsNormalDriver(
 	remark string,
 	signatures []Signature,
 	module string,
-	windowsVersion define.WindowsVersion,
+	windowsVersions []define.WindowsVersion,
 	hardwareIdsArr []string,
 ) (
 	driverID string,
@@ -164,8 +166,10 @@ func (x *X2XLib) AddWindowsNormalDriver(
 	if x.readonly {
 		return "", "", errors.New("readonly is enabled")
 	}
-	if err = checkWindowsVersion(windowsVersion); err != nil {
-		return "", "", err
+	for _, v := range windowsVersions {
+		if err = checkWindowsVersion(v); err != nil {
+			return "", "", err
+		}
 	}
 	driver, err := buildWindowsDriver(
 		name,
@@ -187,10 +191,10 @@ func (x *X2XLib) AddWindowsNormalDriver(
 		sourceDir,
 		func(tx *gorm.DB, driverID string) error {
 
-			if err := createNTCompat(
+			if err = createNTCompat(
 				tx,
 				driverID,
-				windowsVersion,
+				windowsVersions,
 			); err != nil {
 
 				return err
@@ -760,7 +764,7 @@ func (x *X2XLib) pickWindowsDriver(
 	}
 
 	ntVer, _ := define.OsNTVersion[windowsVersion]
-	if ntVer >= define.NT62 || !ignoreCheckSignature {
+	if ntVer >= define.NT62 || ignoreCheckSignature {
 		return &drivers[0], nil
 	}
 

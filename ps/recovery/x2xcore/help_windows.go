@@ -9,12 +9,15 @@ import (
 	"time"
 
 	"github.com/kisun-bit/drpkg/command"
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/info"
+	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
 	"github.com/pkg/errors"
 	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 func Mount(ctx context.Context, device string, mountpoint string, readonly bool) (supported bool, err error) {
@@ -169,4 +172,176 @@ func ImportForeignDisk() error {
 	}
 
 	return nil
+}
+
+// FindX2xLibraryDir 搜索本机驱动库目录。
+// 搜索逻辑：
+//  1. 枚举所有 CD/DVD 盘符
+//  2. 搜索 */driverstore.H0nK1.db
+//  3. 返回 xxx/*
+func FindX2xLibraryDir() (string, error) {
+
+	mask, err := windows.GetLogicalDrives()
+	if err != nil {
+		return "", err
+	}
+
+	for i := 0; i < 26; i++ {
+
+		if mask&(1<<uint(i)) == 0 {
+			continue
+		}
+
+		root := fmt.Sprintf("%c:\\", 'A'+i)
+		_rootPathName, err := windows.UTF16PtrFromString(root)
+		if err != nil {
+			continue
+		}
+		if t := windows.GetDriveType(_rootPathName); t != windows.DRIVE_CDROM {
+			continue
+		}
+
+		if dir, err := findDriverStoreDir(root); err == nil {
+			return dir, nil
+		}
+	}
+
+	return "", fmt.Errorf("x2x driver library not found")
+}
+
+// findDriverStoreDir 在 root 下查找 driverstore.H0nK1.db。
+func findDriverStoreDir(root string) (string, error) {
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
+
+	for _, entry := range entries {
+
+		path := filepath.Join(root, entry.Name())
+
+		if entry.IsDir() {
+			dir, err := findDriverStoreDir(path)
+			if err == nil {
+				return dir, nil
+			}
+			continue
+		}
+
+		if entry.Name() == x2xlib.DriverStoreDBName {
+			return root, nil
+		}
+	}
+
+	return "", os.ErrNotExist
+}
+
+func loadReg(key, regDBPath string) error {
+	cmdline := fmt.Sprintf("reg load %s %s", key, regDBPath)
+	if _, _, e := command.Execute(cmdline, command.WithDebug()); e != nil {
+		return e
+	}
+	return nil
+}
+
+func unloadReg(key string) error {
+	cmdline := fmt.Sprintf("reg unload %s", key)
+	if _, _, e := command.Execute(cmdline, command.WithDebug()); e != nil {
+		return e
+	}
+	return nil
+}
+
+func detectWindowsVersion(
+	productName string,
+	currentVersion string,
+	build int,
+	major uint64,
+) define.WindowsVersion {
+
+	isServer := strings.Contains(strings.ToLower(productName), "server")
+
+	// Windows 10 / 11 / Server 2016+
+	if major >= 10 {
+		if !isServer {
+			if build >= 22000 {
+				return define.Win11
+			}
+			return define.Win10
+		}
+
+		switch {
+		case build >= 26100:
+			return define.Win2k25
+		case build >= 20348:
+			return define.Win2k22
+		case build >= 17763:
+			return define.Win2k19
+		default:
+			return define.Win2k16
+		}
+	}
+
+	switch currentVersion {
+	case "5.0":
+		return define.Win2k
+
+	case "5.1":
+		return define.WinXP
+
+	case "5.2":
+		// XP x64 也是 5.2，这里一般认为 Server 2003
+		if isServer {
+			return define.Win2k3
+		}
+		return define.WinXP
+
+	case "6.0":
+		if isServer {
+			return define.Win2k8
+		}
+		return define.WinVista
+
+	case "6.1":
+		if isServer {
+			return define.Win2k8r2
+		}
+		return define.Win7
+
+	case "6.2":
+		if isServer {
+			return define.Win2k12
+		}
+		return define.Win8
+
+	case "6.3":
+		if isServer {
+			return define.Win2k12r2
+		}
+		return define.Win81
+	}
+
+	return define.WinUnknown
+}
+
+func deleteRegistryTree(root registry.Key, path string) error {
+	key, err := registry.OpenKey(root, path, registry.ALL_ACCESS)
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+
+	names, err := key.ReadSubKeyNames(-1)
+	if err != nil {
+		return err
+	}
+
+	for _, name := range names {
+		if err := deleteRegistryTree(root, path+`\`+name); err != nil {
+			return err
+		}
+	}
+
+	return registry.DeleteKey(root, path)
 }

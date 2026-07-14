@@ -109,6 +109,6 @@ var SupportedDriverExt = []string{
 	"rpm",
 }
 
-const driverStoreDirName = "driverstore.H0nK1"
+const DriverStoreDirName = "driverstore.H0nK1"
 
-var driverStoreDBName = fmt.Sprintf("%s.db", driverStoreDirName)
+var DriverStoreDBName = fmt.Sprintf("%s.db", DriverStoreDirName)

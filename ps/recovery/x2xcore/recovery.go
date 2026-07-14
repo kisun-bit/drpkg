@@ -163,6 +163,9 @@ type RecoveryParameter struct {
 	// LuksGlobalPassword 原机的crypto_LUKS卷的全局密钥
 	LuksGlobalPassword string `json:"luksGlobalPassword"`
 
+	// BitlockerGlobalPassword 原机的Bitlocker卷的全局密钥
+	BitlockerGlobalPassword string `json:"bitlockerGlobalPassword"`
+
 	// X2xLibrary x2xlib的library路径
 	X2xLibrary string `json:"x2xLibrary"`
 

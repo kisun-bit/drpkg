@@ -15,7 +15,9 @@ import (
 	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
+	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
 	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
 )
 
 type efiImageName struct {
@@ -471,4 +473,91 @@ func DetectSystemd(root string) bool {
 	}
 
 	return false
+}
+
+// FindX2xLibraryDir 搜索本机驱动库目录。
+// 搜索逻辑：
+//  1. 找到任意一个 CD/DVD 设备
+//  2. 挂载
+//  3. 如果存在 */driverstore.H0nK1.db
+//  4. 返回 xxx/*
+func FindX2xLibraryDir() (string, error) {
+
+	entries, err := os.ReadDir("/sys/class/block")
+	if err != nil {
+		return "", err
+	}
+
+	for _, entry := range entries {
+
+		name := entry.Name()
+
+		t, err := os.ReadFile(filepath.Join("/sys/class/block", name, "device/type"))
+		if err != nil {
+			continue
+		}
+
+		if strings.TrimSpace(string(t)) != "5" {
+			continue
+		}
+
+		dev := "/dev/" + name
+
+		mountDir, err := os.MkdirTemp("", "x2x-cdrom-*")
+		if err != nil {
+			continue
+		}
+
+		mounted := false
+
+		if err = unix.Mount(dev, mountDir, "", unix.MS_RDONLY, ""); err == nil {
+			mounted = true
+		} else if err = unix.Mount(dev, mountDir, "iso9660", unix.MS_RDONLY, ""); err == nil {
+			mounted = true
+		} else if err = unix.Mount(dev, mountDir, "udf", unix.MS_RDONLY, ""); err == nil {
+			mounted = true
+		}
+
+		if !mounted {
+			_ = os.Remove(mountDir)
+			continue
+		}
+
+		if dir, err := findDriverStoreDir(mountDir); err == nil {
+			return dir, nil
+		}
+
+		_ = unix.Unmount(mountDir, 0)
+		_ = os.Remove(mountDir)
+	}
+
+	return "", fmt.Errorf("x2x driver library not found")
+}
+
+// findDriverStoreDir 在 root 下查找 driverstore.H0nK1.db，返回其所在目录。
+func findDriverStoreDir(root string) (string, error) {
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
+
+	for _, entry := range entries {
+
+		path := filepath.Join(root, entry.Name())
+
+		if entry.IsDir() {
+			dir, err := findDriverStoreDir(path)
+			if err == nil {
+				return dir, nil
+			}
+			continue
+		}
+
+		if entry.Name() == x2xlib.DriverStoreDBName {
+			return root, nil
+		}
+	}
+
+	return "", os.ErrNotExist
 }

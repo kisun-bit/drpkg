@@ -226,12 +226,23 @@ func buildDriver(opt createDriverOption) (*Driver, error) {
 func createNTCompat(
 	tx *gorm.DB,
 	driverID string,
-	windowsVersion define.WindowsVersion,
+	windowsVersions []define.WindowsVersion,
 ) error {
-	return tx.Create(&NTCompat{
-		DriverID:       driverID,
-		WindowsVersion: windowsVersion,
-	}).Error
+
+	compatList := make([]NTCompat, 0, len(windowsVersions))
+
+	for _, v := range windowsVersions {
+		compatList = append(compatList, NTCompat{
+			DriverID:       driverID,
+			WindowsVersion: v,
+		})
+	}
+
+	if len(compatList) == 0 {
+		return nil
+	}
+
+	return tx.Create(&compatList).Error
 }
 
 func createKernelCompat(
