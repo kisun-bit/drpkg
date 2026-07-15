@@ -52,6 +52,10 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 			}
 		}
 
+		if level == -1 {
+			continue
+		}
+
 		table_, err := GetDiskTable(device)
 		if err != nil {
 			return nil, err
