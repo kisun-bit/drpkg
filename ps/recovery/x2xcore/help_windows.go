@@ -345,3 +345,70 @@ func deleteRegistryTree(root registry.Key, path string) error {
 
 	return registry.DeleteKey(root, path)
 }
+
+func filterMultiSzValue(
+	key registry.Key,
+	valueName string,
+	blockList []string,
+	regPath string,
+) (bool, error) {
+
+	vals, _, err := key.GetStringsValue(valueName)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, errors.Wrapf(err, "read %s of %s failed", valueName, regPath)
+	}
+
+	// block list 转成 map，提高查找效率
+	blockMap := make(map[string]struct{}, len(blockList))
+	for _, s := range blockList {
+		blockMap[strings.ToUpper(s)] = struct{}{}
+	}
+
+	logger.Debugf("filterMultiSzValue: %s\\%s = %v", regPath, valueName, vals)
+
+	filtered := make([]string, 0, len(vals))
+	modified := false
+
+	for _, v := range vals {
+		if _, ok := blockMap[strings.ToUpper(v)]; ok {
+			logger.Debugf(
+				"filterMultiSzValue: remove %q from %s\\%s",
+				v, regPath, valueName,
+			)
+			modified = true
+			continue
+		}
+		filtered = append(filtered, v)
+	}
+
+	if !modified {
+		return false, nil
+	}
+
+	if len(filtered) == 0 {
+		logger.Debugf(
+			"filterMultiSzValue: delete empty value %s\\%s",
+			regPath, valueName,
+		)
+
+		if err := key.DeleteValue(valueName); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return false, errors.Wrapf(err, "delete %s of %s failed", valueName, regPath)
+		}
+
+		return true, nil
+	}
+
+	logger.Debugf(
+		"filterMultiSzValue: update %s\\%s => %v",
+		regPath, valueName, filtered,
+	)
+
+	if err := key.SetStringsValue(valueName, filtered); err != nil {
+		return false, errors.Wrapf(err, "set %s of %s failed", valueName, regPath)
+	}
+
+	return true, nil
+}

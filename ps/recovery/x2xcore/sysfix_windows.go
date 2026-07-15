@@ -153,7 +153,12 @@ func (fixer *windowsSystemFixer) Cleanup() error {
 }
 
 func (fixer *windowsSystemFixer) GetLog() (LogEntry, bool) {
-	return LogEntry{}, false
+	select {
+	case entry := <-fixer.logs:
+		return entry, true
+	default:
+		return LogEntry{}, false
+	}
 }
 
 func (fixer *windowsSystemFixer) GetPreferHostConfig(define.HPVirtType) (PreferConfig, error) {
@@ -522,7 +527,13 @@ func (fixer *windowsSystemFixer) setServiceStart(serviceName string, start uint3
 		registry.QUERY_VALUE|registry.SET_VALUE,
 	)
 	if err != nil {
-		return errors.Wrapf(err, "open registry %s", serviceKeyPath)
+		if start <= 1 {
+			return errors.Wrapf(err, "open registry %s", serviceKeyPath)
+		}
+		if errors.Is(err, registry.ErrNotExist) {
+			logger.Warnf("setServiceStart: registry key %s not found", serviceKeyPath)
+			return nil
+		}
 	}
 	defer serviceKey.Close()
 
@@ -547,6 +558,77 @@ func (fixer *windowsSystemFixer) enableService(serviceName string) error {
 
 func (fixer *windowsSystemFixer) disableService(serviceName string) error {
 	return fixer.setServiceStart(serviceName, 3)
+}
+
+func (fixer *windowsSystemFixer) disableClassFilters(serviceNames ...string) error {
+	clsRoot := fmt.Sprintf(`%s\ControlSet00%d\Control\Class`,
+		fixer.offsys.registryRootKey, fixer.offsys.currentControlSet)
+
+	logger.Debugf("disableClassFilters: scanning %s, remove filters=%v",
+		clsRoot, serviceNames)
+
+	clsKey, err := registry.OpenKey(registry.LOCAL_MACHINE, clsRoot, registry.READ)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			logger.Debugf("disableClassFilters: class root not found: %s", clsRoot)
+			return nil
+		}
+		return errors.Wrapf(err, "open %s failed", clsRoot)
+	}
+	defer clsKey.Close()
+
+	subKeys, err := clsKey.ReadSubKeyNames(-1)
+	if err != nil {
+		return errors.Wrapf(err, "read subkeys of %s failed", clsRoot)
+	}
+
+	logger.Debugf("disableClassFilters: found %d class keys", len(subKeys))
+
+	var modified int
+
+	for _, sub := range subKeys {
+		path := fmt.Sprintf(`%s\ControlSet00%d\Control\Class\%s`,
+			fixer.offsys.registryRootKey,
+			fixer.offsys.currentControlSet,
+			sub)
+
+		logger.Debugf("disableClassFilters: checking %s", path)
+
+		key, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.ALL_ACCESS)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				logger.Debugf("disableClassFilters: class key not found: %s", path)
+				continue
+			}
+			return errors.Wrapf(err, "open %s failed", path)
+		}
+
+		changed1, err := filterMultiSzValue(key, "UpperFilters", serviceNames, path)
+		if err != nil {
+			key.Close()
+			return err
+		}
+		if changed1 {
+			modified++
+		}
+
+		changed2, err := filterMultiSzValue(key, "LowerFilters", serviceNames, path)
+		key.Close()
+		if err != nil {
+			return err
+		}
+		if changed2 {
+			modified++
+		}
+	}
+
+	logger.Debugf(
+		"disableClassFilters: finished, scanned=%d modified=%d",
+		len(subKeys),
+		modified,
+	)
+
+	return nil
 }
 
 func (fixer *windowsSystemFixer) existedService(serviceName string) bool {
