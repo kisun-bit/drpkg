@@ -154,11 +154,22 @@ type RecoveryParameter struct {
 	Source Platform `json:"sourcePlatform"`
 	Target Platform `json:"targetPlatform"`
 
-	// SourceDeviceMap 原机的设备映射信息
-	SourceDeviceMap []DeviceMap `json:"sourceDeviceMap"`
+	//
+	// 修复相关
+	//
+
+	// X2xLibrary 驱动库路径
+	X2xLibrary string `json:"x2xLibrary"`
 
 	// FsckFs 强制修复文件系统
 	FsckFs bool `json:"fsckFs"`
+
+	//
+	// 原机配置相关
+	//
+
+	// SourceDeviceMap 原机的设备映射信息
+	SourceDeviceMap []DeviceMap `json:"sourceDeviceMap"`
 
 	// LuksGlobalPassword 原机的crypto_LUKS卷的全局密钥
 	LuksGlobalPassword string `json:"luksGlobalPassword"`
@@ -166,11 +177,18 @@ type RecoveryParameter struct {
 	// BitlockerGlobalPassword 原机的Bitlocker卷的全局密钥
 	BitlockerGlobalPassword string `json:"bitlockerGlobalPassword"`
 
-	// X2xLibrary x2xlib的library路径
-	X2xLibrary string `json:"x2xLibrary"`
+	//
+	// 恢复后目标系统配置相关
+	//
 
-	// Network 网络配置
+	// Network 恢复后目标系统的网络配置
 	Network NetworkConfig `json:"network"`
+
+	// RaidNotExisted 恢复后目标系统中不存在RAID设备
+	RaidNotExisted bool `json:"raidNotExisted"`
+
+	// MultipathNotExisted 恢复后目标系统中不存在多路径设备
+	MultipathNotExisted bool `json:"multipathNotExisted"`
 }
 
 type DeviceMap struct {

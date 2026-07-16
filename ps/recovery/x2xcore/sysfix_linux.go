@@ -2001,7 +2001,10 @@ func (fixer *linuxSystemFixer) fixOneGrub(
 		resumeUUID,
 	)
 
-	content = fixGrubBootArgs(fixer.offsys.distro, content)
+	content = fixGrubBootArgs(fixer.offsys.distro,
+		content,
+		fixer.opts.RecoveryParam.RaidNotExisted,
+		fixer.opts.RecoveryParam.MultipathNotExisted)
 
 	if content == before {
 		logger.Debugf("fixOneGrub: `%s` no change", file)
@@ -2049,7 +2052,7 @@ func fixGrubRootResume(
 	return content
 }
 
-func fixGrubBootArgs(distro DistroInfo, content string) string {
+func fixGrubBootArgs(distro DistroInfo, content string, disableRaid bool, disableMultipath bool) string {
 
 	lineRe := regexp.MustCompile(
 		`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
@@ -2088,6 +2091,43 @@ func fixGrubBootArgs(distro DistroInfo, content string) string {
 			return strings.TrimRight(line, " \t")
 		},
 	)
+
+	if disableRaid {
+		// 删除 rd.md.uuid=
+		rdMdUUIDRe := regexp.MustCompile(`\s+rd\.md\.uuid=\S+(\s|$)`)
+
+		content = lineRe.ReplaceAllStringFunc(
+			content,
+			func(line string) string {
+				line = rdMdUUIDRe.ReplaceAllString(line, "$1")
+				return strings.TrimRight(line, " \t")
+			},
+		)
+	}
+
+	if disableMultipath {
+		// 删除 rd.dm.uuid=mpath-*
+		rdDmUUIDRe := regexp.MustCompile(`\s+rd\.dm\.uuid=mpath-\S*(\s|$)`)
+
+		content = lineRe.ReplaceAllStringFunc(
+			content,
+			func(line string) string {
+				line = rdDmUUIDRe.ReplaceAllString(line, "$1")
+				return strings.TrimRight(line, " \t")
+			},
+		)
+
+		// 删除 rd.multipath=*
+		rdMultipathRe := regexp.MustCompile(`\s+rd\.multipath=\S+(\s|$)`)
+
+		content = lineRe.ReplaceAllStringFunc(
+			content,
+			func(line string) string {
+				line = rdMultipathRe.ReplaceAllString(line, "$1")
+				return strings.TrimRight(line, " \t")
+			},
+		)
+	}
 
 	// net.ifnames=0
 	netIfNamesRe := regexp.MustCompile(`(^|\s+)net\.ifnames=\S+`)
