@@ -14,6 +14,7 @@ import (
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
 	"github.com/pkg/errors"
+	"github.com/thoas/go-funk"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -38,6 +39,7 @@ type offlineSystem struct {
 	sysVolumeLtr       string // 系统卷
 	hklmPath           string
 	registryRootKey    string
+	registryRootLoaded bool
 	driverDatabaseType driverDatabaseType
 	currentControlSet  int
 	windowsVersion     define.WindowsVersion
@@ -213,6 +215,10 @@ func (fixer *windowsSystemFixer) loadRegistry() error {
 	logger.Debugf("mountRegistry: ++")
 	defer logger.Debugf("mountRegistry: --")
 
+	if fixer.offsys.registryRootLoaded {
+		return nil
+	}
+
 	hklmPath := filepath.Join(fixer.offsys.sysVolumeLtr+":\\", "Windows", "System32", "config", "SYSTEM")
 	if !extend.IsExisted(hklmPath) {
 		return errors.Wrapf(os.ErrNotExist, hklmPath)
@@ -228,6 +234,8 @@ func (fixer *windowsSystemFixer) loadRegistry() error {
 	fixer.offsys.registryRootKey = registryRootKey
 
 	logger.Debugf("mountRegistry: %s is mounted", fixer.offsys.hklmPath)
+
+	fixer.offsys.registryRootLoaded = true
 	return nil
 }
 
@@ -239,9 +247,15 @@ func (fixer *windowsSystemFixer) unloadRegistry() error {
 		return nil
 	}
 
+	if !fixer.offsys.registryRootLoaded {
+		return nil
+	}
+
 	if e := unloadReg(fixer.offsys.registryRootKey); e != nil {
 		return errors.Wrapf(e, "unload registry %s", fixer.offsys.registryRootKey)
 	}
+
+	fixer.offsys.registryRootLoaded = false
 
 	return nil
 }
@@ -652,32 +666,140 @@ func (fixer *windowsSystemFixer) existedService(serviceName string) bool {
 	return true
 }
 
-func (fixer *windowsSystemFixer) deleteService(serviceName string) error {
-	serviceKeyPath := fmt.Sprintf(
-		"%s\\ControlSet00%d\\Services\\%s",
-		fixer.offsys.registryRootKey,
-		fixer.offsys.currentControlSet,
-		serviceName,
+// injectDriversByDism 基于 DISM 向离线 Windows 系统注入驱动。
+//
+// 处理流程：
+//  1. 卸载离线 SYSTEM 注册表，因为 DISM 要求独占访问注册表。
+//  2. 查询离线 DriverStore 中已安装的第三方驱动。
+//  3. 如果待注入的驱动已存在，则先卸载旧驱动，再重新注入。
+//     某些离线系统可能存在 DriverStore 中已有驱动文件，但 Services
+//     注册表项缺失的情况，此时直接重新注入不会恢复对应的驱动服务。
+//     先卸载再重新注入，可使 DISM 重新创建驱动服务及相关注册表项。
+//  4. 将指定目录下的驱动递归注入到离线系统。
+func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) error {
+	logger.Debugf("injectDriversByDism: begin")
+	defer logger.Debugf("injectDriversByDism: end")
+
+	// DISM requires the SYSTEM hive to be unloaded.
+	logger.Debugf("injectDriversByDism: unloading offline SYSTEM hive")
+	if err := fixer.unloadRegistry(); err != nil {
+		return err
+	}
+	defer func() {
+		logger.Debugf("injectDriversByDism: reloading offline SYSTEM hive")
+		if err := fixer.loadRegistry(); err != nil {
+			logger.Warnf("injectDriversByDism: reload SYSTEM hive failed: %v", err)
+		}
+	}()
+
+	// ----------------------------------------------------------------------
+	// Query existing drivers
+	// ----------------------------------------------------------------------
+
+	logger.Debugf("injectDriversByDism: querying existing drivers")
+
+	listCmd := fmt.Sprintf(
+		`dism /Image:%s:\ /Get-Drivers`,
+		fixer.offsys.sysVolumeLtr,
 	)
 
-	if !fixer.existedService(serviceName) {
-		return nil
+	_, output, err := command.Execute(listCmd)
+	if err != nil {
+		return errors.Wrap(err, "query existing drivers")
 	}
 
-	return deleteRegistryTree(registry.LOCAL_MACHINE, serviceKeyPath)
-}
+	driverStores := parseDriverStore(output)
 
-func (fixer *windowsSystemFixer) addDrivers(ds *x2xlib.DriverResource) error {
-	logger.Debugf("addDrivers: --")
-	defer logger.Debugf("addDrivers: --")
+	logger.Debugf(
+		"injectDriversByDism: found %d third-party drivers",
+		len(driverStores),
+	)
 
-	logger.Debugf("addDrivers: directory: %s", ds.Dir)
+	logger.Debugf(
+		"injectDriversByDism: DriverStore:\n%s",
+		extend.Pretty(driverStores),
+	)
 
-	cmdline := fmt.Sprintf(`dism /Image:%s:\ /Add-Driver /Driver:%s /Recurse /ForceUnsigned`)
-	_, _, e := command.Execute(cmdline, command.WithDebug())
-	if e != nil {
-		return errors.Wrapf(e, "add drivers(%s)", strings.Join(ds.Modules, ","))
+	// ----------------------------------------------------------------------
+	// Find drivers that need to be removed.
+	// ----------------------------------------------------------------------
+
+	var publishedNames []string
+
+	for _, driver := range driverStores {
+		base := strings.ToLower(filepath.Base(driver.OriginFileName))
+		module := strings.TrimSuffix(base, filepath.Ext(base))
+
+		if funk.InStrings(ds.Modules, module) {
+			publishedNames = append(publishedNames, driver.PublishedName)
+
+			logger.Debugf(
+				"injectDriversByDism: existing driver detected: module=%s published=%s",
+				module,
+				driver.PublishedName,
+			)
+		}
 	}
+
+	if len(publishedNames) != 0 {
+		logger.Infof(
+			"injectDriversByDism: removing %d existing driver(s): %v",
+			len(publishedNames),
+			publishedNames,
+		)
+
+		drvArgs := make([]string, 0)
+		for _, publishName := range publishedNames {
+			drvArgs = append(drvArgs, fmt.Sprintf("/Driver:%s", publishName))
+		}
+		rmCmdline := fmt.Sprintf(`dism /Image:%s:\ /Remove-Driver %s`,
+			fixer.offsys.sysVolumeLtr,
+			strings.Join(drvArgs, " "))
+
+		if _, _, e := command.Execute(rmCmdline, command.WithDebug()); e != nil {
+			return errors.Wrapf(e,
+				"remove drivers (%s)",
+				strings.Join(publishedNames, ", "))
+		}
+
+	} else {
+		logger.Debugf("injectDriversByDism: no existing drivers need removal")
+	}
+
+	// ----------------------------------------------------------------------
+	// Inject drivers.
+	// ----------------------------------------------------------------------
+
+	logger.Infof(
+		"injectDriversByDism: injecting drivers from %s",
+		ds.Dir,
+	)
+
+	injectCmd := fmt.Sprintf(
+		`dism /Image:%s:\ /Add-Driver /Driver:%s /Recurse /ForceUnsigned`,
+		fixer.offsys.sysVolumeLtr,
+		ds.Dir,
+	)
+
+	_, output, err = command.Execute(injectCmd, command.WithDebug())
+	if err != nil {
+		logger.Errorf(
+			"injectDriversByDism: driver injection failed\n%s",
+			output,
+		)
+		return errors.Wrapf(
+			err,
+			"inject drivers (%s)",
+			strings.Join(ds.Modules, ","),
+		)
+	}
+
+	logger.Infof(
+		"injectDriversByDism: successfully injected %d driver module(s): %s",
+		len(ds.Modules),
+		strings.Join(ds.Modules, ","),
+	)
+
 	return nil
 }
 

@@ -49,12 +49,6 @@ func (fixer *windowsSystemFixer) configKvm() error {
 		return nil
 	}
 
-	for _, driver := range kvmDrivers {
-		if e := fixer.deleteService(driver); e != nil {
-			return errors.Wrapf(e, "delete service %s", driver)
-		}
-	}
-
 	ds, e := fixer.x2xLib.SelectWindowsBestVirtualDriver(
 		define.HPVTKvm,
 		fixer.opts.RecoveryParam.Target.Arch,
@@ -65,9 +59,17 @@ func (fixer *windowsSystemFixer) configKvm() error {
 		return errors.Wrapf(e, "SelectWindowsBestVirtualDriver")
 	}
 
-	if e = fixer.addDrivers(ds); e != nil {
-		return e
+	ntVer, ok := define.OsNTVersion[fixer.offsys.windowsVersion]
+	if !ok {
+		return errors.New("not supported windows version")
 	}
+	if ntVer >= define.NT61 {
+		if e = fixer.injectDriversByDism(ds); e != nil {
+			return e
+		}
+	}
+
+	// TODO 完成对win2k、winxp、win2k3、winvista、win2k8的驱动注入
 
 	return nil
 }

@@ -1,6 +1,7 @@
 package x2xcore
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -411,4 +412,52 @@ func filterMultiSzValue(
 	}
 
 	return true, nil
+}
+
+type driverStore struct {
+	PublishedName  string
+	OriginFileName string
+}
+
+func parseDriverStore(output string) []driverStore {
+	var (
+		drivers []driverStore
+		cur     *driverStore
+	)
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		switch {
+		case strings.HasPrefix(line, "Published Name"):
+			// 保存上一项
+			if cur != nil {
+				drivers = append(drivers, *cur)
+			}
+			cur = &driverStore{
+				PublishedName: value(line),
+			}
+
+		case cur != nil && strings.HasPrefix(line, "Original File Name"):
+			cur.OriginFileName = value(line)
+		}
+	}
+
+	// 保存最后一项
+	if cur != nil {
+		drivers = append(drivers, *cur)
+	}
+
+	return drivers
+}
+
+func value(line string) string {
+	if i := strings.IndexByte(line, ':'); i >= 0 {
+		return strings.TrimSpace(line[i+1:])
+	}
+	return ""
 }
