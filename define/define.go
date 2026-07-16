@@ -238,11 +238,12 @@ const (
 type HPVirtType string
 
 const (
-	HPVTNone   HPVirtType = "none"
-	HPVTVmware HPVirtType = "vmware"
-	HPVTKvm    HPVirtType = "kvm"
-	HPVTXen    HPVirtType = "xen"
-	HPVTHyperV HPVirtType = "hyper-v"
+	HPVTNone      HPVirtType = "none"
+	HPVTVmware    HPVirtType = "vmware"
+	HPVTKvm       HPVirtType = "kvm"
+	HPVTXen       HPVirtType = "xen"
+	HPVTHyperV    HPVirtType = "hyperv"
+	HPVTParallels HPVirtType = "parallels"
 )
 
 // BootMode 启动模式

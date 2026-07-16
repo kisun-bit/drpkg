@@ -1,8 +1,11 @@
 package extend
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path"
@@ -203,6 +206,47 @@ func CopyFile(src, dst string) (int64, error) {
 	}()
 
 	return io.Copy(destination, source)
+}
+
+func FileEqual(a, b string) (bool, error) {
+	infoA, err := os.Stat(a)
+	if err != nil {
+		return false, err
+	}
+
+	infoB, err := os.Stat(b)
+	if err != nil {
+		return false, err
+	}
+
+	// 大小不同，肯定不同
+	if infoA.Size() != infoB.Size() {
+		return false, nil
+	}
+
+	fa, err := os.Open(a)
+	if err != nil {
+		return false, err
+	}
+	defer fa.Close()
+
+	fb, err := os.Open(b)
+	if err != nil {
+		return false, err
+	}
+	defer fb.Close()
+
+	hashA := sha256.New()
+	hashB := sha256.New()
+
+	if _, err = io.Copy(hashA, fa); err != nil {
+		return false, err
+	}
+	if _, err = io.Copy(hashB, fb); err != nil {
+		return false, err
+	}
+
+	return bytes.Equal(hashA.Sum(nil), hashB.Sum(nil)), nil
 }
 
 func GlobReadFiles(globPath string) string {
@@ -488,16 +532,39 @@ func IsLinuxRoot(dir string) bool {
 }
 
 func IsEfiBoot(dir string) bool {
-	if !ContainAllSubDirs(dir, "EFI") {
+	//if !ContainAllSubDirs(dir, "EFI") {
+	//	return false
+	//}
+	//
+	//entries, _ := os.ReadDir(dir)
+	//if len(entries) == 0 {
+	//	return false
+	//}
+	//
+	//return true
+
+	efiDir := filepath.Join(dir, "EFI")
+
+	if fi, err := os.Stat(efiDir); err != nil || !fi.IsDir() {
 		return false
 	}
 
-	entries, _ := os.ReadDir(dir)
-	if len(entries) == 0 {
-		return false
-	}
+	found := false
+	_ = filepath.WalkDir(efiDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.EqualFold(filepath.Ext(d.Name()), ".efi") {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
 
-	return true
+	return found
 }
 
 func IsLinuxBoot(dir string) bool {

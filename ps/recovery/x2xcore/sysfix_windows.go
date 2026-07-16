@@ -37,6 +37,8 @@ type windowsSystemFixer struct {
 type offlineSystem struct {
 	volumeLtrList      []string
 	sysVolumeLtr       string // 系统卷
+	efiVolumeLtr       string
+	bootMode           define.BootMode
 	hklmPath           string
 	registryRootKey    string
 	registryRootLoaded bool
@@ -45,42 +47,6 @@ type offlineSystem struct {
 	windowsVersion     define.WindowsVersion
 	halType            define.HALType
 }
-
-//
-// 如何判断一个离线Windows是否能够兼容某硬件？
-//
-// 路径1：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase
-//     举例：
-//     HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase\PCI#VEN_1AF4&DEV_1001
-//     ClassGUID        REG_SZ  {4D36E97B-E325-11CE-BFC1-08002BE10318}
-//     DriverPackageId  REG_SZ  viostor.inf_amd64_neutral_c8a073b64be3602f
-//     Service          REG_SZ  viostor
-//     说明：
-//     DriverPackageId的值对应C:\Windows\System32\DriverStore\FileRepository
-//     Service的值就是我们关心的驱动服务的值
-//
-// 路径2：HKEY_LOCAL_MACHINE\SYSTEM\DriverDatabase\DeviceIds\PCI
-//     举例：
-//     HKEY_LOCAL_MACHINE\SYSTEM\DriverDatabase\DeviceIds\PCI\VEN_1AF4&DEV_1001&SUBSYS_00021AF4&REV_00
-//     oem35.inf
-//     说明：
-//     oem35.inf表示驱动安装脚本。
-//     然后去HKEY_LOCAL_MACHINE\SYSTEM\DriverDatabase\DriverInfFiles\oem35.inf下，得到
-//     (默认)            REG_MULTI_SZ  viostor.inf_amd64_aa6c91b5db55ab62
-//     Active           REG_MULTI_SZ  viostor.inf_amd64_aa6c91b5db55ab62
-//     而viostor.inf_amd64_aa6c91b5db55ab62就代表驱动库id
-//     接着找HKEY_LOCAL_MACHINE\SYSTEM\DriverDatabase\DriverPackages\viostor.inf_amd64_aa6c91b5db55ab62下
-//     可以得到驱动的详细信息：
-//     SignerScore       REG_DWORD     d000005
-//     ......更多信息
-//     另外需要注意的是，尽量对所有符合条件的驱动都拿到，然后取SignerScore最高者的服务名（服务名通过解析得到即可）
-//     那么viostor就是我们关心的驱动服务的值
-//
-// 若成功取得驱动服务，说明该离线Windows兼容此硬件，我们只需要去将其设置为开机启动即可，否则说明此Windows不兼容此硬件
-// 设置开机启动的步骤为：
-// 1. 删除StartOverride项（若存在），如：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\stornvme\StartOverride
-// 2. 将Start的数据改成0，如：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\stornvme下的Start
-//
 
 func (fixer *windowsSystemFixer) Prepare() error {
 	logger.Debugf("Prepare: ++")
@@ -94,7 +60,7 @@ func (fixer *windowsSystemFixer) Prepare() error {
 		return errors.Wrap(err, "detect system volume")
 	}
 
-	if err := fixer.loadRegistry(); err != nil {
+	if err := fixer.loadSystemRegistry(); err != nil {
 		return errors.Wrap(err, "mount registry")
 	}
 
@@ -114,6 +80,10 @@ func (fixer *windowsSystemFixer) Prepare() error {
 		return errors.Wrap(err, "detect hal")
 	}
 
+	if err := fixer.detectBootMode(); err != nil {
+		return errors.Wrap(err, "detect boot mode")
+	}
+
 	return nil
 }
 
@@ -125,6 +95,10 @@ func (fixer *windowsSystemFixer) Repair() error {
 		return errors.Wrap(err, "disable arp check")
 	}
 
+	if err := fixer.disableAutoReboot(); err != nil {
+		return errors.Wrap(err, "disable auto reboot")
+	}
+
 	if err := fixer.enableIDE(); err != nil {
 		return errors.Wrap(err, "enable ide")
 	}
@@ -133,7 +107,51 @@ func (fixer *windowsSystemFixer) Repair() error {
 		return errors.Wrap(err, "enable sata")
 	}
 
-	return errors.New("not implemented")
+	if err := fixer.fixUefi(); err != nil {
+		return errors.Wrap(err, "fix uefi")
+	}
+
+	if err := fixer.fixBCD(); err != nil {
+		return errors.Wrap(err, "fix bcd")
+	}
+
+	var unconfigFun = fixer.unconfigBareMetal
+	switch fixer.opts.RecoveryParam.Source.Virt {
+	case define.HPVTXen:
+		unconfigFun = fixer.unconfigXen
+	case define.HPVTVmware:
+		unconfigFun = fixer.unconfigVmware
+	case define.HPVTKvm:
+		unconfigFun = fixer.unconfigKvm
+	case define.HPVTHyperV:
+		unconfigFun = fixer.unconfigHyperV
+	case define.HPVTParallels:
+		unconfigFun = fixer.unconfigParallel
+	}
+
+	var configFun = fixer.configBareMetal
+	switch fixer.opts.RecoveryParam.Target.Virt {
+	case define.HPVTXen:
+		configFun = fixer.configXen
+	case define.HPVTVmware:
+		configFun = fixer.configVmware
+	case define.HPVTKvm:
+		configFun = fixer.configKvm
+	case define.HPVTHyperV:
+		configFun = fixer.configHyperV
+	case define.HPVTParallels:
+		configFun = fixer.configParallel
+	}
+
+	if err := unconfigFun(); err != nil {
+		return errors.Wrapf(err, "unconfig %s", fixer.opts.RecoveryParam.Source.Virt)
+	}
+
+	if err := configFun(); err != nil {
+		return errors.Wrapf(err, "config %s", fixer.opts.RecoveryParam.Target.Virt)
+	}
+
+	return nil
 }
 
 func (fixer *windowsSystemFixer) CustomProcess(f func() error) error {
@@ -147,7 +165,7 @@ func (fixer *windowsSystemFixer) Cleanup() error {
 	logger.Debugf("Cleanup: ++")
 	defer logger.Debugf("Cleanup: --")
 
-	if err := fixer.unloadRegistry(); err != nil {
+	if err := fixer.unloadSystemRegistry(); err != nil {
 		return errors.Wrap(err, "cleanup")
 	}
 
@@ -211,7 +229,7 @@ func (fixer *windowsSystemFixer) detectSysVolume() error {
 	return nil
 }
 
-func (fixer *windowsSystemFixer) loadRegistry() error {
+func (fixer *windowsSystemFixer) loadSystemRegistry() error {
 	logger.Debugf("mountRegistry: ++")
 	defer logger.Debugf("mountRegistry: --")
 
@@ -239,7 +257,7 @@ func (fixer *windowsSystemFixer) loadRegistry() error {
 	return nil
 }
 
-func (fixer *windowsSystemFixer) unloadRegistry() error {
+func (fixer *windowsSystemFixer) unloadSystemRegistry() error {
 	logger.Debugf("unloadRegistry: ++")
 	defer logger.Debugf("unloadRegistry: --")
 
@@ -325,6 +343,25 @@ func (fixer *windowsSystemFixer) detectDriverDatabaseType() error {
 		}
 	}
 
+	return nil
+}
+
+func (fixer *windowsSystemFixer) detectBootMode() error {
+	logger.Debugf("detectBootMode: ++")
+	defer logger.Debugf("detectBootMode: --")
+
+	for _, v := range fixer.offsys.volumeLtrList {
+		if !extend.IsEfiDir(v + ":\\") {
+			continue
+		}
+		fixer.offsys.bootMode = define.BootModeUEFI
+		fixer.offsys.efiVolumeLtr = v
+		logger.Debugf("detectBootMode: uefi")
+		return nil
+	}
+
+	fixer.offsys.bootMode = define.BootModeBIOS
+	logger.Debugf("detectBootMode: bios")
 	return nil
 }
 
@@ -514,6 +551,40 @@ func (fixer *windowsSystemFixer) disableArpCheck() error {
 	return nil
 }
 
+// disableAutoReboot 禁止蓝屏后自动重启。
+// 等价于：
+// HKLM\SYSTEM\CurrentControlSet\Control\CrashControl\AutoReboot = 0
+func (fixer *windowsSystemFixer) disableAutoReboot() error {
+	logger.Debugf("disableAutoReboot: ++")
+	defer logger.Debugf("disableAutoReboot: --")
+
+	keyPath := fmt.Sprintf(
+		"%s\\ControlSet00%d\\Control\\CrashControl",
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet)
+
+	key, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		keyPath,
+		registry.SET_VALUE,
+	)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// 某些系统可能没有该项，直接忽略。
+			return nil
+		}
+		return errors.Wrap(err, "open CrashControl failed")
+	}
+	defer key.Close()
+
+	if err := key.SetDWordValue("AutoReboot", 0); err != nil {
+		return errors.Wrap(err, "set AutoReboot failed")
+	}
+
+	logger.Infof("disabled Windows crash auto reboot")
+	return nil
+}
+
 func (fixer *windowsSystemFixer) changeHal() error {
 	logger.Debugf("changeHal: ++")
 	defer logger.Debugf("changeHal: --")
@@ -682,12 +753,12 @@ func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) 
 
 	// DISM requires the SYSTEM hive to be unloaded.
 	logger.Debugf("injectDriversByDism: unloading offline SYSTEM hive")
-	if err := fixer.unloadRegistry(); err != nil {
+	if err := fixer.unloadSystemRegistry(); err != nil {
 		return err
 	}
 	defer func() {
 		logger.Debugf("injectDriversByDism: reloading offline SYSTEM hive")
-		if err := fixer.loadRegistry(); err != nil {
+		if err := fixer.loadSystemRegistry(); err != nil {
 			logger.Warnf("injectDriversByDism: reload SYSTEM hive failed: %v", err)
 		}
 	}()
@@ -836,6 +907,132 @@ func (fixer *windowsSystemFixer) enableSATA() error {
 			}
 		}
 	}
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) fixUefi() error {
+	logger.Debugf("fixUefi: ++")
+	defer logger.Debugf("fixUefi: --")
+
+	if fixer.offsys.bootMode != define.BootModeUEFI {
+		return nil
+	}
+
+	espRoot := fixer.offsys.efiVolumeLtr + ":\\"
+
+	bootmgfw := filepath.Join(
+		espRoot,
+		"EFI", "Microsoft", "Boot", "bootmgfw.efi",
+	)
+	if !extend.IsExisted(bootmgfw) {
+		logger.Debugf("Windows Boot Manager not found: %s", bootmgfw)
+		return nil
+	}
+
+	bootDir := filepath.Join(espRoot, "EFI", "Boot")
+	fallback := filepath.Join(
+		bootDir,
+		fmt.Sprintf("BOOT%s.EFI", strings.ToUpper(getUefiArch())),
+	)
+
+	// 已经存在且内容一致
+	if extend.IsExisted(fallback) {
+		equal, err := extend.FileEqual(bootmgfw, fallback)
+		if err == nil && equal {
+			logger.Debugf("UEFI fallback bootloader already exists.")
+			return nil
+		}
+	}
+
+	logger.Infof("Fixing UEFI fallback bootloader.")
+
+	// virt-v2v 的行为：删除整个 EFI\Boot
+	if err := os.RemoveAll(bootDir); err != nil {
+		return errors.Wrap(err, "remove EFI\\Boot")
+	}
+
+	if err := os.MkdirAll(bootDir, 0755); err != nil {
+		return errors.Wrap(err, "create EFI\\Boot")
+	}
+
+	if _, err := extend.CopyFile(bootmgfw, fallback); err != nil {
+		return errors.Wrap(err, "copy bootmgfw.efi")
+	}
+
+	logger.Infof("Created fallback bootloader: %s", fallback)
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) fixBCD() error {
+	logger.Debugf("fixBCD: ++")
+	defer logger.Debugf("fixBCD: --")
+
+	if fixer.offsys.bootMode != define.BootModeUEFI {
+		return nil
+	}
+
+	bcdPath := filepath.Join(
+		fixer.offsys.efiVolumeLtr+":\\",
+		"EFI", "Microsoft", "Boot", "BCD",
+	)
+
+	if !extend.IsExisted(bcdPath) {
+		logger.Debugf("BCD not found: %s", bcdPath)
+		return nil
+	}
+
+	logger.Infof("Fixing Windows BCD.")
+
+	const hiveName = `OFFLINEBCDH0NK1`
+	regRoot := `HKLM\` + hiveName
+
+	if err := loadReg(regRoot, bcdPath); err != nil {
+		return errors.Wrapf(err, "load BCD hive: %s", bcdPath)
+	}
+	defer func() {
+		if err := unloadReg(regRoot); err != nil {
+			logger.Warnf("Unload BCD hive failed: %v", err)
+		}
+	}()
+
+	const bootMgrGuid = `{9dea862c-5cdd-4e70-acc1-f32b344d4795}`
+
+	defaultKey := hiveName +
+		`\Objects\` +
+		bootMgrGuid +
+		`\Elements\23000003`
+
+	k, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		defaultKey,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		logger.Debugf("BCD default boot entry not found.")
+		return nil
+	}
+	defer k.Close()
+
+	currentGuid, _, err := k.GetStringValue("Element")
+	if err != nil {
+		logger.Debugf("BCD default boot GUID not found.")
+		return nil
+	}
+
+	currentGuid = strings.TrimSpace(currentGuid)
+
+	graphicsKey := hiveName +
+		`\Objects\` +
+		currentGuid +
+		`\Elements\16000046`
+
+	if err = deleteRegistryTree(registry.LOCAL_MACHINE, graphicsKey); err != nil {
+		return errors.Wrap(err, "delete graphicsmodedisabled")
+	}
+
+	logger.Infof("Removed BCD graphicsmodedisabled option.")
 
 	return nil
 }

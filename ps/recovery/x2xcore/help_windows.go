@@ -327,15 +327,22 @@ func detectWindowsVersion(
 }
 
 func deleteRegistryTree(root registry.Key, path string) error {
-	key, err := registry.OpenKey(root, path, registry.ALL_ACCESS)
+	key, err := registry.OpenKey(
+		root,
+		path,
+		registry.ENUMERATE_SUB_KEYS|registry.SET_VALUE|registry.QUERY_VALUE,
+	)
 	if err != nil {
-		return err
+		if errors.Is(err, registry.ErrNotExist) {
+			return nil
+		}
+		return errors.Wrapf(err, "open registry key %q", path)
 	}
 	defer key.Close()
 
 	names, err := key.ReadSubKeyNames(-1)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "enumerate subkeys of %q", path)
 	}
 
 	for _, name := range names {
@@ -344,7 +351,14 @@ func deleteRegistryTree(root registry.Key, path string) error {
 		}
 	}
 
-	return registry.DeleteKey(root, path)
+	if err := registry.DeleteKey(root, path); err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			return nil
+		}
+		return errors.Wrapf(err, "delete registry key %q", path)
+	}
+
+	return nil
 }
 
 func filterMultiSzValue(

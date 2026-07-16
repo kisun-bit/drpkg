@@ -248,6 +248,8 @@ func (fixer *linuxSystemFixer) Repair() error {
 		unconfigFun = fixer.unconfigKvm
 	case define.HPVTHyperV:
 		unconfigFun = fixer.unconfigHyperV
+	case define.HPVTParallels:
+		unconfigFun = fixer.unconfigParallel
 	}
 
 	var configFun = fixer.configBareMetal
@@ -260,6 +262,8 @@ func (fixer *linuxSystemFixer) Repair() error {
 		configFun = fixer.configKvm
 	case define.HPVTHyperV:
 		configFun = fixer.configHyperV
+	case define.HPVTParallels:
+		configFun = fixer.configParallel
 	}
 
 	if err = unconfigFun(); err != nil {

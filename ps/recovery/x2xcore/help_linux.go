@@ -7,12 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/kisun-bit/drpkg/command"
-	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
@@ -27,21 +25,7 @@ type efiImageName struct {
 }
 
 func getEfiImageName() (efiImageName, bool) {
-	tag := ""
-
-	switch runtime.GOARCH {
-	case define.ArchAmd64:
-		tag = "x64"
-	case define.ArchArm64:
-		tag = "aa64"
-	case define.Arch386:
-		tag = "ia32"
-	case define.ArchLoong64:
-		tag = "loongarch64"
-	case define.ArchRiscv64:
-		tag = "riscv64"
-	}
-
+	tag := getUefiArch()
 	if tag == "" {
 		return efiImageName{}, false
 	}

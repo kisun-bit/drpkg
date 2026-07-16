@@ -454,3 +454,22 @@ func mergeDNS(
 
 	return result
 }
+
+func getUefiArch() string {
+	tag := ""
+
+	switch runtime.GOARCH {
+	case define.ArchAmd64:
+		tag = "x64"
+	case define.ArchArm64:
+		tag = "aa64"
+	case define.Arch386:
+		tag = "ia32"
+	case define.ArchLoong64:
+		tag = "loongarch64"
+	case define.ArchRiscv64:
+		tag = "riscv64"
+	}
+
+	return tag
+}
