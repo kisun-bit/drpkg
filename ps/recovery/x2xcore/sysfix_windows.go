@@ -23,7 +23,7 @@ type driverDatabaseType int
 const (
 	drvDbUnknown driverDatabaseType = iota
 	drvDbLegacy
-	drvDbDeviceIds
+	drvDbDriverStore
 )
 
 type windowsSystemFixer struct {
@@ -113,6 +113,16 @@ func (fixer *windowsSystemFixer) Repair() error {
 
 	if err := fixer.fixBCD(); err != nil {
 		return errors.Wrap(err, "fix bcd")
+	}
+
+	// FIXME: 后续实现Vista之前版本的驱动注入
+	dismSupported, e := fixer.dismSupported()
+	if e != nil {
+		return e
+	}
+	if !dismSupported {
+		// TODO 日志提示低版本的Windows未兼容硬件兼容性修复
+		return nil
 	}
 
 	var unconfigFun = fixer.unconfigBareMetal
@@ -324,7 +334,7 @@ func (fixer *windowsSystemFixer) detectDriverDatabaseType() error {
 		{
 			fmt.Sprintf("%s\\DriverDatabase\\DeviceIds\\PCI",
 				fixer.offsys.registryRootKey),
-			drvDbDeviceIds,
+			drvDbDriverStore,
 		},
 	}
 
@@ -543,7 +553,7 @@ func (fixer *windowsSystemFixer) disableArpCheck() error {
 	}
 	defer key.Close()
 
-	if err := key.SetDWordValue("ArpRetryCount", 0); err != nil {
+	if err = key.SetDWordValue("ArpRetryCount", 0); err != nil {
 		return errors.Wrap(err, "set ArpRetryCount")
 	}
 
@@ -898,6 +908,7 @@ func (fixer *windowsSystemFixer) enableSATA() error {
 		"msahci",
 		"iaStor",
 		"iaStorV",
+		"iaStorAC",
 	}
 
 	for _, d := range drivers {
@@ -940,12 +951,12 @@ func (fixer *windowsSystemFixer) fixUefi() error {
 	if extend.IsExisted(fallback) {
 		equal, err := extend.FileEqual(bootmgfw, fallback)
 		if err == nil && equal {
-			logger.Debugf("UEFI fallback bootloader already exists.")
+			logger.Debugf("UEFI fallback bootloader already exists")
 			return nil
 		}
 	}
 
-	logger.Infof("Fixing UEFI fallback bootloader.")
+	logger.Infof("Fixing UEFI fallback bootloader")
 
 	// virt-v2v 的行为：删除整个 EFI\Boot
 	if err := os.RemoveAll(bootDir); err != nil {
@@ -983,7 +994,7 @@ func (fixer *windowsSystemFixer) fixBCD() error {
 		return nil
 	}
 
-	logger.Infof("Fixing Windows BCD.")
+	logger.Infof("Fixing Windows BCD")
 
 	const hiveName = `OFFLINEBCDH0NK1`
 	regRoot := `HKLM\` + hiveName
@@ -1010,14 +1021,14 @@ func (fixer *windowsSystemFixer) fixBCD() error {
 		registry.QUERY_VALUE,
 	)
 	if err != nil {
-		logger.Debugf("BCD default boot entry not found.")
+		logger.Debugf("BCD default boot entry not found")
 		return nil
 	}
 	defer k.Close()
 
 	currentGuid, _, err := k.GetStringValue("Element")
 	if err != nil {
-		logger.Debugf("BCD default boot GUID not found.")
+		logger.Debugf("BCD default boot GUID not found")
 		return nil
 	}
 
@@ -1032,7 +1043,27 @@ func (fixer *windowsSystemFixer) fixBCD() error {
 		return errors.Wrap(err, "delete graphicsmodedisabled")
 	}
 
-	logger.Infof("Removed BCD graphicsmodedisabled option.")
+	logger.Infof("Removed BCD graphicsmodedisabled option")
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) dismSupported() (bool, error) {
+	ntVer, ok := define.OsNTVersion[fixer.offsys.windowsVersion]
+	if !ok {
+		return false, errors.New("not supported windows version")
+	}
+	if ntVer >= define.NT61 {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (fixer *windowsSystemFixer) fixNtfsHeads() error {
+	logger.Debugf("fixNtfsHeads: ++")
+	defer logger.Debugf("fixNtfsHeads: --")
+
+	// TODO 未实现
 
 	return nil
 }

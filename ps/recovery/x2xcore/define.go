@@ -51,6 +51,7 @@ var (
 // 错误相关
 var (
 	ErrorRootEnvNotMounted = errors.New("root environment is not mounted")
+	ErrDeviceNotSupported  = errors.New("device is not supported")
 )
 
 type NetworkBackend string

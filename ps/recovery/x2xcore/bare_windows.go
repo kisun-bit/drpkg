@@ -1,6 +1,17 @@
 package x2xcore
 
-import "github.com/kisun-bit/drpkg/logger"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/logger"
+	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"
+	"github.com/pkg/errors"
+	"golang.org/x/sys/windows/registry"
+)
 
 func (fixer *windowsSystemFixer) unconfigBareMetal() error {
 	logger.Debugf("unconfigBareMetal: ++")
@@ -15,43 +26,277 @@ func (fixer *windowsSystemFixer) configBareMetal() error {
 	logger.Debugf("configBareMetal: ++")
 	defer logger.Debugf("configBareMetal: --")
 
-	// TODO 匹配驱动并注入
+	for _, p := range fixer.opts.RecoveryParam.Target.PciList {
+		up, e := universal.UniPciFromString(p)
+		if e != nil {
+			return e
+		}
+
+		logger.Debugf("configBareMetal: \npci: %s\nhardwareIds:\n%s",
+			p,
+			extend.Pretty(up.MsHardwareId()))
+
+		//
+		// 根据目标机器的 PCI 设备，检查离线 Windows 对该硬件的支持情况：
+		//
+		// 1. 驱动已安装并可启动。
+		// 2. 驱动已安装，但未配置为启动驱动，需要调整 Start。
+		// 3. 驱动文件已存在于 DriverStore，但尚未安装（缺少 Service），
+		//    需要重新安装该驱动。
+		// 4. 系统中不存在兼容驱动，需要注入新驱动。
+		//
+
+		var err error
+
+		switch fixer.offsys.driverDatabaseType {
+		case drvDbDriverStore:
+			err = fixer.checkPciInDriverStore(up)
+		case drvDbLegacy:
+			err = fixer.checkPciInDriverStoreLegacy(up)
+		default:
+			err = errors.New("Unsupported driver database")
+		}
+
+		if err != nil {
+			if up.BaseClassId() == 0x01 {
+				return errors.Wrapf(err, "incompatible pci(%s): %s", up, up.MsHardwareId()[0])
+			}
+			// TODO 日志警告
+		}
+	}
 
 	return nil
 }
 
-//
-// 如何判断一个离线Windows是否能够兼容某硬件？
-//
-// 路径1：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase
-//     举例：
-//     HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase\PCI#VEN_1AF4&DEV_1001
-//     ClassGUID        REG_SZ  {4D36E97B-E325-11CE-BFC1-08002BE10318}
-//     DriverPackageId  REG_SZ  viostor.inf_amd64_neutral_c8a073b64be3602f
-//     Service          REG_SZ  viostor
-//     说明：
-//     DriverPackageId的值对应C:\Windows\System32\DriverStore\FileRepository
-//     Service的值就是我们关心的驱动服务的值
-//
-// 路径2：HKEY_LOCAL_MACHINE\SYSTEM\DriverDatabase\DeviceIds\PCI
-//     举例：
-//     HKEY_LOCAL_MACHINE\SYSTEM\DriverDatabase\DeviceIds\PCI\VEN_1AF4&DEV_1001&SUBSYS_00021AF4&REV_00
-//     oem35.inf
-//     说明：
-//     oem35.inf表示驱动安装脚本。
-//     然后去HKEY_LOCAL_MACHINE\SYSTEM\DriverDatabase\DriverInfFiles\oem35.inf下，得到
-//     (默认)            REG_MULTI_SZ  viostor.inf_amd64_aa6c91b5db55ab62
-//     Active           REG_MULTI_SZ  viostor.inf_amd64_aa6c91b5db55ab62
-//     而viostor.inf_amd64_aa6c91b5db55ab62就代表驱动库id
-//     接着找HKEY_LOCAL_MACHINE\SYSTEM\DriverDatabase\DriverPackages\viostor.inf_amd64_aa6c91b5db55ab62下
-//     可以得到驱动的详细信息：
-//     SignerScore       REG_DWORD     d000005
-//     ......更多信息
-//     另外需要注意的是，尽量对所有符合条件的驱动都拿到，然后取SignerScore最高者的服务名（服务名通过解析得到即可）
-//     那么viostor就是我们关心的驱动服务的值
-//
-// 若成功取得驱动服务，说明该离线Windows兼容此硬件，我们只需要去将其设置为开机启动即可，否则说明此Windows不兼容此硬件
-// 设置开机启动的步骤为：
-// 1. 删除StartOverride项（若存在），如：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\stornvme\StartOverride
-// 2. 将Start的数据改成0，如：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\stornvme下的Start
-//
+func (fixer *windowsSystemFixer) checkPciInDriverStore(up *universal.UniPci) error {
+	logger.Debugf("checkPciInDriverStore: checking %s", up)
+	defer logger.Debugf("checkPciInDriverStore: done")
+
+	//
+	// Find matching INF from DriverDatabase\DeviceIds
+	//
+	deviceIDsPath := filepath.Join(
+		fixer.offsys.registryRootKey,
+		"DriverDatabase",
+		"DeviceIds",
+	)
+
+	var infName string
+
+	for _, compatID := range up.MsCompatibleId() {
+
+		keyPath := filepath.Join(deviceIDsPath, compatID)
+
+		key, err := registry.OpenKey(
+			registry.LOCAL_MACHINE,
+			keyPath,
+			registry.QUERY_VALUE|registry.READ,
+		)
+		if err != nil {
+			logger.Debugf("checkPciInDriverStore: DeviceId %s not found", compatID)
+			continue
+		}
+
+		valueNames, err := key.ReadValueNames(-1)
+		key.Close()
+		if err != nil {
+			logger.Warnf("checkPciInDriverStore: failed to enumerate %s: %v", keyPath, err)
+			continue
+		}
+
+		for _, value := range valueNames {
+			if strings.HasSuffix(strings.ToLower(value), ".inf") {
+				infName = value
+				break
+			}
+		}
+
+		if infName != "" {
+			logger.Debugf("checkPciInDriverStore: matched INF %s", infName)
+			break
+		}
+	}
+
+	if infName == "" {
+		logger.Debug("checkPciInDriverStore: no matching driver found")
+
+		//
+		// Query driver db
+		//
+		ds, e := fixer.x2xLib.SelectWindowsBestNormalDriver(
+			fixer.opts.RecoveryParam.Source.Arch,
+			fixer.offsys.windowsVersion,
+			up.String(),
+			false)
+		if e != nil {
+			return e
+		}
+
+		if e = fixer.injectDriversByDism(ds); e != nil {
+			return e
+		}
+
+		return nil
+	}
+
+	//
+	// Find active package
+	//
+	infKeyPath := filepath.Join(
+		fixer.offsys.registryRootKey,
+		"DriverDatabase",
+		"DriverInfFiles",
+		infName,
+	)
+
+	infKey, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		infKeyPath,
+		registry.QUERY_VALUE|registry.READ,
+	)
+	if err != nil {
+		logger.Warnf("checkPciInDriverStore: failed to open %s: %v", infKeyPath, err)
+		return fmt.Errorf("open DriverInfFiles: %w", err)
+	}
+	defer infKey.Close()
+
+	pkgIDs, _, err := infKey.GetStringsValue("Active")
+	if err != nil {
+		logger.Warnf("checkPciInDriverStore: Active value missing: %v", err)
+		return fmt.Errorf("read Active packages: %w", err)
+	}
+
+	//
+	// Non-storage devices only need to verify existence.
+	//
+	if up.BaseClassId() != 0x01 {
+		logger.Debug("checkPciInDriverStore: non-storage device")
+		return nil
+	}
+
+	var processed bool
+
+	for _, pkgID := range pkgIDs {
+
+		infDir := filepath.Join(
+			fixer.offsys.sysVolumeLtr+":\\",
+			"Windows",
+			"System32",
+			"DriverStore",
+			"FileRepository",
+			pkgID,
+		)
+
+		if extend.IsEmptyDir(infDir) {
+			logger.Warnf("checkPciInDriverStore: package %s missing", pkgID)
+			continue
+		}
+
+		entries, err := os.ReadDir(infDir)
+		if err != nil {
+			logger.Warnf("checkPciInDriverStore: failed to read %s: %v", infDir, err)
+			continue
+		}
+
+		for _, entry := range entries {
+
+			if entry.IsDir() {
+				continue
+			}
+
+			if !strings.HasSuffix(strings.ToLower(entry.Name()), ".inf") {
+				continue
+			}
+
+			infPath := filepath.Join(infDir, entry.Name())
+
+			infObj, err := ParseINF(infPath)
+			if err != nil {
+				logger.Warnf("checkPciInDriverStore: failed to parse %s: %v", infPath, err)
+				continue
+			}
+
+			for _, svc := range infObj.ServiceNames() {
+
+				if !fixer.existedService(svc) {
+					logger.Debugf("checkPciInDriverStore: service %s not found", svc)
+					continue
+				}
+
+				if err := fixer.enableService(svc); err != nil {
+					return fmt.Errorf("enable service %s: %w", svc, err)
+				}
+
+				logger.Infof("checkPciInDriverStore: enabled service %s", svc)
+			}
+
+			processed = true
+		}
+	}
+
+	if !processed {
+		return ErrDeviceNotSupported
+	}
+
+	logger.Debug("checkPciInDriverStore: driver is available")
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) checkPciInDriverStoreLegacy(up *universal.UniPci) error {
+	logger.Debugf("checkPciInDriverStore: ++")
+	defer logger.Debugf("checkPciInDriverStore: --")
+
+	criticalDeviceDatabasePath := filepath.Join(
+		fixer.offsys.registryRootKey,
+		fmt.Sprintf("ControlSet00%d", fixer.offsys.currentControlSet),
+		"Control",
+		"CriticalDeviceDatabase",
+	)
+
+	svcName := ""
+	for _, compatID := range up.MsCompatibleId() {
+		compatID = strings.ReplaceAll(compatID, "\\", "#")
+		keyPath := filepath.Join(criticalDeviceDatabasePath, compatID)
+
+		key, err := registry.OpenKey(
+			registry.LOCAL_MACHINE,
+			keyPath,
+			registry.QUERY_VALUE|registry.READ,
+		)
+		if err != nil {
+			logger.Debugf("checkPciInDriverStore: DeviceId %s not found", compatID)
+			continue
+		}
+
+		svc, _, err := key.GetStringValue("Service")
+		key.Close()
+
+		if err != nil {
+			continue
+		}
+
+		svcName = svc
+	}
+
+	if svcName != "" && fixer.existedService(svcName) {
+		return fixer.enableService(svcName)
+	}
+
+	// TODO 查询驱动库所有驱动文件，看非启动相关的Pnp能否加载对应硬件的驱动
+
+	ds, e := fixer.x2xLib.SelectWindowsBestNormalDriver(
+		fixer.opts.RecoveryParam.Source.Arch,
+		fixer.offsys.windowsVersion,
+		up.String(),
+		false)
+	if e != nil {
+		return e
+	}
+
+	if e = fixer.injectDriversByDism(ds); e != nil {
+		return e
+	}
+
+	return nil
+}
