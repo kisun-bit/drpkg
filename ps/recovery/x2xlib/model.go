@@ -111,9 +111,11 @@ func InitDB(dbFile string, readonly bool) (*gorm.DB, error) {
 	dsnCfgs = append(dsnCfgs, "cache=shared")
 	if readonly {
 		dsnCfgs = append(dsnCfgs, "mode=ro")
+		dsnCfgs = append(dsnCfgs, "immutable=1")
+	} else {
+		dsnCfgs = append(dsnCfgs, "_pragma=journal_mode(WAL)")
+		dsnCfgs = append(dsnCfgs, "_pragma=busy_timeout(10000)")
 	}
-	dsnCfgs = append(dsnCfgs, "_pragma=journal_mode(WAL)")
-	dsnCfgs = append(dsnCfgs, "_pragma=busy_timeout(10000)")
 
 	dsn := fmt.Sprintf("file:%s?%s", dbFile, strings.Join(dsnCfgs, "&"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{

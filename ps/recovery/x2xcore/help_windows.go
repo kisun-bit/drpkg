@@ -98,9 +98,14 @@ func AssignDriveLetter(deviceId string, driveLetter string) error {
 			return errors.New("getFreeLtr failed")
 		}
 		driveLetter = ltr + ":\\"
+	} else {
+		driveLetter += ":\\"
 	}
-	_, _, e := command.Execute(fmt.Sprintf("mountvol.exe %s %s", driveLetter, deviceId), command.WithDebug())
-	return e
+	drvLtrU16, _ := windows.UTF16PtrFromString(driveLetter)
+	volPathU16, _ := windows.UTF16PtrFromString(deviceId)
+
+	//_, _, e := command.Execute(fmt.Sprintf("mountvol.exe %s %s", driveLetter, deviceId), command.WithDebug())
+	return windows.SetVolumeMountPoint(drvLtrU16, volPathU16)
 }
 
 func getFreeLtr() (existed bool, ltr string) {
@@ -123,56 +128,93 @@ func ImportForeignDisk() error {
 		return err
 	}
 
-	dymDisks := make([]info.Disk, 0, len(disks))
-	for _, d := range disks {
-		if d.IsMsDynamic {
-			dymDisks = append(dymDisks, d)
-		}
+	type dynamicDisk struct {
+		info.Disk
+		ID int
 	}
 
-	if len(dymDisks) == 0 {
+	var dynDisks []dynamicDisk
+
+	for _, d := range disks {
+		if !d.IsMsDynamic {
+			continue
+		}
+
+		id, err := extend.WindowsDiskIDFromPath(d.Device)
+		if err != nil {
+			logger.Warnf("get disk id for %s failed: %v", d.Device, err)
+			continue
+		}
+
+		dynDisks = append(dynDisks, dynamicDisk{
+			Disk: d,
+			ID:   int(id),
+		})
+	}
+
+	if len(dynDisks) == 0 {
 		return nil
 	}
 
-	logger.Debugf("ImportForeignDisk: Adding %d disks", len(dymDisks))
+	logger.Debugf("ImportForeignDisk: found %d disks", len(dynDisks))
 
-	var script strings.Builder
-	script.WriteString("list disk\r\n")
+	//
+	// 每块盘上线
+	//
+	for _, d := range dynDisks {
+		script := fmt.Sprintf(`
+select disk %d
+online disk
+`, d.ID)
 
-	for _, d := range dymDisks {
-		id, err := extend.WindowsDiskIDFromPath(d.Device)
-		if err != nil {
-			return err
-		}
-
-		_, _ = fmt.Fprintf(
-			&script,
-			"select disk %d\r\nimport\r\ndetail disk\r\n",
-			id,
-		)
+		_ = runDiskPart(script)
 	}
 
-	content := script.String()
-	logger.Debugf("ImportForeignDisk: Shell:\n%s", content)
+	//
+	// 每块盘清除只读
+	//
+	for _, d := range dynDisks {
+		script := fmt.Sprintf(`
+select disk %d
+attributes disk clear readonly
+`, d.ID)
 
-	scriptFile := filepath.Join(
-		extend.ExecDir(),
-		fmt.Sprintf("impDym-%d.txt", time.Now().UnixNano()),
-	)
-
-	if err := os.WriteFile(scriptFile, []byte(content), 0644); err != nil {
-		return err
+		_ = runDiskPart(script)
 	}
-	defer os.Remove(scriptFile)
 
-	if _, _, err := command.Execute(
-		fmt.Sprintf("diskpart /s %s", scriptFile),
-		command.WithDebug(),
-	); err != nil {
-		return err
+	//
+	// 每块盘导入
+	//
+	for _, d := range dynDisks {
+		script := fmt.Sprintf(`
+select disk %d
+import foreign
+`, d.ID)
+
+		_ = runDiskPart(script)
 	}
 
 	return nil
+}
+
+func runDiskPart(script string) error {
+
+	file := filepath.Join(
+		extend.ExecDir(),
+		fmt.Sprintf("diskpart-%d.txt", time.Now().UnixNano()),
+	)
+
+	if err := os.WriteFile(file, []byte(script), 0644); err != nil {
+		return err
+	}
+	defer os.Remove(file)
+
+	_, _, err := command.Execute(
+		fmt.Sprintf("diskpart /s %s", file),
+		command.WithDebug(),
+	)
+
+	return err
 }
 
 // FindX2xLibraryDir 搜索本机驱动库目录。
@@ -239,7 +281,7 @@ func findDriverStoreDir(root string) (string, error) {
 }
 
 func loadReg(key, regDBPath string) error {
-	cmdline := fmt.Sprintf("reg load %s %s", key, regDBPath)
+	cmdline := fmt.Sprintf("REG LOAD HKLM\\%s %s", key, regDBPath)
 	if _, _, e := command.Execute(cmdline, command.WithDebug()); e != nil {
 		return e
 	}
@@ -247,7 +289,7 @@ func loadReg(key, regDBPath string) error {
 }
 
 func unloadReg(key string) error {
-	cmdline := fmt.Sprintf("reg unload %s", key)
+	cmdline := fmt.Sprintf("REG UNLOAD HKLM\\%s", key)
 	if _, _, e := command.Execute(cmdline, command.WithDebug()); e != nil {
 		return e
 	}

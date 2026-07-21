@@ -12,6 +12,7 @@ import (
 	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
+	"github.com/kisun-bit/drpkg/ps/info"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
@@ -48,12 +49,27 @@ type offlineSystem struct {
 	halType            define.HALType
 }
 
+func NewSysFixer(ctx context.Context, opts *FixerCreateOptions) (fixer SysFixer, err error) {
+	logger.Debugf("NewSysFixer: opts:\n%s", extend.Pretty(opts))
+	if err = CheckFixerCreateOptions(opts); err != nil {
+		return nil, err
+	}
+	logger.Debugf("NewSysFixer: opts(repaired):\n%s", extend.Pretty(opts))
+	lf := &windowsSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
+	lf.x2xLib, err = x2xlib.NewX2XLib(opts.RecoveryParam.X2xLibrary, true)
+	if err != nil {
+		return nil, err
+	}
+	return lf, nil
+}
+
 func (fixer *windowsSystemFixer) Prepare() error {
 	logger.Debugf("Prepare: ++")
 	defer logger.Debugf("Prepare: --")
 
 	if err := fixer.importForeignDisk(); err != nil {
-		return errors.Wrap(err, "import foreign disk")
+		//return errors.Wrap(err, "import foreign disk")
+		logger.Warnf("Prepare: importForeignDisk: %v", err)
 	}
 
 	if err := fixer.detectSysVolume(); err != nil {
@@ -77,7 +93,8 @@ func (fixer *windowsSystemFixer) Prepare() error {
 	}
 
 	if err := fixer.detectHAL(); err != nil {
-		return errors.Wrap(err, "detect hal")
+		//return errors.Wrap(err, "detect hal")
+		logger.Warnf("Prepare: detectHAL: %v", err)
 	}
 
 	if err := fixer.detectBootMode(); err != nil {
@@ -222,11 +239,15 @@ func (fixer *windowsSystemFixer) detectSysVolume() error {
 			}
 			v.DriveLetter = ltr
 		}
-		fixer.offsys.volumeLtrList = append(fixer.offsys.volumeLtrList, v.DriveLetter)
+		ltr := strings.TrimSuffix(v.DriveLetter, ":")
+		fixer.offsys.volumeLtrList = append(fixer.offsys.volumeLtrList, ltr)
 	}
 	logger.Debugf("detectSysVolume: volumes:\n%s", extend.Pretty(fixer.offsys.volumeLtrList))
 
 	for _, v := range fixer.offsys.volumeLtrList {
+		if info.IsMemoryOS() && strings.ToLower(v) == "x" {
+			continue
+		}
 		vp := v + ":\\"
 		if !extend.IsRootDir(vp) {
 			continue
@@ -254,8 +275,9 @@ func (fixer *windowsSystemFixer) loadSystemRegistry() error {
 	if fixer.offsys.hklmPath == "" {
 		fixer.offsys.hklmPath = hklmPath
 	}
-	registryRootKey := "HKLM\\OFFLINESYSTEMH0NK1"
+	registryRootKey := "OFFLINESYSTEMH0NK1"
 
+	_ = unloadReg(registryRootKey)
 	if e := loadReg(registryRootKey, fixer.offsys.hklmPath); e != nil {
 		return errors.Wrapf(e, "load registry file %s", hklmPath)
 	}
@@ -385,7 +407,7 @@ func (fixer *windowsSystemFixer) detectWindowsVersion() error {
 	)
 
 	const offlineSoftwareKeyName = "OfflineSoftwareReg"
-	offlineSoftwareKey := "HKLM\\" + offlineSoftwareKeyName
+	offlineSoftwareKey := offlineSoftwareKeyName
 
 	if err := loadReg(offlineSoftwareKey, offlineSoftwareHivePath); err != nil {
 		return errors.Wrapf(err, "load registry %s", offlineSoftwareHivePath)
@@ -999,6 +1021,12 @@ func (fixer *windowsSystemFixer) fixBCD() error {
 	const hiveName = `OFFLINEBCDH0NK1`
 	regRoot := `HKLM\` + hiveName
 
+	// 防御性清理:如果上次运行异常退出导致 hive 残留挂载,
+	// 这里先尝试卸载一次,避免 loadReg 因为 key 已存在而失败。
+	if err := unloadReg(regRoot); err != nil {
+		logger.Debugf("pre-clean unload (ignorable): %v", err)
+	}
+
 	if err := loadReg(regRoot, bcdPath); err != nil {
 		return errors.Wrapf(err, "load BCD hive: %s", bcdPath)
 	}
@@ -1008,6 +1036,28 @@ func (fixer *windowsSystemFixer) fixBCD() error {
 		}
 	}()
 
+	currentGuid, err := getDefaultBootEntryGuid(hiveName)
+	if err != nil {
+		return errors.Wrap(err, "get default boot entry guid")
+	}
+	if currentGuid == "" {
+		// 未找到默认启动项属于正常情况(比如非标准 BCD),不视为错误
+		logger.Debugf("BCD default boot GUID not found")
+		return nil
+	}
+
+	if err := removeGraphicsModeDisabled(hiveName, currentGuid); err != nil {
+		return errors.Wrap(err, "delete graphicsmodedisabled")
+	}
+
+	logger.Infof("Removed BCD graphicsmodedisabled option")
+	return nil
+}
+
+// getDefaultBootEntryGuid 读取 BCD 中 bootmgr 的默认启动项 GUID。
+// 返回空字符串且 err == nil 表示"找不到但不算错误";
+// 返回非 nil err 表示读取过程本身出了问题(权限、句柄等)。
+func getDefaultBootEntryGuid(hiveName string) (string, error) {
 	const bootMgrGuid = `{9dea862c-5cdd-4e70-acc1-f32b344d4795}`
 
 	defaultKey := hiveName +
@@ -1021,31 +1071,33 @@ func (fixer *windowsSystemFixer) fixBCD() error {
 		registry.QUERY_VALUE,
 	)
 	if err != nil {
-		logger.Debugf("BCD default boot entry not found")
-		return nil
+		if errors.Is(err, registry.ErrNotExist) {
+			logger.Debugf("BCD default boot entry not found")
+			return "", nil
+		}
+		return "", err // 真正的错误,不要吞掉
 	}
 	defer k.Close()
 
-	currentGuid, _, err := k.GetStringValue("Element")
+	guid, _, err := k.GetStringValue("Element")
 	if err != nil {
-		logger.Debugf("BCD default boot GUID not found")
-		return nil
+		if errors.Is(err, registry.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
 	}
 
-	currentGuid = strings.TrimSpace(currentGuid)
+	return strings.TrimSpace(guid), nil
+}
 
+// removeGraphicsModeDisabled 删除指定启动项下的 graphicsmodedisabled 元素。
+func removeGraphicsModeDisabled(hiveName, entryGuid string) error {
 	graphicsKey := hiveName +
 		`\Objects\` +
-		currentGuid +
+		entryGuid +
 		`\Elements\16000046`
 
-	if err = deleteRegistryTree(registry.LOCAL_MACHINE, graphicsKey); err != nil {
-		return errors.Wrap(err, "delete graphicsmodedisabled")
-	}
-
-	logger.Infof("Removed BCD graphicsmodedisabled option")
-
-	return nil
+	return deleteRegistryTree(registry.LOCAL_MACHINE, graphicsKey)
 }
 
 func (fixer *windowsSystemFixer) dismSupported() (bool, error) {

@@ -186,6 +186,19 @@ func (fixer *linuxSystemFixer) patchOneKernelVirtIO(k kernel) error {
 		missedMods = append(missedMods, m)
 	}
 
+	extraModules := []string{
+		"xts",
+		"bochs-drm",
+		"bochs",
+	}
+
+	for _, m := range extraModules {
+		yes, e := fixer.kernelContainsModule(k, m)
+		if yes && e == nil {
+			missedMods = append(missedMods, m)
+		}
+	}
+
 	logger.Debugf("patchOneKernelVirtIO: missedMods=%v", missedMods)
 
 	if err := fixer.initrdAddModule(k, missedMods...); err != nil {
