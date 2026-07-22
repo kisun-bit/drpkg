@@ -1,29 +1,29 @@
-package bitmap
+package extend
 
 import (
 	"fmt"
 	"io"
 	"os"
 
-	"github.com/kisun-bit/drpkg/extend"
 	"github.com/pkg/errors"
 )
 
-type fsRegionReader struct {
+type FsRegionReader struct {
 	path   string
 	offset int64
 	size   int64
 
-	file *os.File
-	r    *io.SectionReader
+	fileSize int64
+	file     *os.File
+	r        *io.SectionReader
 }
 
-func newFsRegionReader(path string, offset, size int64) (*fsRegionReader, error) {
+func NewFsRegionReader(path string, offset, size int64) (*FsRegionReader, error) {
 	if offset < 0 || size <= 0 {
 		return nil, errors.Errorf("invalid offset/size: offset=%d size=%d", offset, size)
 	}
 
-	deviceSize, err := extend.FileSize(path)
+	deviceSize, err := FileSize(path)
 	if err != nil {
 		return nil, errors.Errorf("get device size failed: %v", err)
 	}
@@ -44,27 +44,42 @@ func newFsRegionReader(path string, offset, size int64) (*fsRegionReader, error)
 
 	r := io.NewSectionReader(f, offset, size)
 
-	return &fsRegionReader{
-		path:   path,
-		offset: offset,
-		size:   size,
-		file:   f,
-		r:      r,
+	return &FsRegionReader{
+		path:     path,
+		offset:   offset,
+		size:     size,
+		fileSize: int64(deviceSize),
+		file:     f,
+		r:        r,
 	}, nil
 }
 
-func (r *fsRegionReader) String() string {
+func (r *FsRegionReader) String() string {
 	return fmt.Sprintf("fsregionreader(dev=%s,off=%d,size=%d)", r.path, r.offset, r.size)
 }
 
-func (r *fsRegionReader) Close() error {
+func (r *FsRegionReader) Close() error {
 	return r.file.Close()
 }
 
-func (r *fsRegionReader) ReadAt(p []byte, off int64) (int, error) {
+func (r *FsRegionReader) ReadAt(p []byte, off int64) (int, error) {
 	return r.r.ReadAt(p, off)
 }
 
-func (r *fsRegionReader) Size() int64 {
+func (r *FsRegionReader) Read(p []byte) (int, error) {
+	return r.r.Read(p)
+}
+
+func (r *FsRegionReader) Seek(offset int64, whence int) (int64, error) {
+	if whence == io.SeekStart {
+		offset += r.offset
+	}
+	if whence == io.SeekEnd {
+		offset += (r.fileSize - r.size)
+	}
+	return r.r.Seek(offset, whence)
+}
+
+func (r *FsRegionReader) Size() int64 {
 	return r.size
 }
