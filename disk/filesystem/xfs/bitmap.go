@@ -42,6 +42,12 @@ func (p *XfsBitmapParser) String() string {
 
 func (p *XfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 
+	defer func() {
+		if p.fr != nil {
+			_ = p.fr.Close()
+		}
+	}()
+
 	//
 	// 读取主超级块
 	//
