@@ -57,6 +57,7 @@ func (p *XfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	blockSize := int64(p.sb.BlockSize)
 	agBlocks := int64(p.sb.Agblocks)
 	agCount := p.sb.Agcount
+	bnoCount := p.sb.agflBnoCount()
 
 	// 初始化位图（总块数 = sb_dblocks）
 	p.fsBitmap = bitmap.NewFsBitmap(define.FsTypeXFS, bitmap.BitmapFromFS, int64(p.sb.Dblocks), int(blockSize))
@@ -109,7 +110,7 @@ func (p *XfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		}
 		logger.Debugf("%s.Dump() AG%02d: AGFL:\n%s", p, agno, spew.Sdump(agfl))
 
-		bnoArr := make([]uint32, p.sb.agflBnoCount())
+		bnoArr := make([]uint32, bnoCount)
 		if err := binary.Read(p.fr, binary.BigEndian, &bnoArr); err != nil {
 			return nil, errors.Wrapf(err, "read")
 		}
@@ -130,7 +131,7 @@ func (p *XfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 
 	usedBlks := int64(p.sb.Dblocks) - p.freeBits
 	effectBytes := usedBlks * int64(p.fsBitmap.BlockSize)
-	logger.Debugf("%s.Dump() usedblocks=%d, blocksize=%d, effectivebytes=%dB(%s/%s)",
+	logger.Debugf("%s.Dump() blocks=%d, bs=%d, used=%dB(%s/%s)",
 		p,
 		usedBlks,
 		p.fsBitmap.BlockSize,
@@ -208,11 +209,10 @@ func (p *XfsBitmapParser) scanFuncBno(agf AGF, data []byte, level int) error {
 
 	var headerLen int
 
-	logger.Debugf("%s.scanFuncBno() magicnum=%v", p, hdr.Magicnum)
+	//logger.Debugf("%s.scanFuncBno() magicnum=%v", p, hdr.Magicnum)
 
 	switch hdr.Magicnum {
 	case XFS_ABTB_CRC_MAGIC:
-		// 用 block 自身的 magic 判断，而不是 sb.hasCrc()，避免两者不一致时读串位置
 		headerLen = binary.Size(hdr) // 56
 		if len(data) < headerLen {
 			return errors.Errorf("block too small: %d", len(data))
@@ -296,7 +296,7 @@ func (p *XfsBitmapParser) readBlockAt(offset int64, blockSize int64) ([]byte, er
 func (p *XfsBitmapParser) markFree(agno uint32, agbno uint32, length uint32) {
 	atomic.AddInt64(&p.freeBits, int64(length))
 	startBlock := uint64(agno)*uint64(p.sb.Agblocks) + uint64(agbno)
-	logger.Debugf("%s.setBitmap() agno=%d agbno=%d len=%d startblk=%d", p, agno, agbno, length, startBlock)
+	logger.Debugf("%s.markFree() startblk=%d agno=%d agbno=%d len=%d ", p, startBlock, agno, agbno, length)
 	p.fsBitmap.ClearRange(startBlock, length)
 }
 
