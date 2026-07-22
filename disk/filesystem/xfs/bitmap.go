@@ -309,7 +309,7 @@ func (sb *SuperBlock) agflBnoCount() int {
 }
 
 func (sb *SuperBlock) version() XfsSbVersion {
-	return XfsSbVersion(sb.Versionnum)
+	return XfsSbVersion(sb.Versionnum & uint16(XFS_SB_VERSION_NUMBITS))
 }
 
 func (sb *SuperBlock) hasCrc() bool {
