@@ -115,6 +115,63 @@ func (b *FsBitmap) ClearRange(start uint64, length uint32) {
 	}
 }
 
+// ChangeBlockSize 重新以新的块大小生成位图
+// 注意：新的块大小必须是旧的块大小的整数倍
+// 合并规则：新 bit 覆盖的多个旧 bit 中，只要有任意一个为 1（已使用），新 bit 就置 1，
+// 避免因为块粒度变粗而丢失已使用数据（宁可多复制，不能少复制）
+func (b *FsBitmap) ChangeBlockSize(blocksize int) error {
+	if blocksize <= 0 {
+		return errors.Errorf("invalid blocksize: %d", blocksize)
+	}
+	if b.BlockSize <= 0 {
+		return errors.Errorf("invalid current blocksize: %d", b.BlockSize)
+	}
+	if blocksize == b.BlockSize {
+		return nil // 无需转换
+	}
+	if blocksize < b.BlockSize {
+		return errors.Errorf("new blocksize(%d) must not be smaller than current blocksize(%d)", blocksize, b.BlockSize)
+	}
+	if blocksize%b.BlockSize != 0 {
+		return errors.Errorf("new blocksize(%d) must be a multiple of current blocksize(%d)", blocksize, b.BlockSize)
+	}
+
+	ratio := int64(blocksize / b.BlockSize)
+
+	// 新位图的总位数：向上取整，确保能覆盖原来所有数据（哪怕最后一组不足 ratio 个旧 bit）
+	newBits := (b.Bits + ratio - 1) / ratio
+	newByteLen := (newBits + 7) / 8
+	newBitmap := make([]byte, newByteLen)
+
+	for newIdx := int64(0); newIdx < newBits; newIdx++ {
+		oldStart := newIdx * ratio
+		oldEnd := oldStart + ratio
+		if oldEnd > b.Bits {
+			oldEnd = b.Bits
+		}
+
+		used := false
+		for oldIdx := oldStart; oldIdx < oldEnd; oldIdx++ {
+			if b.IsSet(uint64(oldIdx)) {
+				used = true
+				break
+			}
+		}
+
+		if used {
+			byteIdx := newIdx / 8
+			bitOff := uint(newIdx % 8)
+			newBitmap[byteIdx] |= 1 << bitOff
+		}
+	}
+
+	b.Bitmap = newBitmap
+	b.Bits = newBits
+	b.BlockSize = blocksize
+
+	return nil
+}
+
 // MirrorFs 根据位图，把 origin 中被标记为"已使用"的块（bit=1）复制到 target 对应偏移处，
 // 跳过标记为"空闲"的块（bit=0），从而只搬运实际有效数据，节省 IO。
 // 返回值为实际复制的字节数。
