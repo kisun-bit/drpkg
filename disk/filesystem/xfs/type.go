@@ -1,52 +1,52 @@
 package xfs
 
 const (
-	XFS_SB_MAGIC   = 0x58465342 // 'XFSB'
-	XFS_AGF_MAGIC  = 0x58414746 // 'XAGF'
-	XFS_AGI_MAGIC  = 0x58414749 // 'XAGI'
-	XFS_AGFL_MAGIC = 0x5841464c // 'XAFL'
+	xfsSbMagic   = 0x58465342 // 'XFSB'
+	xfsAgfMagic  = 0x58414746 // 'XAGF'
+	xfsAgiMagic  = 0x58414749 // 'XAGI'
+	xfsAgflMagic = 0x5841464c // 'XAFL'
 )
 
 const (
-	XFS_ABTB_MAGIC     uint32 = 0x41425442 // 'ABTB'（v4，非CRC）
-	XFS_ABTB_CRC_MAGIC uint32 = 0x41423342 // 'AB3B'（v5，CRC启用）
+	xfsAbtbMagic    uint32 = 0x41425442 // 'ABTB'（v4，非CRC）
+	xfsAbtbCrcMagic uint32 = 0x41423342 // 'AB3B'（v5，CRC启用）
 )
 
 // SB 版本号（sb_versionnum 低 4 位表示版本号）
-type XfsSbVersion uint16
+type xfsSbVersion uint16
 
 const (
-	XFS_SB_VERSION_1 XfsSbVersion = 1 // 5.3, 6.0.1, 6.1
-	XFS_SB_VERSION_2 XfsSbVersion = 2 // 6.2 - attributes
-	XFS_SB_VERSION_3 XfsSbVersion = 3 // 6.2 - new inode version
-	XFS_SB_VERSION_4 XfsSbVersion = 4 // 6.2+ - bitmask version
-	XFS_SB_VERSION_5 XfsSbVersion = 5 // CRC enabled filesystem
+	xfsSbVersion1 xfsSbVersion = 1 // 5.3, 6.0.1, 6.1
+	xfsSbVersion2 xfsSbVersion = 2 // 6.2 - attributes
+	xfsSbVersion3 xfsSbVersion = 3 // 6.2 - new inode version
+	xfsSbVersion4 xfsSbVersion = 4 // 6.2+ - bitmask version
+	xfsSbVersion5 xfsSbVersion = 5 // CRC enabled filesystem
 )
 
 // SB 版本号相关的位掩码
-type XfsSbVersionBit uint16
+type xfsSbVersionBit uint16
 
 const (
-	XFS_SB_VERSION_NUMBITS     XfsSbVersionBit = 0x000f // 版本号所占的位
-	XFS_SB_VERSION_ALLFBITS    XfsSbVersionBit = 0xfff0 // 所有 feature bit 的掩码
-	XFS_SB_VERSION_ATTRBIT     XfsSbVersionBit = 0x0010
-	XFS_SB_VERSION_NLINKBIT    XfsSbVersionBit = 0x0020
-	XFS_SB_VERSION_QUOTABIT    XfsSbVersionBit = 0x0040
-	XFS_SB_VERSION_ALIGNBIT    XfsSbVersionBit = 0x0080
-	XFS_SB_VERSION_DALIGNBIT   XfsSbVersionBit = 0x0100
-	XFS_SB_VERSION_SHAREDBIT   XfsSbVersionBit = 0x0200
-	XFS_SB_VERSION_LOGV2BIT    XfsSbVersionBit = 0x0400
-	XFS_SB_VERSION_SECTORBIT   XfsSbVersionBit = 0x0800
-	XFS_SB_VERSION_EXTFLGBIT   XfsSbVersionBit = 0x1000
-	XFS_SB_VERSION_DIRV2BIT    XfsSbVersionBit = 0x2000
-	XFS_SB_VERSION_BORGBIT     XfsSbVersionBit = 0x4000 // ASCII only case-insens.
-	XFS_SB_VERSION_MOREBITSBIT XfsSbVersionBit = 0x8000
+	xfsSbVersionNumbits     xfsSbVersionBit = 0x000f // 版本号所占的位
+	xfsSbVersionAllfbits    xfsSbVersionBit = 0xfff0 // 所有 feature bit 的掩码
+	xfsSbVersionAttrbit     xfsSbVersionBit = 0x0010
+	xfsSbVersionNlinkbit    xfsSbVersionBit = 0x0020
+	xfsSbVersionQuotabit    xfsSbVersionBit = 0x0040
+	xfsSbVersionAlignbit    xfsSbVersionBit = 0x0080
+	xfsSbVersionDalignbit   xfsSbVersionBit = 0x0100
+	xfsSbVersionSharedbit   xfsSbVersionBit = 0x0200
+	xfsSbVersionLogv2BIT    xfsSbVersionBit = 0x0400
+	xfsSbVersionSectorbit   xfsSbVersionBit = 0x0800
+	xfsSbVersionExtflgbit   xfsSbVersionBit = 0x1000
+	xfsSbVersionDirv2BIT    xfsSbVersionBit = 0x2000
+	xfsSbVersionBorgbit     xfsSbVersionBit = 0x4000 // ASCII only case-insens.
+	xfsSbVersionMorebitsbit xfsSbVersionBit = 0x8000
 )
 
-// SuperBlock 超级块
+// superBlock 超级块
 // 参考：内核源码的fs/xfs/libxfs/xfs_format.h
-type SuperBlock struct {
-	Magicnum   uint32   // magic number == XFS_SB_MAGIC(0x58465342即'XFSB')
+type superBlock struct {
+	Magicnum   uint32   // magic number == xfsSbMagic(0x58465342即'XFSB')
 	BlockSize  uint32   // logical block size, bytes
 	Dblocks    uint64   // number of data blocks
 	Rblocks    uint64   // number of realtime blocks
@@ -123,16 +123,7 @@ type SuperBlock struct {
 	// must be padded to 64 bit alignment
 }
 
-// AG Allocation Group
-// 每一组ag的第一块中都包含sb，agf，agi，agfl四个结构，每个结构占用512字节
-type AG struct {
-	SuperBlock SuperBlock
-	Agf        AGF
-	Agi        AGI
-	Agfl       AGFL
-}
-
-type AGFL struct {
+type agfl struct {
 	Magicnum uint32
 	Seqno    uint32
 	UUID     [16]byte
@@ -140,11 +131,11 @@ type AGFL struct {
 	CRC      uint32
 }
 
-// AGF Allocation Group Free space information
+// agf Allocation Group Free space information
 // 参考：内核源码 fs/xfs/libxfs/xfs_format.h 中的 xfs_agf_t
-type AGF struct {
+type agf struct {
 	// Common allocation group header information
-	Magicnum   uint32 // magic number == XFS_AGF_MAGIC
+	Magicnum   uint32 // magic number == xfsAgfMagic
 	Versionnum uint32 // header version == XFS_AGF_VERSION
 	Seqno      uint32 // sequence # starting from 0
 	Length     uint32 // size in blocks of a.g.
@@ -179,11 +170,11 @@ type AGF struct {
 	// structure must be padded to 64 bit alignment
 }
 
-// AGI Allocation Group Inode information
+// agi Allocation Group Inode information
 // 参考：内核源码 fs/xfs/libxfs/xfs_format.h 中的 xfs_agi_t
-type AGI struct {
+type agi struct {
 	// Common allocation group header information
-	Magicnum   uint32 // magic number == XFS_AGI_MAGIC
+	Magicnum   uint32 // magic number == xfs_agi_magic
 	Versionnum uint32 // header version == XFS_AGI_VERSION
 	Seqno      uint32 // sequence # starting from 0
 	Length     uint32 // size in blocks of a.g.
@@ -216,7 +207,7 @@ type AGI struct {
 	// structure must be padded to 64 bit alignment
 }
 
-type BtreeBlockShdr struct {
+type btreeBlockShdr struct {
 	Leftsib  uint32
 	Rightsib uint32
 	Blkno    uint64
@@ -226,7 +217,7 @@ type BtreeBlockShdr struct {
 	CRC      uint32
 }
 
-type BtreeBlockLhdr struct {
+type btreeBlockLhdr struct {
 	Leftsib  uint64
 	Rightsib uint64
 	Blkno    uint64
@@ -237,11 +228,11 @@ type BtreeBlockLhdr struct {
 	Pad      uint32
 }
 
-type BtreeShortBlock struct {
+type btreeShortBlock struct {
 	Magicnum uint32
 	Level    uint16
 	Numrecs  uint16
-	BtreeBlockShdr
+	btreeBlockShdr
 }
 
 //
@@ -256,9 +247,9 @@ type BtreeShortBlock struct {
 // };
 //
 
-type BtreeLongBlock struct {
+type btreeLongBlock struct {
 	Magicnum uint32
 	Level    uint16
 	Numrecs  uint16
-	BtreeBlockLhdr
+	btreeBlockLhdr
 }

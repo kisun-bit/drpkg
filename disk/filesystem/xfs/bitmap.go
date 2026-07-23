@@ -8,7 +8,6 @@ import (
 	"unsafe"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/dustin/go-humanize"
 	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/disk/filesystem/bitmap"
 	"github.com/kisun-bit/drpkg/extend"
@@ -16,13 +15,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-type XfsBitmapParser struct {
+type BitmapParser struct {
 	dev   string
 	start int64
 	size  int64
 	fr    *extend.FsRegionReader
 
-	sb       SuperBlock
+	sb       superBlock
 	fsBitmap *bitmap.FsBitmap
 	freeBits int64
 }
@@ -32,15 +31,15 @@ func NewBitmapParser(dev string, start int64, size int64) (bitmap.FsBitmapParser
 	if e != nil {
 		return nil, e
 	}
-	return &XfsBitmapParser{dev: dev, start: start, size: size, fr: fr}, nil
+	return &BitmapParser{dev: dev, start: start, size: size, fr: fr}, nil
 }
 
-func (p *XfsBitmapParser) String() string {
-	return fmt.Sprintf("<XfsBitmapParser(dev=%s,start=%d,size=%d)>",
+func (p *BitmapParser) String() string {
+	return fmt.Sprintf("<XFSBitmapParser(dev=%s,start=%d,size=%d)>",
 		p.dev, p.start, p.size)
 }
 
-func (p *XfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
+func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 
 	defer func() {
 		if p.fr != nil {
@@ -55,7 +54,7 @@ func (p *XfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	if err := binary.Read(p.fr, binary.BigEndian, &p.sb); err != nil {
 		return nil, errors.Wrapf(err, "read superblock")
 	}
-	if p.sb.Magicnum != XFS_SB_MAGIC {
+	if p.sb.Magicnum != xfsSbMagic {
 		return nil, errors.Errorf("wrong magic number of superblock")
 	}
 	logger.Debugf("%s.Dump() superblock: \n%s", p, spew.Sdump(p.sb))
@@ -78,43 +77,43 @@ func (p *XfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 
 		logger.Debugf("%s.Dump() ########## AG%02d ##########", p, agno)
 
-		var agf AGF
+		var agf_ agf
 		if _, err := p.fr.Seek(agOffset+1*int64(p.sb.Sectsize), io.SeekStart); err != nil {
 			return nil, errors.Wrapf(err, "seek")
 		}
-		if err := binary.Read(p.fr, binary.BigEndian, &agf); err != nil {
+		if err := binary.Read(p.fr, binary.BigEndian, &agf_); err != nil {
 			return nil, errors.Wrapf(err, "read")
 		}
-		if agf.Magicnum != XFS_AGF_MAGIC {
+		if agf_.Magicnum != xfsAgfMagic {
 			return nil, errors.Errorf("wrong magic number of agf")
 		}
-		logger.Debugf("%s.Dump() AG%02d: AGF:\n%s", p, agno, spew.Sdump(agf))
+		logger.Debugf("%s.Dump() AG%02d: AGF:\n%s", p, agno, spew.Sdump(agf_))
 
-		var agi AGI
+		var agi_ agi
 		if _, err := p.fr.Seek(agOffset+2*int64(p.sb.Sectsize), io.SeekStart); err != nil {
 			return nil, errors.Wrapf(err, "seek")
 		}
-		if err := binary.Read(p.fr, binary.BigEndian, &agi); err != nil {
+		if err := binary.Read(p.fr, binary.BigEndian, &agi_); err != nil {
 			return nil, errors.Wrapf(err, "read")
 		}
-		if agi.Magicnum != XFS_AGI_MAGIC {
+		if agi_.Magicnum != xfsAgiMagic {
 			return nil, errors.Errorf("wrong magic number of agi")
 		}
-		logger.Debugf("%s.Dump() AG%02d: AGI:\n%s", p, agno, spew.Sdump(agi))
+		logger.Debugf("%s.Dump() AG%02d: AGI:\n%s", p, agno, spew.Sdump(agi_))
 
-		var agfl AGFL
+		var agfl_ agfl
 		if _, err := p.fr.Seek(agOffset+3*int64(p.sb.Sectsize), io.SeekStart); err != nil {
 			return nil, errors.Wrapf(err, "seek")
 		}
 		// 注：v4（非CRC）文件系统的 AGFL 没有这个头部，整个扇区都是 bno 数组，
 		// 这里假设是 CRC(v5) 场景；若要兼容 v4，需要判断 hasCrc() 后跳过本次读取。
-		if err := binary.Read(p.fr, binary.BigEndian, &agfl); err != nil {
+		if err := binary.Read(p.fr, binary.BigEndian, &agfl_); err != nil {
 			return nil, errors.Wrapf(err, "read")
 		}
-		if agfl.Magicnum != XFS_AGFL_MAGIC {
+		if agfl_.Magicnum != xfsAgflMagic {
 			return nil, errors.Errorf("wrong magic number of agfl")
 		}
-		logger.Debugf("%s.Dump() AG%02d: AGFL:\n%s", p, agno, spew.Sdump(agfl))
+		logger.Debugf("%s.Dump() AG%02d: AGFL:\n%s", p, agno, spew.Sdump(agfl_))
 
 		bnoArr := make([]uint32, bnoCount)
 		if err := binary.Read(p.fr, binary.BigEndian, &bnoArr); err != nil {
@@ -123,34 +122,34 @@ func (p *XfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		logger.Debugf("%s.Dump() AG%02d: BNO Array:\n%s", p, agno, spew.Sdump(bnoArr))
 
 		// 1. 扫描 AGFL 空闲链表
-		if err := p.scanFreeList(agno, agf, bnoArr); err != nil {
+		if err := p.scanFreeList(agno, agf_, bnoArr); err != nil {
 			return nil, errors.Wrapf(err, "AG%02d scan freelist", agno)
 		}
 
 		// 2. 扫描 bnobt（按块号索引的空闲空间树），登记 B+树管理的空闲块
-		if err := p.scanSbtreeBno(agf, agOffset, agf.Roots[0], int(agf.Levels[0])); err != nil {
+		if err := p.scanSbtreeBno(agf_, agOffset, agf_.Roots[0], int(agf_.Levels[0])); err != nil {
 			return nil, errors.Wrapf(err, "AG%02d scan bnobt", agno)
 		}
 	}
 
 	//logger.Debugf("%s.Dump() bitmap:\n%s", p, hex.Dump(p.fsBitmap.Bitmap))
 
-	usedBlks := int64(p.sb.Dblocks) - p.freeBits
-	effectBytes := usedBlks * int64(p.fsBitmap.BlockSize)
-	logger.Debugf("%s.Dump() blocks=%d, bs=%d, used=%dB(%s/%s)",
-		p,
-		usedBlks,
-		p.fsBitmap.BlockSize,
-		effectBytes,
-		humanize.IBytes(uint64(effectBytes)),
-		humanize.IBytes(uint64(p.size)))
+	//usedBlks := int64(p.sb.Dblocks) - p.freeBits
+	//effectBytes := usedBlks * int64(p.fsBitmap.BlockSize)
+	//logger.Debugf("%s.Dump() blocks=%d, bs=%d, used=%dB(%s/%s)",
+	//	p,
+	//	usedBlks,
+	//	p.fsBitmap.BlockSize,
+	//	effectBytes,
+	//	humanize.IBytes(uint64(effectBytes)),
+	//	humanize.IBytes(uint64(p.size)))
 
 	return p.fsBitmap, nil
 }
 
-// scanFreeList 扫描 AGFL 空闲链表，把其中记录的空闲块登记到位图中
+// scanFreeList 扫描 agfl 空闲链表，把其中记录的空闲块登记到位图中
 // 参考：xfsprogs repair/scan.c 中的 scan_freelist()
-func (p *XfsBitmapParser) scanFreeList(agno uint32, agf AGF, bnoArr []uint32) error {
+func (p *BitmapParser) scanFreeList(agno uint32, agf agf, bnoArr []uint32) error {
 	// agf_flcount == 0 表示空闲链表为空，无需扫描
 	if agf.Flcount == 0 {
 		return nil
@@ -186,8 +185,8 @@ func (p *XfsBitmapParser) scanFreeList(agno uint32, agf AGF, bnoArr []uint32) er
 }
 
 // scanSbtreeBno 对应内核 scan_sbtree()（这里专门针对 bnobt，固定分发到 scanFuncBno）
-// agOffset: 该 AG 起始的字节偏移；agbno: 该 btree block 在 AG 内的相对块号
-func (p *XfsBitmapParser) scanSbtreeBno(agf AGF, agOffset int64, agbno uint32, nlevels int) error {
+// agOffset: 该 ag 起始的字节偏移；agbno: 该 btree block 在 ag 内的相对块号
+func (p *BitmapParser) scanSbtreeBno(agf agf, agOffset int64, agbno uint32, nlevels int) error {
 	blockSize := int64(p.sb.BlockSize)
 	offset := agOffset + int64(agbno)*blockSize
 
@@ -203,10 +202,10 @@ func (p *XfsBitmapParser) scanSbtreeBno(agf AGF, agOffset int64, agbno uint32, n
 }
 
 // scanFuncBno 对应内核 scanfunc_bno()
-func (p *XfsBitmapParser) scanFuncBno(agf AGF, data []byte, level int) error {
+func (p *BitmapParser) scanFuncBno(agf agf, data []byte, level int) error {
 	order := binary.BigEndian
 
-	var hdr BtreeShortBlock
+	var hdr btreeShortBlock
 	hdr.Magicnum = order.Uint32(data[0:4])
 	hdr.Level = order.Uint16(data[4:6])
 	hdr.Numrecs = order.Uint16(data[6:8])
@@ -218,7 +217,7 @@ func (p *XfsBitmapParser) scanFuncBno(agf AGF, data []byte, level int) error {
 	//logger.Debugf("%s.scanFuncBno() magicnum=%v", p, hdr.Magicnum)
 
 	switch hdr.Magicnum {
-	case XFS_ABTB_CRC_MAGIC:
+	case xfsAbtbCrcMagic:
 		headerLen = binary.Size(hdr) // 56
 		if len(data) < headerLen {
 			return errors.Errorf("block too small: %d", len(data))
@@ -228,7 +227,7 @@ func (p *XfsBitmapParser) scanFuncBno(agf AGF, data []byte, level int) error {
 		copy(hdr.UUID[:], data[32:48])
 		hdr.Owner = order.Uint32(data[48:52])
 		hdr.CRC = binary.LittleEndian.Uint32(data[52:56])
-	case XFS_ABTB_MAGIC:
+	case xfsAbtbMagic:
 		headerLen = 16
 		if len(data) < headerLen {
 			return errors.Errorf("block too small: %d", len(data))
@@ -286,7 +285,7 @@ func (p *XfsBitmapParser) scanFuncBno(agf AGF, data []byte, level int) error {
 }
 
 // readBlockAt 从设备读取一个完整的 fs block
-func (p *XfsBitmapParser) readBlockAt(offset int64, blockSize int64) ([]byte, error) {
+func (p *BitmapParser) readBlockAt(offset int64, blockSize int64) ([]byte, error) {
 	buf := make([]byte, blockSize)
 	if _, err := p.fr.Seek(offset, io.SeekStart); err != nil {
 		return nil, errors.Wrapf(err, "seek to %d", offset)
@@ -299,30 +298,30 @@ func (p *XfsBitmapParser) readBlockAt(offset int64, blockSize int64) ([]byte, er
 
 // markFree 把 (AG号, AG内相对块号, 长度) 换算成设备绝对块号，
 // 在位图中清除对应的 bit（表示这段块是空闲的）
-func (p *XfsBitmapParser) markFree(agno uint32, agbno uint32, length uint32) {
+func (p *BitmapParser) markFree(agno uint32, agbno uint32, length uint32) {
 	atomic.AddInt64(&p.freeBits, int64(length))
 	startBlock := uint64(agno)*uint64(p.sb.Agblocks) + uint64(agbno)
 	logger.Debugf("%s.markFree() startblk=%d agno=%d agbno=%d len=%d ", p, startBlock, agno, agbno, length)
 	p.fsBitmap.ClearRange(startBlock, length)
 }
 
-func (sb *SuperBlock) agflBnoCount() int {
+func (sb *superBlock) agflBnoCount() int {
 	size := int(sb.Sectsize)
 	if sb.hasCrc() {
-		size -= int(unsafe.Sizeof(AGFL{}))
+		size -= int(unsafe.Sizeof(agfl{}))
 	}
 	return size / int(unsafe.Sizeof(uint32(0)))
 }
 
-func (sb *SuperBlock) version() XfsSbVersion {
-	return XfsSbVersion(sb.Versionnum & uint16(XFS_SB_VERSION_NUMBITS))
+func (sb *superBlock) version() xfsSbVersion {
+	return xfsSbVersion(sb.Versionnum & uint16(xfsSbVersionNumbits))
 }
 
-func (sb *SuperBlock) hasCrc() bool {
-	return sb.version() == XFS_SB_VERSION_5
+func (sb *superBlock) hasCrc() bool {
+	return sb.version() == xfsSbVersion5
 }
 
-func (sb *SuperBlock) hasFeature(bit XfsSbVersionBit) bool {
+func (sb *superBlock) hasFeature(bit xfsSbVersionBit) bool {
 	return sb.Versionnum&uint16(bit) != 0
 }
 

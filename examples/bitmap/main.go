@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/kisun-bit/drpkg/disk/filesystem/ntfs"
+	"github.com/kisun-bit/drpkg/disk/filesystem/extfs"
 	"github.com/kisun-bit/drpkg/disk/filesystem/xfs"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
@@ -89,7 +89,7 @@ func demoNtfs() {
 	offset := extend.MustInt64(os.Args[2])
 	size := extend.MustInt64(os.Args[3])
 
-	p, err := ntfs.NewBitmapParser(origin, offset, size)
+	p, err := extfs.NewBitmapParser(origin, offset, size)
 	if err != nil {
 		panic(err)
 	}
@@ -97,6 +97,8 @@ func demoNtfs() {
 	if e != nil {
 		panic(e)
 	}
+	//logger.Debugf("demoNtfs: \n%s\n%v", hex.Dump(bmp.Bitmap), bmp.UsedSizeHuman())
+	logger.Debugf("demoNtfs: \n%v", bmp.UsedSizeHuman())
 	_ = bmp
 }
 

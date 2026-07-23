@@ -3,7 +3,9 @@ package bitmap
 import (
 	"fmt"
 	"io"
+	"math/bits"
 
+	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 )
 
@@ -113,6 +115,38 @@ func (b *FsBitmap) ClearRange(start uint64, length uint32) {
 	for i := uint32(0); i < length; i++ {
 		b.Clear(start + uint64(i))
 	}
+}
+
+// CountSet 统计位图中值为 1 的有效 bit 数量（即已使用的 block 数）。
+// 只统计 [0, Bits) 范围内的位，最后一个字节里超出 Bits 的 padding bit 会被自动排除。
+func (b *FsBitmap) CountSet() int64 {
+	if b.Bits <= 0 {
+		return 0
+	}
+
+	var count int64
+	fullBytes := int(b.Bits / 8) // 完整的字节数（不含最后一个不完整字节）
+
+	for i := 0; i < fullBytes && i < len(b.Bitmap); i++ {
+		count += int64(bits.OnesCount8(b.Bitmap[i]))
+	}
+
+	// 处理最后一个不完整字节：只有低 rem 位是有效数据，高位是 padding，需要屏蔽
+	if rem := b.Bits % 8; rem > 0 && fullBytes < len(b.Bitmap) {
+		mask := byte(1<<uint(rem) - 1) // 低 rem 位为 1，其余位为 0
+		count += int64(bits.OnesCount8(b.Bitmap[fullBytes] & mask))
+	}
+
+	return count
+}
+
+// UsedSize 返回位图中值为 1 的 bit（即已使用的 block）所代表的数据总大小，单位字节。
+func (b *FsBitmap) UsedSize() int64 {
+	return b.CountSet() * int64(b.BlockSize)
+}
+
+func (b *FsBitmap) UsedSizeHuman() string {
+	return humanize.IBytes(uint64(b.UsedSize()))
 }
 
 // ChangeBlockSize 重新以新的块大小生成位图

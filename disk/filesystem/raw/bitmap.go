@@ -9,7 +9,7 @@ import (
 	"github.com/kisun-bit/drpkg/logger"
 )
 
-type RawBitmapParser struct {
+type BitmapParser struct {
 	dev   string
 	start int64
 	size  int64
@@ -21,27 +21,23 @@ func NewBitmapParser(dev string, start int64, size int64) (bitmap.FsBitmapParser
 	if e != nil {
 		return nil, e
 	}
-	return &RawBitmapParser{dev: dev, start: start, size: size, fr: fr}, nil
+	return &BitmapParser{dev: dev, start: start, size: size, fr: fr}, nil
 }
 
-func (p *RawBitmapParser) String() string {
-	return fmt.Sprintf("<RawBitmapParser(dev=%s,start=%d,size=%d)>",
+func (p *BitmapParser) String() string {
+	return fmt.Sprintf("<RAWBitmapParser(dev=%s,start=%d,size=%d)>",
 		p.dev, p.start, p.size)
 }
 
-func (p *RawBitmapParser) Dump() (*bitmap.FsBitmap, error) {
+func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	defer func() {
 		if p.fr != nil {
 			_ = p.fr.Close()
 		}
 	}()
 
-	// RAW 模式没有文件系统结构可解析，
-	// 直接把整个区域视为全部占用（bit=1），不做实际读取。
-	// blockSize 这里按 1 字节为单位，即 bits == size；
-	// 如果你的 RAW 模式有自己的块大小定义，请替换成实际值。
-	const blockSize = 1
-	bits := p.size
+	const blockSize = 64 << 10
+	bits := (p.size + (blockSize - 1)) / blockSize
 
 	fb := bitmap.NewFsBitmap(define.FsTypeUnknown, bitmap.BitmapRaw, bits, blockSize)
 

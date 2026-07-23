@@ -200,6 +200,7 @@ const (
 	FsTypeExt4    = "ext4"
 	FsTypeExt3    = "ext3"
 	FsTypeExt2    = "ext2"
+	FsTypeExtFs   = "ext2/3/4"
 
 	FsTypeXFS   = "xfs"
 	FsTypeBtrfs = "btrfs"

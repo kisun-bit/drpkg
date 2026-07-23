@@ -8,22 +8,21 @@ import (
 	"unicode/utf16"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/dustin/go-humanize"
 	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/disk/filesystem/bitmap"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 )
 
-type NtfsBitmapParser struct {
+type BitmapParser struct {
 	dev   string
 	start int64
 	size  int64
 	fr    *extend.FsRegionReader
 
-	boot       BootSector
-	mftRuns    []DataRun
-	bitmapRuns []DataRun
+	boot       bootSector
+	mftRuns    []dataRun
+	bitmapRuns []dataRun
 }
 
 func NewBitmapParser(dev string, start int64, size int64) (bitmap.FsBitmapParser, error) {
@@ -31,15 +30,15 @@ func NewBitmapParser(dev string, start int64, size int64) (bitmap.FsBitmapParser
 	if e != nil {
 		return nil, e
 	}
-	return &NtfsBitmapParser{dev: dev, start: start, size: size, fr: fr}, nil
+	return &BitmapParser{dev: dev, start: start, size: size, fr: fr}, nil
 }
 
-func (p *NtfsBitmapParser) String() string {
-	return fmt.Sprintf("<NtfsBitmapParser(dev=%s,start=%d,size=%d)>",
+func (p *BitmapParser) String() string {
+	return fmt.Sprintf("<NTFSBitmapParser(dev=%s,start=%d,size=%d)>",
 		p.dev, p.start, p.size)
 }
 
-func (p *NtfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
+func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	defer func() {
 		if p.fr != nil {
 			_ = p.fr.Close()
@@ -56,12 +55,12 @@ func (p *NtfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	}
 	logger.Debugf("%s.Dump() BitmapRuns:\n%s", p, spew.Sdump(p.bitmapRuns))
 
-	clusterSize := p.boot.ClusterSize()
+	clusterSize := p.boot.clusterSize()
 
 	// 计算 $Bitmap 属性数据总长度（字节）
 	bitmapLen := int64(0)
 	for _, run := range p.bitmapRuns {
-		bitmapLen += run.LengthClusters * clusterSize
+		bitmapLen += run.lengthClusters * clusterSize
 	}
 	logger.Debugf("%s.Dump() BitmapLen: %v", p, bitmapLen)
 
@@ -69,16 +68,16 @@ func (p *NtfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	bitmapBytes := make([]byte, bitmapLen)
 	destOffset := int64(0) // 目标端：bitmapBytes 里的写入位置
 	for _, run := range p.bitmapRuns {
-		length := run.LengthClusters * clusterSize
+		length := run.lengthClusters * clusterSize
 
-		if run.Sparse {
+		if run.sparse {
 			// 稀疏 run 对应的簇全部视为 0（空闲），
 			// Go 的 make([]byte, n) 默认已经是全 0，跳过读取即可
 			destOffset += length
 			continue
 		}
 
-		srcOffset := run.StartCluster * clusterSize // 源端：设备内偏移
+		srcOffset := run.startCluster * clusterSize // 源端：设备内偏移
 		if _, e := p.fr.ReadAt(bitmapBytes[destOffset:destOffset+length], srcOffset); e != nil {
 			return nil, e
 		}
@@ -86,7 +85,7 @@ func (p *NtfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	}
 
 	// 校验：位图字节数不应小于按簇数算出来的理论大小
-	totalClusters := p.boot.TotalCluster()
+	totalClusters := p.boot.totalCluster()
 	needBytes := (totalClusters + 7) / 8
 	if int64(len(bitmapBytes)) < needBytes {
 		return nil, fmt.Errorf(
@@ -106,10 +105,10 @@ func (p *NtfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		}
 	}
 
-	usedBytes := used * clusterSize
-	totalBytes := totalClusters * clusterSize
-	logger.Debugf("%s.Dump() blocks=%d, bs=%d, used=%dB ( %s / %s )",
-		p, totalClusters, clusterSize, usedBytes, humanize.IBytes(uint64(usedBytes)), humanize.IBytes(uint64(totalBytes)))
+	//usedBytes := used * clusterSize
+	//totalBytes := totalClusters * clusterSize
+	//logger.Debugf("%s.Dump() blocks=%d, bs=%d, used=%dB ( %s / %s )",
+	//	p, totalClusters, clusterSize, usedBytes, humanize.IBytes(uint64(usedBytes)), humanize.IBytes(uint64(totalBytes)))
 
 	return &bitmap.FsBitmap{
 		Type:       define.FsTypeNTFS,
@@ -120,7 +119,7 @@ func (p *NtfsBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	}, nil
 }
 
-func (p *NtfsBitmapParser) parseBoot() error {
+func (p *BitmapParser) parseBoot() error {
 	buf := make([]byte, 512)
 	if _, err := p.fr.Read(buf); err != nil && err != io.EOF {
 		return fmt.Errorf("ntfs: read boot sector: %v", err)
@@ -133,30 +132,30 @@ func (p *NtfsBitmapParser) parseBoot() error {
 	// H4: a bytes-per-sector value of 0 or 1 makes sectorEnd-2 negative in
 	// applyFixup; a non-power-of-two confuses sector arithmetic. Require a
 	// power of two in [512, 64KiB].
-	if !isPowerOfTwo(bps) || bps < MinBytesPerSector {
+	if !isPowerOfTwo(bps) || bps < minBytesPerSector {
 		return fmt.Errorf("ntfs: invalid bytes-per-sector %d (must be a power of two >= %d)",
-			bps, MinBytesPerSector)
+			bps, minBytesPerSector)
 	}
 
 	totalSects := binary.LittleEndian.Uint64(buf[0x28:])
 	mftClus := binary.LittleEndian.Uint64(buf[0x30:])
 
-	b := BootSector{
-		BytesPerSector:    bps,
-		SectorsPerCluster: spc,
-		MftCluster:        mftClus,
-		TotalSectors:      int64(totalSects),
+	b := bootSector{
+		bytesPerSector:    bps,
+		sectorsPerCluster: spc,
+		mftCluster:        mftClus,
+		totalSectors:      int64(totalSects),
 	}
-	b.MftRecordSize = decodeClustersPerRecord(int8(buf[0x40]), b.ClusterSize())
-	b.IndexRecordSize = decodeClustersPerRecord(int8(buf[0x44]), b.ClusterSize())
+	b.mftRecordSize = decodeClustersPerRecord(int8(buf[0x40]), b.clusterSize())
+	b.indexRecordSize = decodeClustersPerRecord(int8(buf[0x44]), b.clusterSize())
 	// M1: clamp record sizes to a sane ceiling; a signed-shift byte can
 	// otherwise produce a ~2 GiB record size that OOMs the make() in
 	// readFileRecordAt / the INDX walk.
-	if b.MftRecordSize == 0 || b.MftRecordSize > MaxRecordSize {
-		return fmt.Errorf("ntfs: invalid MFT record size %d", b.MftRecordSize)
+	if b.mftRecordSize == 0 || b.mftRecordSize > maxRecordSize {
+		return fmt.Errorf("ntfs: invalid MFT record size %d", b.mftRecordSize)
 	}
-	if b.IndexRecordSize > MaxRecordSize {
-		return fmt.Errorf("ntfs: invalid index record size %d", b.IndexRecordSize)
+	if b.indexRecordSize > maxRecordSize {
+		return fmt.Errorf("ntfs: invalid index record size %d", b.indexRecordSize)
 	}
 	p.boot = b
 	return nil
@@ -165,12 +164,12 @@ func (p *NtfsBitmapParser) parseBoot() error {
 // loadMFTRuns reads MFT record 0 ($MFT) to recover its $DATA runlist so
 // the reader can locate any MFT record even on a fragmented volume. $MFT
 // record 0 is always at $MftClusterNumber and is self-describing.
-func (p *NtfsBitmapParser) loadMFTRuns() error {
+func (p *BitmapParser) loadMFTRuns() error {
 	// A hostile $MftClusterNumber (e.g. 0xFFFF...FF) would make the byte
 	// offset negative or overflow; compute it with the same guards
 	// mftRecordOffset uses so a corrupt boot sector yields an error rather
 	// than a negative ReadAt offset (and a slice-bounds panic).
-	off, ok := p.mftRecordOffset(MftRecordMFT)
+	off, ok := p.mftRecordOffset(mftRecordMFT)
 	if !ok {
 		return fmt.Errorf("ntfs: $MFT record offset unreachable")
 	}
@@ -178,10 +177,10 @@ func (p *NtfsBitmapParser) loadMFTRuns() error {
 	if err != nil {
 		return fmt.Errorf("ntfs: read $MFT record: %v", err)
 	}
-	for _, a := range rec.Attrs {
-		if a.TypeCode == AttrData && a.Name == "" {
-			if a.NonResident {
-				p.mftRuns = a.Runs
+	for _, a := range rec.attrs {
+		if a.typeCode == attrData && a.name == "" {
+			if a.nonResident {
+				p.mftRuns = a.runs
 				return nil
 			}
 		}
@@ -189,12 +188,12 @@ func (p *NtfsBitmapParser) loadMFTRuns() error {
 	return fmt.Errorf("ntfs: $MFT has no non-resident $DATA")
 }
 
-func (p *NtfsBitmapParser) loadBitmapRuns() error {
+func (p *BitmapParser) loadBitmapRuns() error {
 	// A hostile $MftClusterNumber (e.g. 0xFFFF...FF) would make the byte
 	// offset negative or overflow; compute it with the same guards
 	// mftRecordOffset uses so a corrupt boot sector yields an error rather
 	// than a negative ReadAt offset (and a slice-bounds panic).
-	off, ok := p.mftRecordOffset(MftRecordBitmap)
+	off, ok := p.mftRecordOffset(mftRecordBitmap)
 	if !ok {
 		return fmt.Errorf("ntfs: $BITMAP record offset unreachable")
 	}
@@ -202,10 +201,10 @@ func (p *NtfsBitmapParser) loadBitmapRuns() error {
 	if err != nil {
 		return fmt.Errorf("ntfs: read $MFT record: %v", err)
 	}
-	for _, a := range rec.Attrs {
-		if a.TypeCode == AttrData && a.Name == "" {
-			if a.NonResident {
-				p.bitmapRuns = a.Runs
+	for _, a := range rec.attrs {
+		if a.typeCode == attrData && a.name == "" {
+			if a.nonResident {
+				p.bitmapRuns = a.runs
 				return nil
 			}
 		}
@@ -215,15 +214,15 @@ func (p *NtfsBitmapParser) loadBitmapRuns() error {
 
 // readFileRecordAt reads one FILE record at an absolute byte offset,
 // applies the update-sequence-array fixup and parses its attributes.
-func (p *NtfsBitmapParser) readFileRecordAt(off int64) (*FileRecord, error) {
-	buf := make([]byte, p.boot.MftRecordSize)
+func (p *BitmapParser) readFileRecordAt(off int64) (*fileRecord, error) {
+	buf := make([]byte, p.boot.mftRecordSize)
 	if _, err := p.fr.ReadAt(buf, off); err != nil && err != io.EOF {
 		return nil, err
 	}
 	return p.parseFileRecord(buf)
 }
 
-func (p *NtfsBitmapParser) parseFileRecord(buf []byte) (*FileRecord, error) {
+func (p *BitmapParser) parseFileRecord(buf []byte) (*fileRecord, error) {
 	if len(buf) < 0x30 {
 		return nil, fmt.Errorf("ntfs: short FILE record")
 	}
@@ -232,18 +231,18 @@ func (p *NtfsBitmapParser) parseFileRecord(buf []byte) (*FileRecord, error) {
 	}
 	usaOffset := binary.LittleEndian.Uint16(buf[0x04:])
 	usaCount := binary.LittleEndian.Uint16(buf[0x06:])
-	if err := applyFixup(buf, usaOffset, usaCount, p.boot.BytesPerSector); err != nil {
+	if err := applyFixup(buf, usaOffset, usaCount, p.boot.bytesPerSector); err != nil {
 		return nil, fmt.Errorf("ntfs: FILE fixup: %v", err)
 	}
 
 	flags := binary.LittleEndian.Uint16(buf[0x16:])
 	firstAttr := binary.LittleEndian.Uint16(buf[0x14:])
 
-	fr := &FileRecord{Flags: flags}
+	fr := &fileRecord{flags: flags}
 	off := int(firstAttr)
 	for off+4 <= len(buf) {
 		typeCode := binary.LittleEndian.Uint32(buf[off:])
-		if typeCode == AttrEnd {
+		if typeCode == attrEnd {
 			break
 		}
 		if off+8 > len(buf) {
@@ -257,30 +256,30 @@ func (p *NtfsBitmapParser) parseFileRecord(buf []byte) (*FileRecord, error) {
 		if err != nil {
 			return nil, err
 		}
-		fr.Attrs = append(fr.Attrs, a)
+		fr.attrs = append(fr.attrs, a)
 		off += recLen
 	}
 	return fr, nil
 }
 
-// parseAttribute decodes one Attribute record (header + body).
-func (p *NtfsBitmapParser) parseAttribute(buf []byte) (Attribute, error) {
-	var a Attribute
+// parseAttribute decodes one attribute record (header + body).
+func (p *BitmapParser) parseAttribute(buf []byte) (attribute, error) {
+	var a attribute
 	// C1: the fixed-offset reads below (buf[8], buf[10:], buf[0x10:],
 	// buf[0x14:]) require a full resident attribute header. The caller only
 	// guarantees recLen>0, so a short attribute would panic without this.
 	if err := CheckBounds(0, 0x18, len(buf)); err != nil {
 		return a, fmt.Errorf("ntfs: short attribute header: %w", err)
 	}
-	a.TypeCode = binary.LittleEndian.Uint32(buf[0:])
+	a.typeCode = binary.LittleEndian.Uint32(buf[0:])
 	nonResident := buf[8]
 	nameLen := int(buf[9])
 	nameOff := int(binary.LittleEndian.Uint16(buf[10:]))
-	a.Flags = binary.LittleEndian.Uint16(buf[0x0C:])
-	a.AttrID = binary.LittleEndian.Uint16(buf[0x0E:])
+	a.flags = binary.LittleEndian.Uint16(buf[0x0C:])
+	a.attrID = binary.LittleEndian.Uint16(buf[0x0E:])
 	if nameLen > 0 {
 		if name, err := Slice(buf, nameOff, nameLen*2); err == nil {
-			a.Name = decodeUTF16(name)
+			a.name = decodeUTF16(name)
 		}
 	}
 	if nonResident == 0 {
@@ -291,8 +290,8 @@ func (p *NtfsBitmapParser) parseAttribute(buf []byte) (Attribute, error) {
 		if err != nil {
 			return a, fmt.Errorf("ntfs: resident attr content out of range: %w", err)
 		}
-		a.ResidentData = append([]byte(nil), content...)
-		a.RealSize = uint64(contentLen)
+		a.residentData = append([]byte(nil), content...)
+		a.realSize = uint64(contentLen)
 		return a, nil
 	}
 	// Non-resident attribute. The runlist-offset (0x20) and real-size
@@ -301,14 +300,14 @@ func (p *NtfsBitmapParser) parseAttribute(buf []byte) (Attribute, error) {
 	if err := CheckBounds(0, 0x40, len(buf)); err != nil {
 		return a, fmt.Errorf("ntfs: short non-resident attribute header: %w", err)
 	}
-	a.NonResident = true
-	a.StartVCN = binary.LittleEndian.Uint64(buf[0x10:])
-	a.LastVCN = binary.LittleEndian.Uint64(buf[0x18:])
-	a.CompUnit = binary.LittleEndian.Uint16(buf[0x22:])
+	a.nonResident = true
+	a.startVCN = binary.LittleEndian.Uint64(buf[0x10:])
+	a.lastVCN = binary.LittleEndian.Uint64(buf[0x18:])
+	a.compUnit = binary.LittleEndian.Uint16(buf[0x22:])
 	// The real-size field (0x30) is only meaningful on the first fragment
 	// (startVCN 0); later attribute-list fragments repeat the allocated size
 	// but resolveAttributes takes realSize from the VCN-0 fragment.
-	a.RealSize = binary.LittleEndian.Uint64(buf[0x30:])
+	a.realSize = binary.LittleEndian.Uint64(buf[0x30:])
 	runOff := int(binary.LittleEndian.Uint16(buf[0x20:]))
 	runData, err := Slice(buf, runOff, len(buf)-runOff)
 	if err != nil {
@@ -318,27 +317,27 @@ func (p *NtfsBitmapParser) parseAttribute(buf []byte) (Attribute, error) {
 	if err != nil {
 		return a, err
 	}
-	a.Runs = runs
+	a.runs = runs
 	return a, nil
 }
 
 // mftRecordOffset maps a record number to its absolute byte offset using
 // the $MFT runlist. Returns (offset, true) when the record is reachable.
-func (p *NtfsBitmapParser) mftRecordOffset(recNo uint64) (int64, bool) {
+func (p *BitmapParser) mftRecordOffset(recNo uint64) (int64, bool) {
 	// Bytes into the $MFT $DATA stream where this record begins. recNo and
 	// mftRecordSize are both bounded (record size <= 1 MiB), but compute the
 	// product overflow-safely anyway.
-	target, ok := mulCheck(int64(recNo), int64(p.boot.MftRecordSize))
+	target, ok := mulCheck(int64(recNo), int64(p.boot.mftRecordSize))
 	if !ok {
 		return 0, false
 	}
-	cs := p.boot.ClusterSize()
+	cs := p.boot.clusterSize()
 	// Special-case: before loadMFTRuns populates mftRuns we still need
 	// record 0; it sits at mftCluster. A hostile $MftClusterNumber must not
 	// produce a negative or overflowing byte offset.
 	if p.mftRuns == nil {
-		base, ok := mulCheck(int64(p.boot.MftCluster), cs)
-		if !ok || int64(p.boot.MftCluster) < 0 {
+		base, ok := mulCheck(int64(p.boot.mftCluster), cs)
+		if !ok || int64(p.boot.mftCluster) < 0 {
 			return 0, false
 		}
 		abs, ok := addCheck(base, target)
@@ -356,7 +355,7 @@ func (p *NtfsBitmapParser) mftRecordOffset(recNo uint64) (int64, bool) {
 		// M4: overflow-safe run arithmetic. A malicious $MFT runlist could
 		// otherwise drive lengthClusters*cs or startCluster*cs negative and
 		// misdirect a record read.
-		runBytes, ok := mulCheck(run.LengthClusters, cs)
+		runBytes, ok := mulCheck(run.lengthClusters, cs)
 		if !ok {
 			return 0, false
 		}
@@ -365,11 +364,11 @@ func (p *NtfsBitmapParser) mftRecordOffset(recNo uint64) (int64, bool) {
 			return 0, false
 		}
 		if target < streamEnd {
-			if run.Sparse {
+			if run.sparse {
 				return 0, false
 			}
 			within := target - streamPos
-			base, ok := mulCheck(run.StartCluster, cs)
+			base, ok := mulCheck(run.startCluster, cs)
 			if !ok {
 				return 0, false
 			}
@@ -522,8 +521,8 @@ func Slice(buf []byte, off, n int) ([]byte, error) {
 // field, high nibble = byte count of the (signed, relative) offset
 // field. A zero header terminates the list. A run with a zero-length
 // offset field is sparse (a hole).
-func decodeRunList(buf []byte) ([]DataRun, error) {
-	var runs []DataRun
+func decodeRunList(buf []byte) ([]dataRun, error) {
+	var runs []dataRun
 	var prevLCN int64
 	i := 0
 	// A runlist cannot have more runs than it has bytes (each run is at
@@ -549,14 +548,14 @@ func decodeRunList(buf []byte) ([]DataRun, error) {
 		// H3: bound the cluster count so an 8-byte length of 0x7FFF...FF
 		// cannot feed H1/H2. A negative (top-bit-set) length is also
 		// rejected.
-		if length < 0 || length > MaxRunLengthClusters {
+		if length < 0 || length > maxRunLengthClusters {
 			return nil, fmt.Errorf("ntfs: data run length %d out of range", length)
 		}
 
-		run := DataRun{LengthClusters: length}
+		run := dataRun{lengthClusters: length}
 		if offBytes == 0 {
-			run.Sparse = true
-			run.StartCluster = -1
+			run.sparse = true
+			run.startCluster = -1
 		} else {
 			delta := readIntLE(buf[i : i+offBytes])
 			i += offBytes
@@ -567,7 +566,7 @@ func decodeRunList(buf []byte) ([]DataRun, error) {
 			if prevLCN < 0 {
 				return nil, fmt.Errorf("ntfs: data run negative start cluster %d", prevLCN)
 			}
-			run.StartCluster = prevLCN
+			run.startCluster = prevLCN
 		}
 		runs = append(runs, run)
 	}
