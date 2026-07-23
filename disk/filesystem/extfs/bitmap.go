@@ -1,4 +1,4 @@
-package extfs // TODO: 改成你实际的包名
+package extfs
 
 import (
 	"encoding/binary"
@@ -7,7 +7,7 @@ import (
 	"io"
 
 	"github.com/kisun-bit/drpkg/define"
-	"github.com/kisun-bit/drpkg/disk/filesystem/bitmap" // TODO: 改成实际的 import path
+	"github.com/kisun-bit/drpkg/disk/filesystem/bitmap"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 )

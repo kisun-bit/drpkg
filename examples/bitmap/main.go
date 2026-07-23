@@ -3,13 +3,12 @@ package main
 import (
 	"os"
 
-	"github.com/kisun-bit/drpkg/disk/filesystem/extfs"
-	"github.com/kisun-bit/drpkg/disk/filesystem/xfs"
+	"github.com/kisun-bit/drpkg/disk/filesystem/btrfs"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 )
 
-func demoXfs() {
+func testMirrorFs() {
 	if len(os.Args) < 3 {
 		logger.Fatalf("usage: %s <origin> <target>", os.Args[0])
 	}
@@ -26,7 +25,7 @@ func demoXfs() {
 		panic(e)
 	}
 
-	p, e := xfs.NewBitmapParser(origin, 0, int64(originSize))
+	p, e := btrfs.NewBitmapParser(origin, 0, int64(originSize))
 	if e != nil {
 		panic(e)
 	}
@@ -36,7 +35,7 @@ func demoXfs() {
 		panic(e)
 	}
 
-	logger.Debugf("dump bitmap done: bits=%d blocksize=%d used_size=%d",
+	logger.Debugf("testMirrorFs: bits=%d blocksize=%d used_size=%d",
 		bmp.Bits, bmp.BlockSize, bmp.Size())
 
 	//
@@ -76,11 +75,11 @@ func demoXfs() {
 		panic(e)
 	}
 
-	logger.Infof("mirror done: origin=%s target=%s copied=%d bytes (total=%d bytes)",
+	logger.Infof("testMirrorFs: origin=%s target=%s copied=%d bytes (total=%d bytes)",
 		origin, target, copied, originSize)
 }
 
-func demoNtfs() {
+func testBitmapExport() {
 	if len(os.Args) < 3 {
 		logger.Fatalf("usage: %s <origin> <offset> <size>", os.Args[0])
 	}
@@ -89,7 +88,7 @@ func demoNtfs() {
 	offset := extend.MustInt64(os.Args[2])
 	size := extend.MustInt64(os.Args[3])
 
-	p, err := extfs.NewBitmapParser(origin, offset, size)
+	p, err := btrfs.NewBitmapParser(origin, offset, size)
 	if err != nil {
 		panic(err)
 	}
@@ -97,13 +96,12 @@ func demoNtfs() {
 	if e != nil {
 		panic(e)
 	}
-	//logger.Debugf("demoNtfs: \n%s\n%v", hex.Dump(bmp.Bitmap), bmp.UsedSizeHuman())
-	logger.Debugf("demoNtfs: \n%v", bmp.UsedSizeHuman())
-	_ = bmp
+	logger.Debugf("testBitmapExport: \n%v", bmp.UsedSizeHuman())
 }
 
 func main() {
 	logger.Debug(os.Args)
 
-	demoNtfs()
+	//testBitmapExport()
+	testMirrorFs()
 }
