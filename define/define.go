@@ -196,14 +196,13 @@ const (
 
 // 文件系统类型
 const (
-	FsTypeExt4 = "ext4"
-	FsTypeExt3 = "ext3"
-	FsTypeExt2 = "ext2"
+	FsTypeUnknown = "unknown"
+	FsTypeExt4    = "ext4"
+	FsTypeExt3    = "ext3"
+	FsTypeExt2    = "ext2"
 
 	FsTypeXFS   = "xfs"
 	FsTypeBtrfs = "btrfs"
-
-	FsTypeNtfs = "ntfs"
 
 	FsTypeFAT   = "fat"
 	FsTypeVFAT  = "vfat"
