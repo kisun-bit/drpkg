@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/kisun-bit/drpkg/disk/filesystem/btrfs"
+	"github.com/kisun-bit/drpkg/disk/filesystem/fat"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 )
@@ -88,7 +89,7 @@ func testBitmapExport() {
 	offset := extend.MustInt64(os.Args[2])
 	size := extend.MustInt64(os.Args[3])
 
-	p, err := btrfs.NewBitmapParser(origin, offset, size)
+	p, err := fat.NewBitmapParser(origin, offset, size)
 	if err != nil {
 		panic(err)
 	}
@@ -102,6 +103,6 @@ func testBitmapExport() {
 func main() {
 	logger.Debug(os.Args)
 
-	//testBitmapExport()
-	testMirrorFs()
+	testBitmapExport()
+	//testMirrorFs()
 }

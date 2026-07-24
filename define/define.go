@@ -204,6 +204,7 @@ const (
 
 	FsTypeXFS   = "xfs"
 	FsTypeBtrfs = "btrfs"
+	FstypeApfs  = "apfs"
 
 	FsTypeFAT   = "fat"
 	FsTypeVFAT  = "vfat"
