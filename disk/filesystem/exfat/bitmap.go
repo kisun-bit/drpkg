@@ -8,21 +8,24 @@ import (
 	"github.com/kisun-bit/drpkg/extend"
 )
 
-// exFAT 相关常量
+// exFAT-related constants
 const (
-	direntTypeBitmap   = 0x81 // Allocation Bitmap 目录项
-	direntTypeEndOfDir = 0x00 // 目录结束标记
+	direntTypeBitmap   = 0x81 // Allocation Bitmap directory entry
+	direntTypeEndOfDir = 0x00 // End-of-directory marker
 
-	exfatBadCluster = 0xFFFFFFF7 // 坏簇标记（也用作簇链遍历的上界判断）
+	exfatBadCluster = 0xFFFFFFF7 // Bad-cluster marker (also used as the upper bound when walking a cluster chain)
 
-	// 与 C 代码里的 MAX_EXFAT_SECTORS 对应：防止损坏/恶意超级块导致内存耗尽
+	// Mirrors MAX_EXFAT_SECTORS in the C code: guards against a corrupted/malicious
+	// superblock causing memory exhaustion.
 	maxExfatSectors = uint64(1) << 40
 
-	// 遍历根目录簇链的安全上限，防止畸形 FAT 链造成死循环
+	// Safety limit when walking the root directory's cluster chain, to prevent an
+	// infinite loop caused by a malformed FAT chain.
 	maxDirTraverseEntries = 1 << 20
 )
 
-// ExfatBitmapParser 从 exFAT 文件系统解析已用簇信息，并展开为扇区级位图
+// ExfatBitmapParser parses used-cluster information from an exFAT filesystem
+// and expands it into a sector-level bitmap.
 type ExfatBitmapParser struct {
 	dev   string
 	start int64
@@ -30,7 +33,7 @@ type ExfatBitmapParser struct {
 	fr    *extend.FsRegionReader
 }
 
-// NewExfatBitmapParser 创建一个 exFAT 位图解析器
+// NewExfatBitmapParser creates a new exFAT bitmap parser.
 func NewExfatBitmapParser(dev string, start int64, size int64) (bitmap.FsBitmapParser, error) {
 	fr, e := extend.NewFsRegionReader(dev, start, size)
 	if e != nil {
@@ -59,7 +62,7 @@ func (p *ExfatBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		}
 	}()
 
-	// ---- 1. 读取并解析引导扇区（对应 C 的 read_super_blocks） ----
+	// ---- 1. Read and parse the boot sector (equivalent to read_super_blocks in C) ----
 	bs, err := p.readAt(0, 512)
 	if err != nil {
 		return nil, fmt.Errorf("read boot sector: %w", err)
@@ -69,7 +72,7 @@ func (p *ExfatBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	}
 
 	volumeLength := binary.LittleEndian.Uint64(bs[72:80])      // sector_count
-	fatOffset := uint64(binary.LittleEndian.Uint32(bs[80:84])) // 扇区偏移
+	fatOffset := uint64(binary.LittleEndian.Uint32(bs[80:84])) // sector offset
 	clusterHeapOffset := uint64(binary.LittleEndian.Uint32(bs[88:92]))
 	clusterCount := binary.LittleEndian.Uint32(bs[92:96])
 	rootDirCluster := binary.LittleEndian.Uint32(bs[96:100])
@@ -87,7 +90,8 @@ func (p *ExfatBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	sectorsPerCluster := uint64(1) << sectorsPerClusterShift
 	clusterSize := sectorsPerCluster * uint64(sectorSize)
 
-	// 对应 C 里对 sector_count 的越界检查，防止恶意/损坏超级块
+	// Equivalent to the sector_count bounds check in the C code, guarding against
+	// a malicious/corrupted superblock.
 	if volumeLength == 0 || volumeLength > maxExfatSectors {
 		return nil, fmt.Errorf(
 			"ERROR: maliciously large or zero sector_count detected: %d, max allowed: %d",
@@ -97,7 +101,8 @@ func (p *ExfatBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		return nil, fmt.Errorf("invalid or malicious cluster count: %d", clusterCount)
 	}
 
-	// 按需查询 FAT 表项（跟随根目录簇链时使用，不整体加载 FAT）
+	// Looks up a FAT entry on demand (used while walking the root directory's
+	// cluster chain; the FAT table is not loaded in full).
 	nextCluster := func(cluster uint32) (uint32, error) {
 		off := int64(fatOffset)*int64(sectorSize) + int64(cluster)*4
 		buf, err := p.readAt(off, 4)
@@ -112,7 +117,7 @@ func (p *ExfatBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		return int64(firstSector) * int64(sectorSize)
 	}
 
-	// ---- 2. 遍历根目录簇链，找到 Allocation Bitmap 目录项 ----
+	// ---- 2. Walk the root directory's cluster chain to find the Allocation Bitmap entry ----
 	var bitmapFirstCluster uint32
 	var bitmapDataLength uint64
 	found := false
@@ -141,7 +146,7 @@ outer:
 			}
 			if entryType == direntTypeBitmap {
 				bitmapFlags := ent[1]
-				if bitmapFlags&0x01 == 0 { // 只取第一份位图（非 TexFAT 副本）
+				if bitmapFlags&0x01 == 0 { // Only take the first bitmap copy (not the TexFAT mirror)
 					bitmapFirstCluster = binary.LittleEndian.Uint32(ent[20:24])
 					bitmapDataLength = binary.LittleEndian.Uint64(ent[24:32])
 					found = true
@@ -171,13 +176,13 @@ outer:
 			bitmapDataLength, expectedMinLen)
 	}
 
-	// ---- 3. 读取原始分配位图（连续存储，无需再走一次 FAT 链） ----
+	// ---- 3. Read the raw allocation bitmap (stored contiguously, no need to walk the FAT chain again) ----
 	rawBitmap, err := p.readAt(clusterToByteOffset(bitmapFirstCluster), int(expectedMinLen))
 	if err != nil {
 		return nil, fmt.Errorf("read allocation bitmap data: %w", err)
 	}
 
-	// ---- 4. 构造扇区级 FsBitmap（对应 C 的 read_bitmap / pc_set_bit 循环） ----
+	// ---- 4. Build the sector-level FsBitmap (equivalent to the read_bitmap / pc_set_bit loop in C) ----
 	result := bitmap.NewFsBitmap("exfat", bitmap.BitmapFromFS, int64(volumeLength), sectorSize)
 
 	for c := uint32(0); c < clusterCount; c++ {

@@ -8,7 +8,7 @@ import (
 	"github.com/kisun-bit/drpkg/extend"
 )
 
-// FAT 类型
+// FAT variants
 const (
 	fatUnknown = iota
 	fat12
@@ -19,29 +19,31 @@ const (
 const (
 	fat12Threshold = 4085
 	fat16Threshold = 65525
-	// FAT32 合法最大簇数，防止损坏/恶意超级块导致内存耗尽或死循环
+	// Maximum valid FAT32 cluster count, guarding against a corrupted or
+	// malicious superblock causing memory exhaustion or an infinite loop.
 	maxFatClusters = uint64(0x0FFFFFF6)
 )
 
-// fatBootSector 对应 C 里的 struct FatBootSector（按标准 BPB 偏移解析）
+// fatBootSector mirrors struct FatBootSector in the C code (parsed at the
+// standard BPB offsets).
 type fatBootSector struct {
-	sectorSize  uint16 // offset 11, 每扇区字节数
-	clusterSize uint8  // offset 13, 每簇扇区数
-	reserved    uint16 // offset 14, 保留扇区数
-	fats        uint8  // offset 16, FAT 表份数
-	dirEntries  uint16 // offset 17, 根目录项数(FAT12/16)
-	sectors     uint16 // offset 19, 总扇区数(16位, 小卷)
-	fatLength   uint16 // offset 22, 每FAT扇区数(FAT12/16)
-	sectorCount uint32 // offset 32, 总扇区数(32位, 大卷)
+	sectorSize  uint16 // offset 11, bytes per sector
+	clusterSize uint8  // offset 13, sectors per cluster
+	reserved    uint16 // offset 14, number of reserved sectors
+	fats        uint8  // offset 16, number of FAT copies
+	dirEntries  uint16 // offset 17, number of root directory entries (FAT12/16)
+	sectors     uint16 // offset 19, total sectors (16-bit, small volumes)
+	fatLength   uint16 // offset 22, sectors per FAT (FAT12/16)
+	sectorCount uint32 // offset 32, total sectors (32-bit, large volumes)
 
-	fat32Length uint32  // offset 36, 每FAT扇区数(FAT32)
-	rootCluster uint32  // offset 44, FAT32根目录起始簇(暂未使用)
-	extSig16    uint8   // offset 38, FAT12/16 的 boot signature
-	extSig32    uint8   // offset 66, FAT32 的 boot signature
-	fatName32   [8]byte // offset 82, FAT32 fs_type 字符串 "FAT32   "
+	fat32Length uint32  // offset 36, sectors per FAT (FAT32)
+	rootCluster uint32  // offset 44, FAT32 root directory start cluster (currently unused)
+	extSig16    uint8   // offset 38, FAT12/16 boot signature
+	extSig32    uint8   // offset 66, FAT32 boot signature
+	fatName32   [8]byte // offset 82, FAT32 fs_type string "FAT32   "
 }
 
-// BitmapParser 从 FAT12/16/32 文件系统解析已用扇区位图
+// BitmapParser parses a used-sector bitmap from a FAT12/16/32 filesystem.
 type BitmapParser struct {
 	dev   string
 	start int64
@@ -52,10 +54,12 @@ type BitmapParser struct {
 	fsType int
 	fsName string
 
-	// 顺序读取游标（相对 region 起始偏移），模拟 C 里 read()/lseek() 的当前文件位置
+	// Sequential read cursor (offset relative to the region's start),
+	// mirroring the current file position maintained by read()/lseek() in C.
 	cursor int64
 
-	// FAT12 半字节缓冲：hasNibble=false 对应 C 里 nibble==0xFF（空缓冲）
+	// FAT12 nibble buffer: hasNibble=false corresponds to nibble==0xFF
+	// (empty buffer) in the C code.
 	nibble    uint16
 	hasNibble bool
 }
@@ -73,7 +77,7 @@ func (p *BitmapParser) String() string {
 		p.dev, p.start, p.size)
 }
 
-// ---- 底层顺序读取辅助（对应 C 的 read()/lseek()） ----
+// ---- Low-level sequential read helpers (equivalent to read()/lseek() in C) ----
 
 func (p *BitmapParser) seek(off int64) {
 	p.cursor = off
@@ -92,8 +96,9 @@ func (p *BitmapParser) readSeq(n int) ([]byte, error) {
 	return buf, nil
 }
 
-// read12 读取一个 12-bit FAT 表项，内部维护半字节缓冲状态
-// 对应 C 的 read12()：FAT12 每 3 字节打包 2 个 12-bit 表项
+// read12 reads a single 12-bit FAT entry, maintaining the internal nibble
+// buffer state. Equivalent to read12() in C: FAT12 packs two 12-bit
+// entries into every 3 bytes.
 func (p *BitmapParser) read12() (uint16, error) {
 	if !p.hasNibble {
 		buf, err := p.readSeq(2)
@@ -114,10 +119,10 @@ func (p *BitmapParser) read12() (uint16, error) {
 	return out, nil
 }
 
-// ---- 引导扇区解析 ----
+// ---- Boot sector parsing ----
 
 func (p *BitmapParser) parseBootSector() error {
-	buf, err := p.readSeq(90) // 需要读到 offset 82~89 (fat32 fs_type)
+	buf, err := p.readSeq(90) // need to read up through offset 82~89 (FAT32 fs_type)
 	if err != nil {
 		return fmt.Errorf("read boot sector: %w", err)
 	}
@@ -147,7 +152,8 @@ func (p *BitmapParser) parseBootSector() error {
 	return nil
 }
 
-// ---- 各种数量计算，对应 C 的 get_total_sector / get_sec_per_fat / get_root_sec / get_cluster_count ----
+// ---- Various size calculations, equivalent to get_total_sector /
+// get_sec_per_fat / get_root_sec / get_cluster_count in C ----
 
 func (p *BitmapParser) getTotalSector() (uint64, error) {
 	if p.sb.sectors != 0 {
@@ -198,7 +204,7 @@ func (p *BitmapParser) getClusterCount() (uint64, error) {
 	return dataSec / uint64(p.sb.clusterSize), nil
 }
 
-// getFatType 判断 FAT12/16/32，对应 C 的 get_fat_type()
+// getFatType determines FAT12/16/32, equivalent to get_fat_type() in C.
 func (p *BitmapParser) getFatType() error {
 	sb := &p.sb
 	if sb.extSig16 == 0x29 || (sb.fatLength != 0 && sb.fat32Length == 0) {
@@ -225,7 +231,8 @@ func (p *BitmapParser) getFatType() error {
 			p.fsType = fat16
 			p.fsName = "FAT16"
 			if clusters >= fat16Threshold {
-				// 对应 C 的 log_mesg 警告：簇数超出 FAT16 上限，仅记录不中断
+				// Equivalent to the log_mesg warning in C: cluster count
+				// exceeds the FAT16 limit; log only, don't abort.
 			}
 		} else {
 			p.fsType = fat12
@@ -240,8 +247,8 @@ func (p *BitmapParser) getFatType() error {
 	return nil
 }
 
-// ---- 卷状态检查，对应 C 的 check_fat_status() ----
-// 返回值：0 正常，1 未正常卸载，2 I/O 错误
+// ---- Volume state check, equivalent to check_fat_status() in C ----
+// Return value: 0 clean, 1 not cleanly unmounted, 2 I/O error.
 func (p *BitmapParser) checkFatStatus() (int, error) {
 	switch p.fsType {
 	case fat16:
@@ -282,7 +289,7 @@ func (p *BitmapParser) checkFatStatus() (int, error) {
 		if _, err := p.read12(); err != nil { // FAT[0]
 			return 2, err
 		}
-		if _, err := p.read12(); err != nil { // FAT[1]，FAT12 无脏位标记，仅跳过
+		if _, err := p.read12(); err != nil { // FAT[1]; FAT12 has no dirty-bit flag, just skipped over
 			return 2, err
 		}
 		return 0, nil
@@ -292,7 +299,7 @@ func (p *BitmapParser) checkFatStatus() (int, error) {
 	}
 }
 
-// ---- 保留区标记，对应 C 的 mark_reserved_sectors() ----
+// ---- Marking the reserved area, equivalent to mark_reserved_sectors() in C ----
 func (p *BitmapParser) markReservedSectors(fb *bitmap.FsBitmap, block uint64) (uint64, error) {
 	secPerFat, err := p.getSecPerFat()
 	if err != nil {
@@ -300,19 +307,19 @@ func (p *BitmapParser) markReservedSectors(fb *bitmap.FsBitmap, block uint64) (u
 	}
 	rootSec := p.getRootSec()
 
-	// A) 保留扇区
+	// A) reserved sectors
 	for i := uint64(0); i < uint64(p.sb.reserved); i++ {
 		fb.Set(block)
 		block++
 	}
-	// B) FAT 表占用的扇区
+	// B) sectors occupied by the FAT table(s)
 	for j := uint8(0); j < p.sb.fats; j++ {
 		for i := uint64(0); i < secPerFat; i++ {
 			fb.Set(block)
 			block++
 		}
 	}
-	// C) 根目录占用的扇区（FAT32 没有独立根目录区）
+	// C) sectors occupied by the root directory (FAT32 has no dedicated root directory area)
 	if rootSec > 0 {
 		for i := uint64(0); i < rootSec; i++ {
 			fb.Set(block)
@@ -322,7 +329,7 @@ func (p *BitmapParser) markReservedSectors(fb *bitmap.FsBitmap, block uint64) (u
 	return block, nil
 }
 
-// ---- 逐簇状态检查，对应 check_fat12/16/32_entry() ----
+// ---- Per-cluster status check, equivalent to check_fat12/16/32_entry() ----
 
 func (p *BitmapParser) markCluster(fb *bitmap.FsBitmap, block uint64, used bool) uint64 {
 	clusterSize := uint64(p.sb.clusterSize)
@@ -344,11 +351,11 @@ func (p *BitmapParser) checkFat32Entry(fb *bitmap.FsBitmap, block uint64) (uint6
 	}
 	entry := binary.LittleEndian.Uint32(buf)
 	switch entry {
-	case 0x0FFFFFF7: // 坏簇
+	case 0x0FFFFFF7: // bad cluster
 		return p.markCluster(fb, block, false), nil
-	case 0x00000000: // 空闲
+	case 0x00000000: // free
 		return p.markCluster(fb, block, false), nil
-	default: // 已用
+	default: // in use
 		return p.markCluster(fb, block, true), nil
 	}
 }
@@ -384,7 +391,7 @@ func (p *BitmapParser) checkFat12Entry(fb *bitmap.FsBitmap, block uint64) (uint6
 	}
 }
 
-// ---- 主流程，对应 read_super_blocks() + read_bitmap() ----
+// ---- Main flow, equivalent to read_super_blocks() + read_bitmap() ----
 
 func (p *BitmapParser) Dump() (bitmapOut *bitmap.FsBitmap, err error) {
 	defer func() {
@@ -418,21 +425,22 @@ func (p *BitmapParser) Dump() (bitmapOut *bitmap.FsBitmap, err error) {
 
 	fb := bitmap.NewFsBitmap(p.fsName, bitmap.BitmapFromFS, int64(totalSector), int(p.sb.sectorSize))
 
-	// 初始状态全部置为“已用”，对应 C 的 pc_init_bitmap(bitmap, 0xFF, total_sector)
+	// Start with everything marked "used", equivalent to
+	// pc_init_bitmap(bitmap, 0xFF, total_sector) in C.
 	fb.SetAll()
 
-	// A) B) C): 保留扇区 / FAT 表 / 根目录标记已用
+	// A) B) C): mark reserved sectors / FAT table(s) / root directory as used
 	block, err := p.markReservedSectors(fb, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	// 跳到第一份 FAT 表起始位置（保留扇区之后）
+	// Jump to the start of the first FAT table (right after the reserved sectors)
 	fatReservedBytes := int64(p.sb.sectorSize) * int64(p.sb.reserved)
 	p.seek(fatReservedBytes)
 	p.hasNibble = false
 
-	// 用第一份 FAT 的前两项检查卷状态（脏位标记）
+	// Use the first FAT table's first two entries to check the volume state (dirty flag)
 	fatStat, err := p.checkFatStatus()
 	if err != nil {
 		return nil, fmt.Errorf("check fat status: %w", err)
@@ -444,7 +452,7 @@ func (p *BitmapParser) Dump() (bitmapOut *bitmap.FsBitmap, err error) {
 		return nil, fmt.Errorf("I/O error while checking fat status")
 	}
 
-	// D) 逐簇扫描：从数据区第一个簇（cluster 2）开始
+	// D) scan cluster by cluster, starting from the first data cluster (cluster 2)
 	for i := uint64(0); i < clusterCount; i++ {
 		if block >= totalSector {
 			return nil, fmt.Errorf("block too large: block=%d total_sector=%d", block, totalSector)
@@ -464,8 +472,9 @@ func (p *BitmapParser) Dump() (bitmapOut *bitmap.FsBitmap, err error) {
 		}
 	}
 
-	// 簇数计算后仍剩余的尾部扇区（对齐/填充区）统一标记为已用
-	// 对应 C 的 get_used_block() 里 `while(block < total_sector) pc_set_bit(...)`
+	// Any remaining trailing sectors after the cluster scan (alignment/padding
+	// area) are all marked as used, equivalent to the
+	// `while(block < total_sector) pc_set_bit(...)` loop in get_used_block() in C.
 	for ; block < totalSector; block++ {
 		fb.Set(block)
 	}

@@ -32,7 +32,7 @@ func (p *BitmapParser) String() string {
 		p.dev, p.start, p.size)
 }
 
-// ---------------- 调试日志 ----------------
+// ---------------- Debug logging ----------------
 
 var debugEnabled = os.Getenv("BTRFS_BITMAP_DEBUG") != ""
 
@@ -67,7 +67,7 @@ func le64(b []byte) uint64 { return binary.LittleEndian.Uint64(b) }
 func le32(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
 func le16(b []byte) uint16 { return binary.LittleEndian.Uint16(b) }
 
-// ---------------- 读取 ----------------
+// ---------------- Reading ----------------
 
 func (p *BitmapParser) readAt(off int64, n int) ([]byte, error) {
 	buf := make([]byte, n)
@@ -117,7 +117,7 @@ func (p *BitmapParser) readSuperblock() (*superblock, error) {
 	dbg("sys_chunk_array_size = %d (raw bytes at offset: %s)", arrSize,
 		hexdump(raw[sbOffSysChunkArraySize:sbOffSysChunkArraySize+4], 4))
 	if arrSize > btrfsSystemChunkArraySize {
-		dbg("WARNING: arrSize %d exceeds max %d, clamping — this usually means offset is WRONG", arrSize, btrfsSystemChunkArraySize)
+		dbg("WARNING: arrSize %d exceeds max %d, clamping — this usually means the offset is WRONG", arrSize, btrfsSystemChunkArraySize)
 		arrSize = btrfsSystemChunkArraySize
 	}
 	end := sbOffSysChunkArray + int(arrSize)
@@ -157,8 +157,10 @@ func (m *chunkMap) add(e chunkEntry) { m.entries = append(m.entries, e) }
 
 func (m *chunkMap) sortAndDedup() {
 	sort.Slice(m.entries, func(i, j int) bool { return m.entries[i].Logical < m.entries[j].Logical })
-	// 去重：chunk 树遍历可能重复读到同一个 chunk（比如 sys_chunk_array 和 chunk tree 里都有），
-	// 后出现的（通常是 chunk tree 里的，更权威）覆盖前面的
+	// Deduplicate: chunk-tree traversal may encounter the same chunk twice
+	// (e.g. once from sys_chunk_array and once from the chunk tree itself).
+	// The later occurrence (usually from the chunk tree, which is more
+	// authoritative) overwrites the earlier one.
 	out := m.entries[:0]
 	seen := map[uint64]int{}
 	for _, e := range m.entries {
@@ -183,7 +185,8 @@ func (m *chunkMap) find(logical uint64) *chunkEntry {
 	return nil
 }
 
-// 解析单个 CHUNK_ITEM。logical 必须传 key.Offset，不是 key.Objectid！
+// parseChunkItem parses a single CHUNK_ITEM. logical must be key.Offset,
+// NOT key.Objectid!
 func parseChunkItem(b []byte, logical uint64) (chunkEntry, bool) {
 	if len(b) < btrfsChunkHeaderSize {
 		return chunkEntry{}, false
@@ -238,7 +241,7 @@ func parseSysChunkArray(raw []byte) *chunkMap {
 	return cm
 }
 
-// ---------------- 标记 ----------------
+// ---------------- Marking ----------------
 
 func (p *BitmapParser) markPhysical(bm *bitmap.FsBitmap, blockSize uint32, physical, length uint64) {
 	if length == 0 || int64(physical) >= p.size {
@@ -263,7 +266,7 @@ func (p *BitmapParser) markLogicalRange(bm *bitmap.FsBitmap, cm *chunkMap, block
 	for remain > 0 {
 		ce := cm.find(cur)
 		if ce == nil {
-			dbg("markLogicalRange: NO chunk mapping for logical=%d (requested range [%d,%d)), giving up on rest",
+			dbg("markLogicalRange: NO chunk mapping for logical=%d (requested range [%d,%d)), giving up on the rest",
 				cur, logical, logical+length)
 			return
 		}
@@ -285,7 +288,7 @@ func (p *BitmapParser) markLogicalRange(bm *bitmap.FsBitmap, cm *chunkMap, block
 		cur += segLen
 		remain -= segLen
 		if avail == 0 {
-			dbg("markLogicalRange: avail=0 at cur=%d, breaking to avoid infinite loop", cur)
+			dbg("markLogicalRange: avail=0 at cur=%d, breaking to avoid an infinite loop", cur)
 			break
 		}
 	}
@@ -298,7 +301,8 @@ type walker struct {
 	bm       *bitmap.FsBitmap
 	cm       *chunkMap
 	nodeSize uint32
-	visited  map[uint64]bool // 防止树里出现环导致死循环（正常镜像不会有，但要防坏数据）
+	visited  map[uint64]bool // guards against cycles in the tree causing an infinite loop
+	// (shouldn't happen on a healthy image, but protects against corrupt data)
 }
 
 func newWalker(p *BitmapParser, bm *bitmap.FsBitmap, cm *chunkMap, nodeSize uint32) *walker {
@@ -415,7 +419,8 @@ func (w *walker) handleFileExtentItem(item []byte) {
 	w.p.markLogicalRange(w.bm, w.cm, w.nodeSize, diskBytenr, diskNumBytes)
 }
 
-// btrfs_root_item: struct btrfs_inode_item(160) + generation(8) + root_dirid(8) + bytenr(8) + ...
+// handleRootItem parses btrfs_root_item: struct btrfs_inode_item (160 bytes)
+// + generation (8) + root_dirid (8) + bytenr (8) + ...
 func (w *walker) handleRootItem(item []byte) {
 	const bytenrOffset = 160 + 8 + 8
 	if len(item) < bytenrOffset+8 {
@@ -427,7 +432,7 @@ func (w *walker) handleRootItem(item []byte) {
 	w.walkTree(bytenr)
 }
 
-// ---------------- chunk 树专用收集（bootstrap） ----------------
+// ---------------- Chunk-tree-only collection (bootstrap) ----------------
 
 func collectChunks(w *walker, logical uint64, out *chunkMap, visited map[uint64]bool) {
 	if logical == 0 || visited[logical] {
@@ -460,7 +465,7 @@ func collectChunks(w *walker, logical uint64, out *chunkMap, visited map[uint64]
 			if ds < 0 || de > len(buf) {
 				continue
 			}
-			if e, ok := parseChunkItem(buf[ds:de], key.Offset); ok { // <- 修正: key.Offset
+			if e, ok := parseChunkItem(buf[ds:de], key.Offset); ok { // fix: use key.Offset
 				out.add(e)
 			}
 		}
@@ -528,7 +533,7 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	fullCM.sortAndDedup()
 	dbg("full chunk map after merge+dedup: %d entries", len(fullCM.entries))
 	for i, e := range fullCM.entries {
-		if i < 20 { // 只打印前 20 个，避免刷屏
+		if i < 20 { // only print the first 20 to avoid flooding the log
 			dbg("  chunk[%d]: logical=[%d,%d) type=0x%x stripes=%d", i, e.Logical, e.Logical+e.Length, e.Type, len(e.Stripes))
 		}
 	}

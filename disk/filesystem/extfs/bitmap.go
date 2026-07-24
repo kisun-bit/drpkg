@@ -62,14 +62,16 @@ func parseGroupDesc(buf []byte, is64 bool) groupDesc {
 }
 
 // ============================================================
-// 位操作（对应 C 代码里的 in_use()/ext2fs_test_bit：
-// 小端字节序，每字节内 bit0（LSB）对应组内第一个 block）
+// Bit manipulation (equivalent to in_use()/ext2fs_test_bit in the C code:
+// little-endian; within each byte, bit 0 (LSB) corresponds to the first
+// block in the group).
 // ============================================================
 func testBit(buf []byte, i uint64) bool {
 	return buf[i>>3]&(1<<(i&7)) != 0
 }
 
-// readFull 从 r 的绝对偏移 off 处读满 buf，类似 io.ReadFull(io.NewSectionReader(...))
+// readFull reads a full buf from the absolute offset off of r, similar to
+// io.ReadFull(io.NewSectionReader(...)).
 func readFull(r io.ReaderAt, off int64, buf []byte) error {
 	n, err := r.ReadAt(buf, off)
 	if err != nil && err != io.EOF {
@@ -81,7 +83,8 @@ func readFull(r io.ReaderAt, off int64, buf []byte) error {
 	return nil
 }
 
-// isPowerOf 判断 n 是否是 base 的整数次幂（n=1 视为 base^0，成立）
+// isPowerOf reports whether n is an integer power of base (n=1 counts as
+// base^0 and is considered true).
 func isPowerOf(n, base uint64) bool {
 	if n == 0 {
 		return false
@@ -92,9 +95,12 @@ func isPowerOf(n, base uint64) bool {
 	return n == 1
 }
 
-// hasSuperblockBackup 判断某个 group 是否携带超级块副本（含 group 0 的主超级块）。
-// 遵循标准 sparse_super 规则：group 0、1，以及 3/5/7 的整数次幂才有；
-// 若文件系统未开启 sparse_super（非常古老、罕见的配置），则每个 group 都有。
+// hasSuperblockBackup reports whether a given group carries a superblock
+// backup (group 0's copy is the primary superblock itself).
+// Follows the standard sparse_super rule: groups 0, 1, and any group whose
+// number is an integer power of 3, 5, or 7 have a backup; if the filesystem
+// does not have sparse_super enabled (a very old, rare configuration), then
+// every group has one.
 func hasSuperblockBackup(group uint64, sparseSuper bool) bool {
 	if group == 0 || group == 1 {
 		return true
@@ -105,33 +111,38 @@ func hasSuperblockBackup(group uint64, sparseSuper bool) bool {
 	return isPowerOf(group, 3) || isPowerOf(group, 5) || isPowerOf(group, 7)
 }
 
-// gdtParams 打包 gdtLocation / groupReservedBlocks 计算所需的只读参数，避免函数签名过长
+// gdtParams bundles the read-only parameters needed by gdtLocation /
+// groupReservedBlocks, to keep function signatures manageable.
 type gdtParams struct {
 	firstDataBlock    uint64
 	blocksPerGroup    uint64
 	blockSize         uint64
 	descSize          uint32
 	hasMetaBg         bool
-	firstMetaBg       uint64 // meta block group 编号阈值（不是 group 编号）
+	firstMetaBg       uint64 // meta block group number threshold (not a group number)
 	sparseSuper       bool
 	groupCount        uint64
 	reservedGdtBlocks uint64
 }
 
-// gdtLocation 计算第 g 个 group descriptor 存放的 (block 号, block 内字节偏移)。
+// gdtLocation computes the (block number, byte offset within that block)
+// where the g-th group descriptor is stored.
 //
-//   - 未开启 META_BG，或 g 所在的 meta block group 编号小于 first_meta_bg：
-//     沿用老式布局——GDT 从 (first_data_block+1) 开始连续存放。
-//   - 否则：g 所在的 meta block group 只在其覆盖范围内第一个 group 的
-//     超级块（如果有）后面紧跟的那一个 block 里，存放这个 meta block group
-//     覆盖的所有 group 的 descriptor（这就是 meta_bg 的"每个 meta 组恰好一个
-//     block"的设计）。
+//   - If META_BG is not enabled, or g's meta block group number is below
+//     first_meta_bg: fall back to the classic layout — the GDT is stored
+//     contiguously starting at (first_data_block+1).
+//   - Otherwise: the meta block group that g belongs to stores the
+//     descriptors for every group it covers in a single block, located
+//     right after the superblock backup (if any) of the first group in
+//     that meta block group. This is the defining trait of meta_bg — each
+//     meta group occupies exactly one block for its GDT chunk.
 func gdtLocation(g uint64, p gdtParams) (blockNum uint64, byteOffset uint32) {
-	gdpb := p.blockSize / uint64(p.descSize) // 每个 block 能塞下的 descriptor 数
+	gdpb := p.blockSize / uint64(p.descSize) // number of descriptors that fit in one block
 
 	if !p.hasMetaBg || g < p.firstMetaBg*gdpb {
-		// 老式连续布局：从 (first_data_block+1) 这个 block 开始，
-		// 按 descSize 依次排列，可能跨越多个 block。
+		// Classic contiguous layout: starting at block (first_data_block+1),
+		// descriptors are laid out back-to-back by descSize, possibly
+		// spanning multiple blocks.
 		byteIdx := g * uint64(p.descSize)
 		blockNum = p.firstDataBlock + 1 + byteIdx/p.blockSize
 		byteOffset = uint32(byteIdx % p.blockSize)
@@ -145,32 +156,40 @@ func gdtLocation(g uint64, p gdtParams) (blockNum uint64, byteOffset uint32) {
 	groupStartBlock := p.firstDataBlock + firstGroupInMeta*p.blocksPerGroup
 	chunkBlock := groupStartBlock
 	if hasSuperblockBackup(firstGroupInMeta, p.sparseSuper) {
-		chunkBlock++ // chunk 紧跟在这个 group 自己的超级块副本后面
+		chunkBlock++ // the chunk immediately follows this group's own superblock backup
 	}
 
 	blockNum = chunkBlock
-	byteOffset = uint32(idxInChunk) * p.descSize // 值域在一个 block 内，转 uint32 安全
+	byteOffset = uint32(idxInChunk) * p.descSize // always within one block, safe to cast to uint32
 	return blockNum, byteOffset
 }
 
-// groupReservedBlocks 计算一个 BLOCK_UNINIT 组里，因为存放超级块/GDT 备份而
-// 必然被占用的 block 数量（这些 block 属于该 group 自己的物理范围）。
+// groupReservedBlocks computes, for a BLOCK_UNINIT group, the number of
+// blocks that are necessarily in use because they hold a superblock and/or
+// GDT backup copy (these blocks fall within the group's own physical
+// range).
 //
-// 背景：BLOCK_UNINIT 只表示"磁盘上没有为这个组写一份完整的位图数据"，
-// 不代表这个组里所有 block 都真的空闲——如果这个组恰好携带超级块备份
-// 和/或 GDT 备份，这几个 block 依然是真实被占用的。用真实镜像验证过：
-// 忽略这一点会导致空闲块统计出现几个 block 量级的偏差（虽然数值很小，
-// 但意味着这几个 block 会被错误地当成"空闲"从而在克隆时被跳过）。
+// Background: BLOCK_UNINIT only means "no full bitmap has been written to
+// disk for this group" — it does NOT mean every block in the group is
+// actually free. If the group happens to carry a superblock backup and/or
+// a GDT backup, those blocks are still genuinely in use. Verified against
+// real images: ignoring this causes the free-block count to be off by a
+// handful of blocks (small in absolute terms, but it means those blocks
+// would be wrongly treated as "free" and skipped during cloning).
 //
-//   - 老式（非 meta_bg）布局：一个携带超级块备份的 group，backup 超级块之后
-//     紧跟着一份完整 GDT 的备份拷贝（占 gdtBlocksFull 个 block），
-//     再之后是 s_reserved_gdt_blocks 个为未来在线扩容预留的空 block。
-//   - meta_bg 布局：每个 meta block group 只有"第一个、第二个、最后一个"
-//     这三个 group 各携带 1 个 block 大小的 GDT chunk 备份，不涉及
-//     reserved_gdt_blocks（该机制是 meta_bg 出现的目的之一，就是替掉它）。
+//   - Classic (non-meta_bg) layout: a group carrying a superblock backup is
+//     followed by a full copy of the GDT backup (gdtBlocksFull blocks),
+//     followed by s_reserved_gdt_blocks empty blocks reserved for future
+//     online resizing.
+//   - meta_bg layout: within each meta block group, only the first, second,
+//     and last groups each carry a 1-block GDT chunk backup; reserved_gdt_blocks
+//     doesn't apply here (replacing that mechanism is one of the reasons
+//     meta_bg exists).
 //
-// flex_bg 下，本组自己的 inode bitmap / inode table 可能被挪到了别的 group
-// 物理范围内，因此不计入这里——这里只关心"物理落在本组范围内"的保留 block。
+// Under flex_bg, a group's own inode bitmap / inode table may have been
+// relocated into another group's physical range, so it is not counted here
+// — this function only cares about reserved blocks that physically fall
+// within this group's own range.
 func groupReservedBlocks(g uint64, p gdtParams) uint64 {
 	gdpb := p.blockSize / uint64(p.descSize)
 	inMetaBgRegion := p.hasMetaBg && g >= p.firstMetaBg*gdpb
@@ -190,15 +209,15 @@ func groupReservedBlocks(g uint64, p gdtParams) uint64 {
 
 	if !hasSuperblockBackup(g, p.sparseSuper) {
 		if isChunkCarrier(g) {
-			return 1 // 只有 GDT chunk 备份，没有超级块（比如 meta_bg 里"最后一个 group"常见的情况）
+			return 1 // only a GDT chunk backup, no superblock (common e.g. for the "last group" in a meta_bg)
 		}
 		return 0
 	}
 
-	reserved := uint64(1) // 超级块自身
+	reserved := uint64(1) // the superblock itself
 	if inMetaBgRegion {
 		if isChunkCarrier(g) {
-			reserved++ // meta_bg 的 1 个 block 大小 chunk 备份
+			reserved++ // meta_bg's 1-block-sized chunk backup
 		}
 	} else {
 		gdtBlocksFull := (p.groupCount*uint64(p.descSize) + p.blockSize - 1) / p.blockSize
@@ -207,10 +226,12 @@ func groupReservedBlocks(g uint64, p gdtParams) uint64 {
 	return reserved
 }
 
-// lastBlockCache 只缓存"最近一次读到的那个 block"，用于顺序遍历 group descriptor 时
-// 避免对同一个 block 重复发起读请求。因为无论是老式连续布局还是 meta_bg 的 chunk，
-// 相邻的 group 大概率落在同一个 block 里，按 g 递增顺序访问时天然命中率很高，
-// 不需要更复杂的多 block 缓存。
+// lastBlockCache caches only the most recently read block, used while
+// sequentially walking group descriptors to avoid re-reading the same
+// block repeatedly. Whether using the classic contiguous layout or a
+// meta_bg chunk, adjacent groups are very likely to land in the same
+// block, so accessing groups in increasing order of g naturally gets a
+// high hit rate — a more elaborate multi-block cache isn't needed.
 type lastBlockCache struct {
 	blockNum uint64
 	buf      []byte
@@ -260,7 +281,8 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		}
 	}()
 
-	// 1. 读超级块（对应 C: fs_open -> ext2fs_open 内部读 superblock）
+	// 1. Read the superblock (equivalent to fs_open -> ext2fs_open reading
+	//    the superblock internally in C).
 	sbBuf := make([]byte, superblockSize)
 	if err := readFull(p.fr, superblockOffset, sbBuf); err != nil {
 		return nil, fmt.Errorf("read superblock failed: %w", err)
@@ -292,10 +314,12 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	blocksPerGroup := uint64(sb.blocksPerGroup)
 	groupCount := (totalBlocks - firstDataBlock + blocksPerGroup - 1) / blocksPerGroup
 
-	// bigalloc: 位图粒度从"block"变成"cluster"，一个 cluster 由 2^clusterRatioBits 个
-	// 连续 block 组成，它们的已用/空闲状态永远一致（这是 bigalloc 的分配粒度决定的）。
-	// 未开启该特性时 clusterRatioBits=0，blocksPerCluster=1，等价于逐 block 处理，
-	// 不需要为普通文件系统写两套代码路径。
+	// bigalloc: the bitmap's granularity shifts from "block" to "cluster" —
+	// a cluster is made up of 2^clusterRatioBits consecutive blocks whose
+	// used/free status is always identical (this is inherent to bigalloc's
+	// allocation granularity). When the feature is off, clusterRatioBits=0
+	// and blocksPerCluster=1, which is equivalent to per-block processing,
+	// so there's no need for a separate code path for ordinary filesystems.
 	isBigalloc := sb.featureRoCompat&featureRoCompatBigalloc != 0
 	var clusterRatioBits uint
 	if isBigalloc {
@@ -303,13 +327,15 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	}
 	blocksPerCluster := uint64(1) << clusterRatioBits
 
-	// 防御性校验：s_first_data_block 的取值规则是——
-	// block_size == 1024 时，block 0 整块被引导扇区占用，超级块落在 block 1，
-	//   所以 first_data_block 应为 1；
-	// block_size >= 2048 时，引导扇区和超级块同属 block 0，
-	//   所以 first_data_block 应为 0。
-	// 这个值本身是 mkfs 写死在磁盘上的，我们从不自己推导，只在这里做个健全性检查，
-	// 用来及早发现"超级块损坏 / 非标准镜像"这类情况。
+	// Defensive sanity check: the rule for s_first_data_block is —
+	// when block_size == 1024, block 0 is entirely occupied by the boot
+	//   sector, so the superblock lives in block 1 and first_data_block
+	//   should be 1;
+	// when block_size >= 2048, the boot sector and superblock share block
+	//   0, so first_data_block should be 0.
+	// This value is written to disk by mkfs and we never derive it
+	// ourselves — this check exists purely to catch a corrupted superblock
+	// or a non-standard image early.
 	expectedFDB := uint64(0)
 	if blockSize == 1024 {
 		expectedFDB = 1
@@ -319,9 +345,10 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 			"superblock may be corrupted or from a non-standard image", p, firstDataBlock, blockSize, expectedFDB)
 	}
 
-	// 2. group descriptor 的定位参数。
-	// 未开启 META_BG 时 hasMetaBg=false，gdtLocation 会退化成老式的
-	// "从 (first_data_block+1) 开始连续存放"，行为和之前完全一致。
+	// 2. Parameters for locating group descriptors.
+	// When META_BG is not enabled, hasMetaBg=false and gdtLocation falls
+	// back to the classic "contiguous starting at (first_data_block+1)"
+	// layout, behaving exactly as before.
 	hasMetaBg := sb.featureIncompat&featureIncompatMetaBg != 0
 	sparseSuper := sb.featureRoCompat&featureRoCompatSparseSuper != 0
 	gp := gdtParams{
@@ -337,16 +364,20 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	}
 	var gdtCache lastBlockCache
 
-	// 3. 创建结果位图，并默认全部标记为"已用"（保守策略，与 partclone 的
-	//    pc_init_bitmap(bitmap, 0xFF, ...) 完全一致），后面再把确认空闲的位清零。
+	// 3. Create the result bitmap, defaulting every bit to "used" (a
+	//    conservative choice, exactly matching partclone's
+	//    pc_init_bitmap(bitmap, 0xFF, ...)); confirmed-free bits are
+	//    cleared afterward.
 	//
-	//    注意：这个默认值不仅是"保守兜底"，它还承担了一个具体职责——
-	//    当 block_size == 1024 时 first_data_block == 1，下面的 group 循环
-	//    永远从 startBlock = firstDataBlock 开始，index 0（对应磁盘上被
-	//    引导扇区占用的 block 0）根本不会被循环访问到。它最终能正确地
-	//    体现为"已用"，靠的就是这里的默认初始化，而不是某个显式的
-	//    "标记 block 0 已用"的分支。如果以后要改这个初始化逻辑，
-	//    必须同时想清楚 block 0 的状态从哪里来。
+	//    Note: this default isn't just a conservative fallback — it also
+	//    carries a specific responsibility. When block_size == 1024,
+	//    first_data_block == 1, and the group loop below always starts
+	//    at startBlock = firstDataBlock, so index 0 (the block occupied
+	//    by the boot sector on disk) is never visited by the loop at all.
+	//    The fact that it correctly ends up marked "used" relies entirely
+	//    on this default initialization, not on any explicit "mark block
+	//    0 as used" branch. If this initialization logic is ever changed,
+	//    make sure block 0's status is still accounted for somewhere.
 	//
 	fsType := define.FsTypeExtFs
 	kind := bitmap.BitmapFromFS
@@ -356,7 +387,8 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	blockBitmapBuf := make([]byte, blockSize)
 	var totalFreeCounted uint64
 
-	// 4. 逐个 block group 处理（对应 C 代码里的 for (group = 0; group < group_desc_count; group++)）
+	// 4. Process each block group (equivalent to
+	//    for (group = 0; group < group_desc_count; group++) in the C code).
 	for g := uint64(0); g < groupCount; g++ {
 		blockNum, byteOffset := gdtLocation(g, gp)
 		if err := gdtCache.read(p.fr, blockNum, blockSize); err != nil {
@@ -371,14 +403,18 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		}
 
 		if gd.flags&bgFlagBlockUninit != 0 {
-			// 对应 C 代码里的 B_UN_INIT 分支：该组从未真正分配过数据 block，
-			// 磁盘上没有为它写一份完整的位图数据。但注意——这不等于整组都空闲：
-			// 如果这个组恰好携带超级块备份和/或 GDT 备份，这几个 block 依然是
-			// 真实占用的（用真实镜像验证过这一点，见函数注释）。
+			// Equivalent to the BLOCK_UNINIT branch in the C code: this
+			// group has never actually had data blocks allocated, so no
+			// full bitmap was ever written to disk for it. But note this
+			// does NOT mean the entire group is free — if it happens to
+			// carry a superblock backup and/or a GDT backup, those blocks
+			// are still genuinely in use (verified against real images,
+			// see the function comment above).
 			reserved := groupReservedBlocks(g, gp)
 			fsBitmap.ClearRange(startBlock, uint32(blocksInGroup))
 			if reserved > 0 {
-				// 把开头那几个属于超级块/GDT备份的 block 重新标记回"已用"
+				// Re-mark the leading blocks that hold the superblock/GDT
+				// backup as "used".
 				fsBitmap.SetRange(startBlock, uint32(reserved))
 			}
 			gfree := blocksInGroup - reserved
@@ -391,7 +427,8 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 			continue
 		}
 
-		// 读取该组自己的 block/cluster bitmap（位于 gd.blockBitmap 指向的那个 block）
+		// Read this group's own block/cluster bitmap (located at the block
+		// pointed to by gd.blockBitmap).
 		bmOffset := int64(gd.blockBitmap) * int64(blockSize)
 		if err := readFull(p.fr, bmOffset, blockBitmapBuf); err != nil {
 			return nil, fmt.Errorf("read block bitmap of group %d failed: %w", g, err)
@@ -399,10 +436,12 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 
 		var gfree uint64
 		if isBigalloc && clusterRatioBits > 0 {
-			// bigalloc: 位图里第 c 位对应的是一个 cluster，
-			// 覆盖 [startBlock+c*blocksPerCluster, +blocksPerCluster) 这一整段 block，
-			// 它们的状态永远一致，所以按 cluster 为单位批量 ClearRange，
-			// 既比逐 block 判断更快，也更直接地体现"这段 block 是同一个分配单元"。
+			// bigalloc: bit c in the bitmap represents one cluster, which
+			// covers the whole range [startBlock+c*blocksPerCluster,
+			// +blocksPerCluster) — those blocks always share the same
+			// status, so ClearRange is applied per cluster in bulk. This
+			// is both faster than a per-block check and more directly
+			// reflects that this range is a single allocation unit.
 			clustersInGroup := (blocksInGroup + blocksPerCluster - 1) / blocksPerCluster
 			for c := uint64(0); c < clustersInGroup; c++ {
 				clusterStart := startBlock + c*blocksPerCluster
@@ -411,37 +450,39 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 					clusterLen = startBlock + blocksInGroup - clusterStart
 				}
 				if !testBit(blockBitmapBuf, c) {
-					// 空闲 cluster：整段 block 一起清零
+					// free cluster: clear the whole range at once
 					fsBitmap.ClearRange(clusterStart, uint32(clusterLen))
 					gfree += clusterLen
 				}
-				// 已用 cluster：默认值（SetAll）已经是已用，无需处理
+				// used cluster: already "used" by default (SetAll), nothing to do
 			}
 		} else {
 			for i := uint64(0); i < blocksInGroup; i++ {
 				global := startBlock + i
 				if !testBit(blockBitmapBuf, i) {
-					fsBitmap.Clear(global) // 空闲
+					fsBitmap.Clear(global) // free
 					gfree++
 				}
-				// 已用: 默认值已经是已用，无需处理
+				// used: already "used" by default, nothing to do
 			}
 		}
 		totalFreeCounted += gfree
 
-		// 组内校验（对应 C 代码里 gfree != bg_free_blocks_count 的检查）。
-		// bigalloc 下 group 描述符里这个字段的统计口径（block 还是 cluster）
-		// 在不同版本 e2fsprogs 里不完全一致，因此和原始 C 代码一样跳过这项校验。
+		// Per-group validation (equivalent to the gfree != bg_free_blocks_count
+		// check in the C code). Under bigalloc, different e2fsprogs versions
+		// disagree on whether this group-descriptor field counts blocks or
+		// clusters, so this check is skipped here just as in the original C code.
 		if !isBigalloc && gfree != gd.freeBlocksCount {
-			// 这里选择只警告不中断；如果你想严格复现 C 版本"直接报错退出"的行为，
-			// 把下面这行换成 return nil, fmt.Errorf(...)
+			// Only a warning is emitted here; to strictly reproduce the C
+			// version's "abort with an error" behavior, replace this with
+			// return nil, fmt.Errorf(...).
 			logger.Warnf("%s.Dump(): group %d free blocks mismatch: counted=%d meta=%d",
 				p, g, gfree, gd.freeBlocksCount)
 		}
 	}
 
-	// 5. 全局校验（对应 C 代码里 lfree != ext2fs_free_blocks_count(fs->super)）。
-	// bigalloc 同样跳过严格比对，只给出提示信息。
+	// 5. Global validation (equivalent to lfree != ext2fs_free_blocks_count(fs->super)
+	//    in the C code). Also skipped for bigalloc, informational only.
 	if isBigalloc {
 		logger.Debugf("%s.Dump(): bigalloc filesystem (cluster_ratio_bits=%d, blocks_per_cluster=%d), "+
 			"skip strict free-block validation, counted %d free blocks",
