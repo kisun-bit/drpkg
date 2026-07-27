@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -893,77 +895,141 @@ func SortSegments(segMap map[int]Segment) []Segment {
 func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 	f, err := os.Open(file)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "Open")
 	}
 	defer f.Close()
 
 	info, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "Stat")
 	}
 	if info.IsDir() {
 		return nil, errors.Errorf("%s is a directory", file)
 	}
 	stat := info.Sys().(*syscall.Stat_t)
 	fileSize := info.Size()
-	fileMaj := uint32(stat.Dev >> 8)
-	fileMin := uint32(stat.Dev & 0xff)
+	fileMaj := unix.Major(stat.Dev)
+	fileMin := unix.Minor(stat.Dev)
 
 	devNameTable, err := DeviceMajorTable()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "DeviceMajorTable")
 	}
 	fileDevMaj := DevMajor(fmt.Sprintf("%d:%d", fileMaj, fileMin))
 
+	onBtrfs := false
 	volume, ok := devNameTable[fileDevMaj]
 	if !ok || volume == "" {
-		return nil, errors.Errorf("device path of %s not found", volume)
+		devStr := string(fileDevMaj)
+
+		// 兼容btrfs
+		isbtrfs, e1 := IsBtrfs(file)
+		mounts, e2 := VolumeMountpoints()
+		mp, e3 := FindMountPoint(file)
+
+		if e1 != nil || e2 != nil || e3 != nil || !isbtrfs {
+			return nil, errors.Errorf("device path of %s not found", devStr)
+		}
+
+		onBtrfs = true
+		btrfsDev := ""
+		for _, m := range mounts {
+			if m.Mountpoint == mp {
+				btrfsDev = m.Device
+				break
+			}
+		}
+		if btrfsDev != "" {
+			volume = btrfsDev
+		} else {
+			return nil, errors.New("btrfs device not found")
+		}
 	}
 
 	eArr, err := getFileExtentsFp(f)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "getFileExtentsFp")
 	}
 
 	fileRegionsOnVolume := make([]volumeSegment, 0)
-	sz := int64(0)
-	for _, d := range eArr {
-		if sz >= fileSize {
-			break
+	if !onBtrfs {
+		sz := int64(0)
+		for _, d := range eArr {
+			if sz >= fileSize {
+				break
+			}
+			expectSize := fileSize - sz
+			if expectSize > int64(d.Length) {
+				expectSize = int64(d.Length)
+			}
+			fileRegionsOnVolume = append(fileRegionsOnVolume, volumeSegment{
+				start: int64(d.Physical),
+				size:  expectSize,
+			})
+			sz += expectSize
 		}
-		expectSize := fileSize - sz
-		if expectSize > int64(d.Length) {
-			expectSize = int64(d.Length)
-		}
-		fileRegionsOnVolume = append(fileRegionsOnVolume, volumeSegment{
-			start: int64(d.Physical),
-			size:  expectSize,
-		})
-		sz += expectSize
 	}
+	if onBtrfs {
+		sz := int64(0)
+		for _, d := range eArr {
+			if sz >= fileSize {
+				break
+			}
+			expectSize := fileSize - sz
+			if expectSize > int64(d.Length) {
+				expectSize = int64(d.Length)
+			}
+
+			// 在 btrfs 上,FIEMAP 返回的 d.Physical 实际是 btrfs 逻辑地址,
+			// 需要用 btrfs-map-logical 换算成 volume(btrfsDev) 上的真实物理偏移。
+			logical := int64(d.Physical)
+			mirrors, err := btrfsMapLogical(volume, logical)
+			if err != nil {
+				return nil, errors.Wrapf(err, "btrfsMapLogical logical=%d device=%s", logical, volume)
+			}
+
+			mirror := pickBtrfsMirror(mirrors, volume)
+			if mirror.Device != volume {
+				// 多设备 btrfs(RAID0/10等),数据落在了 btrfsDev 之外的成员盘上。
+				// 当前实现按单个 volume 做后续 LVM/磁盘分段匹配,无法直接支持这种情况。
+				return nil, errors.Errorf(
+					"multi-device btrfs not supported: extent on %s but expected volume %s",
+					mirror.Device, volume)
+			}
+
+			fileRegionsOnVolume = append(fileRegionsOnVolume, volumeSegment{
+				start: mirror.Physical,
+				size:  expectSize,
+			})
+			sz += expectSize
+		}
+	}
+
 	if len(fileRegionsOnVolume) == 0 {
 		return nil, errors.Errorf("file %s has no regions on volume", file)
 	}
-	//spew.Dump(fileRegionsOnVolume)
 
 	volumeRegionsOnDisk := make([]Segment, 0)
-	if fileDevMaj.IsLV() {
+	ok, err = IsLVMDevice(volume)
+	if err != nil {
+		return nil, errors.Wrap(err, "IsLVMDevice")
+	}
+	if ok {
 		volumeRegionsOnDisk, err = LVSegments(volume)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "LVSegments")
 		}
 	} else {
+		// FIXME 兼容multipath和RAID
 		seg, err := DiskOrPartitionSegment(volume)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "DiskOrPartitionSegment")
 		}
 		volumeRegionsOnDisk = append(volumeRegionsOnDisk, seg)
 	}
 	if len(volumeRegionsOnDisk) == 0 {
 		return nil, errors.Errorf("volume %s has no regions on disk", volume)
 	}
-	//fmt.Println("------------------------")
-	//spew.Dump(volumeRegionsOnDisk)
 
 	for _, fe := range fileRegionsOnVolume {
 		extentSize := fe.size
@@ -1028,4 +1094,111 @@ func PnpDeviceID(deviceID string) (string, error) {
 func Win32DiskSize(deviceID string) (int64, error) {
 	_ = deviceID
 	return 0, errors.New("Win32DiskSize: not implemented")
+}
+
+// btrfsLogicalMirror 对应 btrfs-map-logical 输出的一行:
+// mirror 1 logical 8130252800 physical 9782808576 device /dev/mapper/system-root
+type btrfsLogicalMirror struct {
+	Mirror   int
+	Logical  int64
+	Physical int64
+	Device   string
+}
+
+var btrfsMapLogicalLineRe = regexp.MustCompile(
+	`^mirror\s+(\d+)\s+logical\s+(\d+)\s+physical\s+(\d+)\s+device\s+(\S+)`,
+)
+
+// btrfsMapLogical 调用 `btrfs-map-logical -l <logical> <device>`,
+// 解析出该 logical 地址在各个副本(mirror)上对应的物理偏移和设备。
+func btrfsMapLogical(device string, logical int64) ([]btrfsLogicalMirror, error) {
+	cmd := exec.Command("btrfs-map-logical", "-l", strconv.FormatInt(logical, 10), device)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, errors.Wrapf(err, "btrfs-map-logical -l %d %s failed: %s",
+			logical, device, strings.TrimSpace(string(out)))
+	}
+
+	var mirrors []btrfsLogicalMirror
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		m := btrfsMapLogicalLineRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		mirrorIdx, _ := strconv.Atoi(m[1])
+		logicalAddr, _ := strconv.ParseInt(m[2], 10, 64)
+		physicalAddr, _ := strconv.ParseInt(m[3], 10, 64)
+		mirrors = append(mirrors, btrfsLogicalMirror{
+			Mirror:   mirrorIdx,
+			Logical:  logicalAddr,
+			Physical: physicalAddr,
+			Device:   m[4],
+		})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, errors.Wrap(err, "scan btrfs-map-logical output")
+	}
+	if len(mirrors) == 0 {
+		return nil, errors.Errorf("no mapping parsed from btrfs-map-logical output: %s",
+			strings.TrimSpace(string(out)))
+	}
+	return mirrors, nil
+}
+
+// pickBtrfsMirror 优先选择 device 与 preferDevice 一致的副本,
+// 找不到则退化为第一个副本(单设备 btrfs 场景下两者本就一致)。
+func pickBtrfsMirror(mirrors []btrfsLogicalMirror, preferDevice string) btrfsLogicalMirror {
+	for _, m := range mirrors {
+		if m.Device == preferDevice {
+			return m
+		}
+	}
+	return mirrors[0]
+}
+
+const BtrfsSuperMagic = 0x9123683E
+
+// IsBtrfs reports whether the given path resides on a Btrfs filesystem.
+func IsBtrfs(path string) (bool, error) {
+	var st unix.Statfs_t
+
+	if err := unix.Statfs(path, &st); err != nil {
+		return false, errors.Errorf("statfs %q: %v", path, err)
+	}
+
+	return uint64(st.Type) == BtrfsSuperMagic, nil
+}
+
+func resolveToBlockName(dev string) (string, error) {
+	realPath, err := filepath.EvalSymlinks(dev)
+	if err != nil {
+		return "", err
+	}
+
+	// 取最后一段，例如 /dev/dm-1 -> dm-1
+	return filepath.Base(realPath), nil
+}
+
+func IsLVMDevice(dev string) (bool, error) {
+	name, err := resolveToBlockName(dev)
+	if err != nil {
+		return false, err
+	}
+
+	uuidPath := "/sys/class/block/" + name + "/dm/uuid"
+
+	data, err := os.ReadFile(uuidPath)
+	if err != nil {
+		// 不是 dm 设备（比如 sda），直接返回 false
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	uuid := strings.TrimSpace(string(data))
+
+	return strings.HasPrefix(uuid, "LVM-"), nil
 }

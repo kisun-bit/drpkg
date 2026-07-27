@@ -319,3 +319,66 @@ func Pretty(i any) string {
 	}
 	return string(b)
 }
+
+// ReadWithBadSector 以跳过坏块的方式读取数据
+func ReadWithBadSector(fd *os.File, buf []byte, off int64) (n int, err error) {
+	const chunkSize = 4096
+
+	// 先尝试正常读取
+	n, err = fd.ReadAt(buf, off)
+	if err == nil {
+		return n, nil
+	}
+
+	if IsEOF(err) {
+		return n, io.EOF
+	}
+
+	if IsDataCrcError(err) {
+		if len(buf) < chunkSize {
+			// 小于一个块，直接跳过整个坏块
+			return len(buf), nil
+		}
+
+		// 分成若干个4K读取到buf中，若某个4K区间报DataCrc则跳过
+		total := len(buf)
+		n = 0 // 重新计数，不复用上面整体读取失败时的n
+
+		for start := 0; start < total; start += chunkSize {
+			end := start + chunkSize
+			if end > total {
+				end = total
+			}
+			chunk := buf[start:end]
+			curOff := off + int64(start)
+
+			nn, cerr := fd.ReadAt(chunk, curOff)
+
+			switch {
+			case cerr == nil:
+				n += nn
+
+			case IsEOF(cerr):
+				// 读到文件末尾，之前累计的数据仍然有效
+				n += nn
+				return n, io.EOF
+
+			case IsDataCrcError(cerr):
+				// 该4K区间是坏块，跳过，清零占位（避免残留脏数据）
+				for i := range chunk {
+					chunk[i] = 0
+				}
+				n += len(chunk)
+
+			default:
+				// 其他不可恢复错误，直接返回，n为已成功处理的字节数
+				return n, cerr
+			}
+		}
+
+		return n, nil
+	}
+
+	// 其它未知错误，原样返回
+	return n, err
+}
