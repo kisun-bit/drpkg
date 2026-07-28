@@ -42,10 +42,18 @@
 #include "qemu/memalign.h"
 
 // 共享内存大小和偏移量定义
-#define SHM_SIZE (4 << 20)          // 4MB
+//
+// 性能优化说明：原先为 4MB（请求区/响应区各 2MB，单块读写上限 1MB）。大文件
+// 顺序读写场景下，单块太小会导致往返次数（Go写请求 -> C读请求 -> C处理 ->
+// C写响应 -> Go读响应）过多，而每次往返都要经过多次系统调用/上下文切换，
+// 这部分固定开销在小块场景下占比很高。现扩大到 64MB（请求区/响应区各 32MB），
+// 单块上限提到 16MB，往返次数降为原来的 1/16。
+// 注意：此处的宏必须与 Go 端 ipc.go 中的 shmSize/requestOffset/responseOffset/
+// rwMaxLen 保持完全一致，修改后两端都需要重新编译。
+#define SHM_SIZE (64 << 20)         // 64MB
 #define REQUEST_OFFSET 0
-#define RESPONSE_OFFSET (2 << 20)   // 2MB
-#define RW_MAX_LEN (1 << 20)        // 1MB
+#define RESPONSE_OFFSET (32 << 20)  // 32MB
+#define RW_MAX_LEN (16 << 20)       // 16MB
 
 // 请求类型
 typedef enum {
@@ -388,14 +396,17 @@ static int process_requests(void) {
             break;
         }
 
-        debugf("Received request: type=%u, sequence=%lu\n", base_req->type, base_req->sequence);
+        if (g_enable_debug) {
+            debugf("Received request: type=%u, sequence=%lu\n", base_req->type, base_req->sequence);
 
-        // 调试：打印共享内存的原始字节
-        debugf("Raw bytes from shared memory (first 24 bytes):\n    ");
-        for (int i = 0; i < 24; i++) {
-            debugf("%02x ", (unsigned char)g_request_area[i]);
+            // 调试：打印共享内存的原始字节（仅debug模式下才遍历，避免正常
+            // I/O路径下每次请求都白跑一遍24次的函数调用开销）
+            debugf("Raw bytes from shared memory (first 24 bytes):\n    ");
+            for (int i = 0; i < 24; i++) {
+                debugf("%02x ", (unsigned char)g_request_area[i]);
+            }
+            debugf("\n");
         }
-        debugf("\n");
 
         // 根据请求类型处理
         switch (base_req->type) {

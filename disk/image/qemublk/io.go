@@ -29,8 +29,15 @@ type Image struct {
 
 	// proc 托管的Qemu进程
 	proc *exec.Cmd
-	// rwLock 读写锁
-	rwLock sync.Mutex
+
+	// mu 保护对该Image实例（含共享内存、进程IO）的所有并发访问。
+	//
+	// 性能优化说明：原实现中 rwLock 包住整个 ReadAt/WriteAt/Sync/Close 调用，
+	// shmMutex 又在分片循环内部对每一个分片单独加解锁；由于共享内存/C进程本身
+	// 是单通道、单工作协程的资源，rwLock 早已把整次调用串行化，shmMutex 在
+	// 循环内的重复加解锁纯粹是多余开销（大文件按16MiB/1MiB分片时会累积成
+	// 成千上万次无意义的锁操作）。现合并为一把锁，每次外部调用只加锁一次。
+	mu sync.Mutex
 
 	opt openopt
 
@@ -38,7 +45,6 @@ type Image struct {
 	// IPC
 	//
 
-	shmMutex    sync.Mutex
 	shmId       int
 	shmSize     int64
 	shmAttached bool
@@ -200,8 +206,8 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 	img.debugf("%s.ReadAt() ++ off=%v", img.String(), off)
 	defer img.debugf("%s.ReadAt() --", img.String())
 
-	img.rwLock.Lock()
-	defer img.rwLock.Unlock()
+	img.mu.Lock()
+	defer img.mu.Unlock()
 
 	defer func() {
 		if err == io.EOF {
@@ -221,7 +227,8 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 	}
 
 	//
-	// 发送读指令，每次最多读1MiB，若readLen的长度超过1MiB，则分多次读
+	// 发送读指令，每次最多读 rwMaxLen，若readLen的长度超过 rwMaxLen，则分多次读。
+	// 整次ReadAt调用已经持有 img.mu，分片循环内无需（也不应）重复加解锁。
 	//
 
 	var totalRead int
@@ -230,8 +237,6 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 		if chunkSize > rwMaxLen {
 			chunkSize = rwMaxLen
 		}
-
-		img.shmMutex.Lock()
 
 		req := readRequest{
 			shmBaseRequest: shmBaseRequest{
@@ -242,17 +247,13 @@ func (img *Image) ReadAt(b []byte, off int64) (n int, err error) {
 			Length: int32(chunkSize),
 		}
 		if err = img.sendRequest(&req); err != nil {
-			img.shmMutex.Unlock()
 			return 0, err
 		}
 		resp, err := loadReadResponse(img.shmData)
 		if err != nil {
-			img.shmMutex.Unlock()
 			return 0, err
 		}
 		copy(b[totalRead:totalRead+int(resp.Length)], resp.ResponseBody[resp.DataRelStart:resp.DataRelStart+int(resp.Length)])
-
-		img.shmMutex.Unlock()
 
 		totalRead += int(resp.Length)
 		if int(resp.Length) < chunkSize {
@@ -267,8 +268,8 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 	img.debugf("%s.WriteAt() ++ off=%v, len=%v", img.String(), off, len(b))
 	defer img.debugf("%s.WriteAt() --", img.String())
 
-	img.rwLock.Lock()
-	defer img.rwLock.Unlock()
+	img.mu.Lock()
+	defer img.mu.Unlock()
 
 	defer func() {
 		err = errors.Wrapf(err, "WriteAt")
@@ -279,7 +280,8 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 	}
 
 	//
-	// 发送写指令，每次最多写1MiB，若b的长度超过1MiB，则分多次写
+	// 发送写指令，每次最多写 rwMaxLen，若b的长度超过 rwMaxLen，则分多次写。
+	// 整次WriteAt调用已经持有 img.mu，分片循环内无需（也不应）重复加解锁。
 	//
 
 	var totalWritten int
@@ -288,8 +290,6 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 		if chunkSize > rwMaxLen {
 			chunkSize = rwMaxLen
 		}
-
-		img.shmMutex.Lock()
 
 		req := writeRequest{
 			shmBaseRequest: shmBaseRequest{
@@ -301,19 +301,15 @@ func (img *Image) WriteAt(b []byte, off int64) (n int, err error) {
 			Data:   b[totalWritten : totalWritten+chunkSize],
 		}
 		if err = img.sendRequest(&req); err != nil {
-			img.shmMutex.Unlock()
 			return 0, err
 		}
 		resp, err := loadWriteResponse(img.shmData)
 		if err != nil {
-			img.shmMutex.Unlock()
 			return 0, err
 		}
 
 		writtenSize := int(resp.Length)
 		totalWritten += writtenSize
-
-		img.shmMutex.Unlock()
 
 		if writtenSize < chunkSize {
 			break // 写入中断
@@ -327,14 +323,14 @@ func (img *Image) Sync() (err error) {
 	img.debugf("%s.Sync() ++", img.String())
 	defer img.debugf("%s.Sync() --", img.String())
 
-	img.rwLock.Lock()
-	defer img.rwLock.Unlock()
+	img.mu.Lock()
+	defer img.mu.Unlock()
 
 	defer func() {
 		err = errors.Wrapf(err, "Sync")
 	}()
 
-	return img.flush()
+	return img.flushLocked()
 }
 
 func (img *Image) Close() (err error) {
@@ -342,19 +338,17 @@ func (img *Image) Close() (err error) {
 	defer img.debugf("%s.Close() --", img.String())
 	defer logger.Debugf("%s is closed", img.String())
 
-	img.rwLock.Lock()
-	defer img.rwLock.Unlock()
+	img.mu.Lock()
+	defer img.mu.Unlock()
 
 	defer func() {
 		err = errors.Wrapf(err, "Close")
 	}()
 
 	if extend.IsProcessRunning(img.proc) {
-		if eSync := img.flush(); eSync != nil {
+		if eSync := img.flushLocked(); eSync != nil {
 			return eSync
 		}
-
-		img.shmMutex.Lock()
 
 		req := closeRequest{
 			shmBaseRequest: shmBaseRequest{
@@ -363,16 +357,12 @@ func (img *Image) Close() (err error) {
 			},
 		}
 		if err = req.buildRequest(img.shmData); err != nil {
-			img.shmMutex.Unlock()
 			return err
 		}
 		// 只用通知事件，不用等待事件
 		if err = img.notifyQemu(img.efdr); err != nil {
-			img.shmMutex.Unlock()
 			return err
 		}
-
-		img.shmMutex.Unlock()
 
 		// 等待QEMU进程退出
 		_ = img.proc.Wait()
@@ -396,10 +386,8 @@ func (img *Image) debugf(format string, args ...interface{}) {
 	logger.Debugf(format, args...)
 }
 
-func (img *Image) flush() (err error) {
-	img.shmMutex.Lock()
-	defer img.shmMutex.Unlock()
-
+// flushLocked 发送刷盘请求。调用方必须已经持有 img.mu。
+func (img *Image) flushLocked() (err error) {
 	req := flushRequest{
 		shmBaseRequest: shmBaseRequest{
 			Type:     _FLUSH,
@@ -519,9 +507,8 @@ func releaseImageObject(img *Image) error {
 	}
 
 	// 更多释放逻辑...
-
-	img.shmMutex.Lock()
-	defer img.shmMutex.Unlock()
+	// 注：本函数由 Close()（已持有 img.mu）或 Open() 失败时的清理路径（对象尚未
+	// 对外暴露，不存在并发）调用，因此无需在此再次加锁。
 
 	if img.shmAttached {
 		if err := unix.SysvShmDetach(img.shmData); err != nil {
