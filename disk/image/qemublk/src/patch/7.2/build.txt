@@ -1,7 +1,32 @@
 1. 下载qemu-7.2.0源码包并解压
 2. 将imgio.c和meson.build替换到qemu-7.2.0的对应目录下
 3. 执行编译前配置，例如您要编译x86_64架构的，可以执行：
-   ./configure --target-list=x86_64-softmmu --enable-debug
+   ./configure \
+    --prefix=/opt/qemu-7.2 \
+    --enable-kvm \
+    --enable-linux-aio \
+    --disable-libiscsi \
+    --disable-curl \
+    --disable-libssh \
+    --disable-glusterfs \
+    --disable-rbd \
+    --disable-vhost-user \
+    --disable-xkbcommon \
+    --disable-numa \
+    --target-list=x86_64-softmmu
+   这样配置后，能够使得编译后的img和imgio程序依赖较少，如：
+   [root@localhost qemu-7.2.0]# ldd build/imgio
+           linux-vdso.so.1 (0x00007ffe2a3f3000)
+           liburing.so.2 => /usr/lib64/liburing.so.2 (0x00007f8ed7d37000)
+           libglib-2.0.so.0 => /usr/lib64/libglib-2.0.so.0 (0x00007f8ed7bf3000)
+           libm.so.6 => /usr/lib64/libm.so.6 (0x00007f8ed7b16000)
+           libz.so.1 => /usr/lib64/libz.so.1 (0x00007f8ed7afc000)
+           libaio.so.1 => /usr/lib64/libaio.so.1 (0x00007f8ed7af7000)
+           libbz2.so.1 => /usr/lib64/libbz2.so.1 (0x00007f8ed7ae4000)
+           libc.so.6 => /usr/lib64/libc.so.6 (0x00007f8ed790a000)
+           libpcre2-8.so.0 => /usr/lib64/libpcre2-8.so.0 (0x00007f8ed786e000)
+           /lib64/ld-linux-x86-64.so.2 (0x00007f8ed7f20000)
+   甚至于如果你的qcow2程序没有bzip2的话，可以在config继续追加--disable-bzip2编译参数，以去除libbz2.so.1的依赖
 4. 执行make进行编译
 5. 编译完成后，进入build目录，可以找到imgio和img
 6. ldd imgio和ldd img，查看其依赖的共享库，将依赖库一并拷贝到一个新目录下
