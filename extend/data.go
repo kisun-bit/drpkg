@@ -16,6 +16,7 @@ import (
 	"unsafe"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/pkg/errors"
 )
 
 type Number interface {
@@ -320,12 +321,24 @@ func Pretty(i any) string {
 	return string(b)
 }
 
-// ReadWithBadSector 以跳过坏块的方式读取数据
-func ReadWithBadSector(fd *os.File, buf []byte, off int64) (n int, err error) {
-	const chunkSize = 4096
+// ReadFileSkipBadSector 以跳过坏块的方式读取数据
+func ReadFileSkipBadSector(
+	handle *os.File,
+	offset int64,
+	data []byte,
+	sectorSize int64,
+) (int, error) {
+
+	if offset%sectorSize != 0 {
+		return 0, errors.Errorf("offset %d is not sector aligned", offset)
+	}
+
+	if int64(len(data))%sectorSize != 0 {
+		return 0, errors.Errorf("size %d is not sector aligned", len(data))
+	}
 
 	// 先尝试正常读取
-	n, err = fd.ReadAt(buf, off)
+	n, err := handle.ReadAt(data, offset)
 	if err == nil {
 		return n, nil
 	}
@@ -335,24 +348,24 @@ func ReadWithBadSector(fd *os.File, buf []byte, off int64) (n int, err error) {
 	}
 
 	if IsDataCrcError(err) {
-		if len(buf) < chunkSize {
+		if len(data) < int(sectorSize) {
 			// 小于一个块，直接跳过整个坏块
-			return len(buf), nil
+			return len(data), nil
 		}
 
-		// 分成若干个4K读取到buf中，若某个4K区间报DataCrc则跳过
-		total := len(buf)
+		// 分成若干个sectorSize读取到buf中，若某个4K区间报DataCrc则跳过
+		total := len(data)
 		n = 0 // 重新计数，不复用上面整体读取失败时的n
 
-		for start := 0; start < total; start += chunkSize {
-			end := start + chunkSize
+		for start := 0; start < total; start += int(sectorSize) {
+			end := start + int(sectorSize)
 			if end > total {
 				end = total
 			}
-			chunk := buf[start:end]
-			curOff := off + int64(start)
+			chunk := data[start:end]
+			curOff := offset + int64(start)
 
-			nn, cerr := fd.ReadAt(chunk, curOff)
+			nn, cerr := handle.ReadAt(chunk, curOff)
 
 			switch {
 			case cerr == nil:
