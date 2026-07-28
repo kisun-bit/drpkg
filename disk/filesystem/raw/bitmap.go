@@ -36,7 +36,7 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		}
 	}()
 
-	const blockSize = 64 << 10
+	const blockSize = 4 << 10
 	bits := (p.size + (blockSize - 1)) / blockSize
 
 	fb := bitmap.NewFsBitmap(define.FsTypeUnknown, bitmap.BitmapRaw, bits, blockSize)

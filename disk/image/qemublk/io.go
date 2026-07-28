@@ -120,7 +120,16 @@ func Open(path string, opts ...OpenOption) (_ *Image, err error) {
 	}
 	logger.Debugf("efd(request)=%v efd(response)=%v", img.efdr, img.efdp)
 
-	img.shmId, err = unix.SysvShmGet(os.Getpid(), shmSize, unix.IPC_CREAT|0o660)
+	// 使用 IPC_PRIVATE 而非 os.Getpid() 作为 key：
+	// 若用 PID 当 key，一旦系统中已存在同 key（例如历史遗留未清理、或 PID 被
+	// 复用）的共享内存段，SysvShmGet 在只带 IPC_CREAT（不带 IPC_EXCL）时会
+	// 直接返回该已存在的旧段，而不会校验/新建为期望的 shmSize（64MiB）。若旧
+	// 段实际尺寸远小于 64MiB，Go/C 两端 attach 均会"成功"（shmat 不校验大小），
+	// 但 C 端一旦按 RESPONSE_OFFSET(32MiB) 访问响应区就会越界访问未映射内存而
+	// SIGSEGV，表现为"第一次读写请求发出后 qemu 子进程立即异常退出"。
+	// IPC_PRIVATE 保证每次都新建一个独占、大小正确的匿名共享内存段，从根本上
+	// 避免与历史/其他进程遗留的共享内存段发生冲突或被复用。
+	img.shmId, err = unix.SysvShmGet(unix.IPC_PRIVATE, shmSize, unix.IPC_CREAT|0o660)
 	if err != nil {
 		return nil, errors.Wrapf(err, "SysvShmGet")
 	}
