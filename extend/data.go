@@ -327,33 +327,38 @@ func ReadFileSkipBadSector(
 	offset int64,
 	data []byte,
 	sectorSize int64,
-) (int, error) {
+) (n int, containsBadSector bool, err error) {
 
 	if offset%sectorSize != 0 {
-		return 0, errors.Errorf("offset %d is not sector aligned", offset)
+		return 0, containsBadSector, errors.Errorf("offset %d is not sector aligned", offset)
 	}
 
 	if int64(len(data))%sectorSize != 0 {
-		return 0, errors.Errorf("size %d is not sector aligned", len(data))
+		return 0, containsBadSector, errors.Errorf("size %d is not sector aligned", len(data))
 	}
 
 	// 先尝试正常读取
-	n, err := handle.ReadAt(data, offset)
+	n, err = handle.ReadAt(data, offset)
 	if err == nil {
-		return n, nil
+		return n, containsBadSector, nil
 	}
 
 	if IsEOF(err) {
-		return n, io.EOF
+		return n, containsBadSector, io.EOF
 	}
 
 	if IsDataCrcError(err) {
+		containsBadSector = true
+
 		if len(data) < int(sectorSize) {
 			// 小于一个块，直接跳过整个坏块
-			return len(data), nil
+			for i := range data {
+				data[i] = 0
+			}
+			return len(data), containsBadSector, nil
 		}
 
-		// 分成若干个sectorSize读取到buf中，若某个4K区间报DataCrc则跳过
+		// 分成若干个sectorSize读取到buf中，若某个sectorSize区间报DataCrc则跳过
 		total := len(data)
 		n = 0 // 重新计数，不复用上面整体读取失败时的n
 
@@ -374,7 +379,7 @@ func ReadFileSkipBadSector(
 			case IsEOF(cerr):
 				// 读到文件末尾，之前累计的数据仍然有效
 				n += nn
-				return n, io.EOF
+				return n, containsBadSector, io.EOF
 
 			case IsDataCrcError(cerr):
 				// 该4K区间是坏块，跳过，清零占位（避免残留脏数据）
@@ -385,13 +390,13 @@ func ReadFileSkipBadSector(
 
 			default:
 				// 其他不可恢复错误，直接返回，n为已成功处理的字节数
-				return n, cerr
+				return n, containsBadSector, cerr
 			}
 		}
 
-		return n, nil
+		return n, containsBadSector, nil
 	}
 
 	// 其它未知错误，原样返回
-	return n, err
+	return n, false, err
 }
