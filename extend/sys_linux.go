@@ -970,6 +970,9 @@ func FileDiskExtents(file string) (es []FileDiskExtentSegment, err error) {
 		}
 	}
 	if onBtrfs {
+		if e := btrfsSync(file); e != nil {
+			return nil, errors.Wrapf(e, "btrfsSync")
+		}
 		sz := int64(0)
 		for _, d := range eArr {
 			if sz >= fileSize {
@@ -1169,6 +1172,32 @@ func IsBtrfs(path string) (bool, error) {
 	}
 
 	return uint64(st.Type) == BtrfsSuperMagic, nil
+}
+
+const (
+	BTRFS_IOCTL_MAGIC = 0x94
+	BTRFS_IOC_SYNC    = 0x9408
+)
+
+func btrfsSync(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, _, errno := unix.Syscall(
+		unix.SYS_IOCTL,
+		f.Fd(),
+		BTRFS_IOC_SYNC,
+		0,
+	)
+
+	if errno != 0 {
+		return errno
+	}
+
+	return nil
 }
 
 func resolveToBlockName(dev string) (string, error) {
