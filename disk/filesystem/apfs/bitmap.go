@@ -45,7 +45,7 @@ func (p *BitmapParser) String() string {
 func (p *BitmapParser) readAt(off int64, buf []byte) error {
 	n, err := p.fr.ReadAt(buf, off)
 	if err != nil {
-		return fmt.Errorf("read error at offset %d (%d/%d bytes): %w", off, n, len(buf), err)
+		return fmt.Errorf("read error at offset %d (%d/%d bytes): %v", off, n, len(buf), err)
 	}
 	if n != len(buf) {
 		return fmt.Errorf("short read at offset %d: got %d, expected %d", off, n, len(buf))
@@ -61,12 +61,12 @@ func decode(buf []byte, v interface{}) error {
 func (p *BitmapParser) readSuperblock() (*NxSuperblock, error) {
 	buf := make([]byte, minBlockSize)
 	if err := p.readAt(0, buf); err != nil {
-		return nil, fmt.Errorf("read error for superblock: %w", err)
+		return nil, fmt.Errorf("read error for superblock: %v", err)
 	}
 
 	var nxsb NxSuperblock
 	if err := decode(buf, &nxsb); err != nil {
-		return nil, fmt.Errorf("failed to decode nx_superblock: %w", err)
+		return nil, fmt.Errorf("failed to decode nx_superblock: %v", err)
 	}
 
 	if nxsb.NxMagic != apfsMagic {
@@ -116,12 +116,12 @@ func (p *BitmapParser) getSpacemanBuf(nxsb *NxSuperblock) ([]byte, error) {
 			return nil, fmt.Errorf("potential overflow in pread offset calculation (base: %d, block_size: %d)", b, blockSize)
 		}
 		if err := p.readAt(b*blockSize, objBuf); err != nil {
-			return nil, fmt.Errorf("pread error reading obj: %w", err)
+			return nil, fmt.Errorf("pread error reading obj: %v", err)
 		}
 
 		var obj ObjPhys
 		if err := decode(objBuf[:objPhysSize], &obj); err != nil {
-			return nil, fmt.Errorf("failed to decode obj_phys: %w", err)
+			return nil, fmt.Errorf("failed to decode obj_phys: %v", err)
 		}
 
 		if obj.Type == nxsb.NxO.Type {
@@ -139,7 +139,7 @@ func (p *BitmapParser) getSpacemanBuf(nxsb *NxSuperblock) ([]byte, error) {
 		if obj.Type == typeCheckpointMap {
 			var hdr CheckpointMapPhysHeader
 			if err := decode(objBuf[:cibHeaderSize-8], &hdr); err != nil { // ObjPhys(32)+flags(4)+count(4)=40; reuse cibHeaderSize const
-				return nil, fmt.Errorf("failed to decode checkpoint_map_phys header: %w", err)
+				return nil, fmt.Errorf("failed to decode checkpoint_map_phys header: %v", err)
 			}
 			if !haveCpm || hdr.CpmO.Xid > cpmHeader.CpmO.Xid {
 				cpmBuf = append([]byte(nil), objBuf...)
@@ -169,7 +169,7 @@ func (p *BitmapParser) getSpacemanBuf(nxsb *NxSuperblock) ([]byte, error) {
 		off := cibHeaderSize + int(i)*cpmMapEntSize
 		var mapping CheckpointMapping
 		if err := decode(cpmBuf[off:off+cpmMapEntSize], &mapping); err != nil {
-			return nil, fmt.Errorf("failed to decode checkpoint_mapping: %w", err)
+			return nil, fmt.Errorf("failed to decode checkpoint_mapping: %v", err)
 		}
 
 		if mapping.CpmOid == nxsb.NxSpacemanOid && mapping.CpmType == typeSpaceman {
@@ -181,7 +181,7 @@ func (p *BitmapParser) getSpacemanBuf(nxsb *NxSuperblock) ([]byte, error) {
 			}
 			buf := make([]byte, mapping.CpmSize)
 			if err := p.readAt(int64(mapping.CpmPaddr)*blockSize, buf); err != nil {
-				return nil, fmt.Errorf("pread error reading spaceman: %w", err)
+				return nil, fmt.Errorf("pread error reading spaceman: %v", err)
 			}
 			spacemanBuf = buf
 			break
@@ -199,7 +199,7 @@ func (p *BitmapParser) getSpacemanBuf(nxsb *NxSuperblock) ([]byte, error) {
 func (p *BitmapParser) buildBitmap(nxsb *NxSuperblock, spacemanBuf []byte) (*bitmap.FsBitmap, error) {
 	var sm SpacemanPhysHeader
 	if err := decode(spacemanBuf, &sm); err != nil {
-		return nil, fmt.Errorf("failed to decode spaceman_phys: %w", err)
+		return nil, fmt.Errorf("failed to decode spaceman_phys: %v", err)
 	}
 
 	if sm.SmBlockSize == 0 || sm.SmBlockSize != nxsb.NxBlockSize {
@@ -252,12 +252,12 @@ func (p *BitmapParser) buildBitmap(nxsb *NxSuperblock, spacemanBuf []byte) (*bit
 			}
 
 			if err := p.readAt(int64(addrData)*blockSize, cibBuf); err != nil {
-				return nil, fmt.Errorf("pread error reading chunk info block: %w", err)
+				return nil, fmt.Errorf("pread error reading chunk info block: %v", err)
 			}
 
 			var cibHdr ChunkInfoBlockHeader
 			if err := decode(cibBuf[:cibHeaderSize], &cibHdr); err != nil {
-				return nil, fmt.Errorf("failed to decode chunk_info_block header: %w", err)
+				return nil, fmt.Errorf("failed to decode chunk_info_block header: %v", err)
 			}
 
 			if cibHdr.CibChunkInfoCount == 0 || cibHdr.CibChunkInfoCount > maxChunkPerCIB {
@@ -272,7 +272,7 @@ func (p *BitmapParser) buildBitmap(nxsb *NxSuperblock, spacemanBuf []byte) (*bit
 					}
 					var ci ChunkInfo
 					if err := decode(cibBuf[off:off+ciSize], &ci); err != nil {
-						return nil, fmt.Errorf("failed to decode chunk_info: %w", err)
+						return nil, fmt.Errorf("failed to decode chunk_info: %v", err)
 					}
 
 					logger.Debugf("%s: xid=%x offset=%x bitTot=%x bitAvl=%x block=%x",
@@ -300,7 +300,7 @@ func (p *BitmapParser) buildBitmap(nxsb *NxSuperblock, spacemanBuf []byte) (*bit
 					}
 
 					if err := p.readAt(ci.CiBitmapAddr*blockSize, bitmapEntryBuf); err != nil {
-						return nil, fmt.Errorf("pread error reading bitmap entry: %w", err)
+						return nil, fmt.Errorf("pread error reading bitmap entry: %v", err)
 					}
 
 					for block := uint64(0); block < uint64(ci.CiBlockCount); block++ {

@@ -26,7 +26,7 @@ func ListLUKSDevices() ([]string, error) {
 		if r == 2 {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("blkid failed: %w", err)
+		return nil, fmt.Errorf("blkid failed: %v", err)
 	}
 
 	return strings.Fields(out), nil
@@ -97,7 +97,7 @@ func OpenLUKS(
 
 	if err != nil {
 		return fmt.Errorf(
-			"cryptsetup luksOpen %s failed: %s (%w)",
+			"cryptsetup luksOpen %s failed: %s (%v)",
 			device,
 			strings.TrimSpace(string(out)),
 			err,

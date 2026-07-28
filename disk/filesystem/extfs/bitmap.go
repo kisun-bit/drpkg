@@ -285,7 +285,7 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	//    the superblock internally in C).
 	sbBuf := make([]byte, superblockSize)
 	if err := readFull(p.fr, superblockOffset, sbBuf); err != nil {
-		return nil, fmt.Errorf("read superblock failed: %w", err)
+		return nil, fmt.Errorf("read superblock failed: %v", err)
 	}
 	sb, err := parseSuperBlock(sbBuf)
 	if err != nil {
@@ -392,7 +392,7 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	for g := uint64(0); g < groupCount; g++ {
 		blockNum, byteOffset := gdtLocation(g, gp)
 		if err := gdtCache.read(p.fr, blockNum, blockSize); err != nil {
-			return nil, fmt.Errorf("read group descriptor of group %d (block %d): %w", g, blockNum, err)
+			return nil, fmt.Errorf("read group descriptor of group %d (block %d): %v", g, blockNum, err)
 		}
 		gd := parseGroupDesc(gdtCache.buf[byteOffset:], is64)
 
@@ -431,7 +431,7 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		// pointed to by gd.blockBitmap).
 		bmOffset := int64(gd.blockBitmap) * int64(blockSize)
 		if err := readFull(p.fr, bmOffset, blockBitmapBuf); err != nil {
-			return nil, fmt.Errorf("read block bitmap of group %d failed: %w", g, err)
+			return nil, fmt.Errorf("read block bitmap of group %d failed: %v", g, err)
 		}
 
 		var gfree uint64

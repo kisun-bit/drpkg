@@ -88,7 +88,7 @@ func (n *linuxNetworkInjector) reset() error {
 
 	for _, step := range steps {
 		if err := step.fn(); err != nil {
-			return fmt.Errorf("%s: %w", step.name, err)
+			return fmt.Errorf("%s: %v", step.name, err)
 		}
 	}
 
@@ -141,7 +141,18 @@ func (n *linuxNetworkInjector) injectNetworkByIfCfg() error {
 		baseDir,
 	)
 
-	for _, iface := range n.cfg.Interfaces {
+	// 提前一次性把 n.cfg.Routes 分配到各个网卡，
+	// 避免"未绑定 MAC 的路由"被重复写入到每一张网卡的 route-<iface> 文件里
+	// （那样在多网卡场景下，第二张及以后网卡 ifup 时会因为路由已存在而报错）。
+	routesByIface := resolveRouteTargets(n.cfg.Routes, n.cfg.Interfaces)
+
+	for i, iface := range n.cfg.Interfaces {
+
+		ifaceName, err := sanitizeIfaceName(iface.Name)
+		if err != nil {
+			return errors.Wrapf(err, "interface #%d (mac=%s)", i, iface.MAC)
+		}
+		iface.Name = ifaceName
 
 		var sb strings.Builder
 
@@ -389,6 +400,7 @@ func (n *linuxNetworkInjector) injectNetworkByIfCfg() error {
 		if err := n.writeIfcfgRoutes(
 			baseDir,
 			iface,
+			routesByIface[i],
 		); err != nil {
 			return err
 		}
@@ -400,6 +412,7 @@ func (n *linuxNetworkInjector) injectNetworkByIfCfg() error {
 func (n *linuxNetworkInjector) writeIfcfgRoutes(
 	baseDir string,
 	iface InterfaceConfig,
+	routes []RouteConfig,
 ) error {
 
 	var (
@@ -407,16 +420,11 @@ func (n *linuxNetworkInjector) writeIfcfgRoutes(
 		route6 strings.Builder
 	)
 
-	for _, route := range n.cfg.Routes {
+	for _, route := range routes {
 
-		if route.InterfaceMAC != "" &&
-			!equalMAC(
-				route.InterfaceMAC,
-				iface.MAC,
-			) {
-			continue
-		}
-
+		// 路由已经在 resolveRouteTargets 里做过 normalizeRoute 校验，
+		// route.Destination/Gateway 此时保证是合法的 CIDR/IP，
+		// 不会出现换行符等可以破坏 ifcfg 文件语法的内容。
 		line := route.Destination
 
 		if route.Gateway != "" {
@@ -427,6 +435,13 @@ func (n *linuxNetworkInjector) writeIfcfgRoutes(
 			line += fmt.Sprintf(
 				" metric %d",
 				route.Metric,
+			)
+		}
+
+		if route.Table > 0 {
+			line += fmt.Sprintf(
+				" table %d",
+				route.Table,
 			)
 		}
 
@@ -507,14 +522,13 @@ func (n *linuxNetworkInjector) injectNetworkByNetplan() error {
 
 	ethernets := make(map[string]interface{})
 
-	for _, iface := range n.cfg.Interfaces {
+	routesByIface := resolveRouteTargets(n.cfg.Routes, n.cfg.Interfaces)
 
-		name := iface.Name
-		if name == "" {
-			return errors.Errorf(
-				"empty interface name for %s",
-				iface.MAC,
-			)
+	for i, iface := range n.cfg.Interfaces {
+
+		name, err := sanitizeIfaceName(iface.Name)
+		if err != nil {
+			return errors.Wrapf(err, "interface #%d (mac=%s)", i, iface.MAC)
 		}
 
 		eth := map[string]interface{}{
@@ -601,8 +615,9 @@ func (n *linuxNetworkInjector) injectNetworkByNetplan() error {
 
 		var routes []map[string]interface{}
 
-		// 默认路由
-		if iface.Gateway != "" {
+		// 默认路由：仅在该网卡不是 DHCP 时手工下发，
+		// 否则会和 DHCP 自动获取的默认路由重复/冲突。
+		if iface.Gateway != "" && !iface.DHCP {
 
 			routes = append(
 				routes,
@@ -613,16 +628,8 @@ func (n *linuxNetworkInjector) injectNetworkByNetplan() error {
 			)
 		}
 
-		// 静态路由
-		for _, route := range n.cfg.Routes {
-
-			if route.InterfaceMAC != "" &&
-				!equalMAC(
-					route.InterfaceMAC,
-					iface.MAC,
-				) {
-				continue
-			}
+		// 静态路由：使用统一归属结果，避免未绑定 MAC 的路由被写进每张网卡
+		for _, route := range routesByIface[i] {
 
 			r := map[string]interface{}{
 				"to": route.Destination,
@@ -705,14 +712,13 @@ func (n *linuxNetworkInjector) injectNetworkByNetworkManager() error {
 		return err
 	}
 
-	for _, iface := range n.cfg.Interfaces {
+	routesByIface := resolveRouteTargets(n.cfg.Routes, n.cfg.Interfaces)
 
-		name := iface.Name
-		if name == "" {
-			return errors.Errorf(
-				"empty interface name for %s",
-				iface.MAC,
-			)
+	for i, iface := range n.cfg.Interfaces {
+
+		name, err := sanitizeIfaceName(iface.Name)
+		if err != nil {
+			return errors.Wrapf(err, "interface #%d (mac=%s)", i, iface.MAC)
 		}
 
 		var sb strings.Builder
@@ -847,15 +853,7 @@ func (n *linuxNetworkInjector) injectNetworkByNetworkManager() error {
 
 		routeIndex := 1
 
-		for _, route := range n.cfg.Routes {
-
-			if route.InterfaceMAC != "" &&
-				!equalMAC(
-					route.InterfaceMAC,
-					iface.MAC,
-				) {
-				continue
-			}
+		for _, route := range routesByIface[i] {
 
 			if strings.Contains(
 				route.Destination,
@@ -895,6 +893,16 @@ func (n *linuxNetworkInjector) injectNetworkByNetworkManager() error {
 					),
 				),
 			)
+
+			if route.Table > 0 {
+				sb.WriteString(
+					fmt.Sprintf(
+						"route%d_options=table=%d\n",
+						routeIndex,
+						route.Table,
+					),
+				)
+			}
 
 			routeIndex++
 		}
@@ -963,15 +971,7 @@ func (n *linuxNetworkInjector) injectNetworkByNetworkManager() error {
 
 		ipv6RouteIndex := 1
 
-		for _, route := range n.cfg.Routes {
-
-			if route.InterfaceMAC != "" &&
-				!equalMAC(
-					route.InterfaceMAC,
-					iface.MAC,
-				) {
-				continue
-			}
+		for _, route := range routesByIface[i] {
 
 			if !strings.Contains(
 				route.Destination,
@@ -1011,6 +1011,16 @@ func (n *linuxNetworkInjector) injectNetworkByNetworkManager() error {
 					),
 				),
 			)
+
+			if route.Table > 0 {
+				sb.WriteString(
+					fmt.Sprintf(
+						"route%d_options=table=%d\n",
+						ipv6RouteIndex,
+						route.Table,
+					),
+				)
+			}
 
 			ipv6RouteIndex++
 		}
@@ -1075,7 +1085,15 @@ func (n *linuxNetworkInjector) injectNetworkByInterfaces() error {
 		)
 	}
 
-	for _, iface := range n.cfg.Interfaces {
+	routesByIface := resolveRouteTargets(n.cfg.Routes, n.cfg.Interfaces)
+
+	for i, iface := range n.cfg.Interfaces {
+
+		ifaceName, err := sanitizeIfaceName(iface.Name)
+		if err != nil {
+			return errors.Wrapf(err, "interface #%d (mac=%s)", i, iface.MAC)
+		}
+		iface.Name = ifaceName
 
 		var sb strings.Builder
 
@@ -1193,15 +1211,12 @@ func (n *linuxNetworkInjector) injectNetworkByInterfaces() error {
 		// IPv4 Route
 		//
 
-		for _, route := range n.cfg.Routes {
-
-			if route.InterfaceMAC != "" &&
-				!equalMAC(
-					route.InterfaceMAC,
-					iface.MAC,
-				) {
-				continue
-			}
+		// 注意：这里的每一行最终会被 ifup 当作 shell 命令直接执行，
+		// 所以 route.Destination / route.Gateway 必须是已经在
+		// resolveRouteTargets -> normalizeRoute 里校验过的合法 CIDR/IP，
+		// 不能是任意未经校验的字符串（否则换行符会被当成新的一条
+		// "up ..." 指令，造成命令注入）。
+		for _, route := range routesByIface[i] {
 
 			if strings.Contains(
 				route.Destination,
@@ -1223,6 +1238,13 @@ func (n *linuxNetworkInjector) injectNetworkByInterfaces() error {
 				cmd += fmt.Sprintf(
 					" metric %d",
 					route.Metric,
+				)
+			}
+
+			if route.Table > 0 {
+				cmd += fmt.Sprintf(
+					" table %d",
+					route.Table,
 				)
 			}
 
@@ -1276,15 +1298,7 @@ func (n *linuxNetworkInjector) injectNetworkByInterfaces() error {
 				)
 			}
 
-			for _, route := range n.cfg.Routes {
-
-				if route.InterfaceMAC != "" &&
-					!equalMAC(
-						route.InterfaceMAC,
-						iface.MAC,
-					) {
-					continue
-				}
+			for _, route := range routesByIface[i] {
 
 				if !strings.Contains(
 					route.Destination,
@@ -1306,6 +1320,13 @@ func (n *linuxNetworkInjector) injectNetworkByInterfaces() error {
 					cmd += fmt.Sprintf(
 						" metric %d",
 						route.Metric,
+					)
+				}
+
+				if route.Table > 0 {
+					cmd += fmt.Sprintf(
+						" table %d",
+						route.Table,
 					)
 				}
 
@@ -1353,7 +1374,13 @@ func (n *linuxNetworkInjector) injectNetworkBySuseWicked() error {
 		"etc/sysconfig/network",
 	)
 
-	for _, iface := range n.cfg.Interfaces {
+	for i, iface := range n.cfg.Interfaces {
+
+		ifaceName, err := sanitizeIfaceName(iface.Name)
+		if err != nil {
+			return errors.Wrapf(err, "interface #%d (mac=%s)", i, iface.MAC)
+		}
+		iface.Name = ifaceName
 
 		var sb strings.Builder
 
@@ -1460,43 +1487,43 @@ func (n *linuxNetworkInjector) writeWickedRoutes(
 
 	var sb strings.Builder
 
-	for _, route := range n.cfg.Routes {
+	// wicked 的 routes 文件是全局单文件、每行显式写明所属网卡，
+	// 不存在"重复写进每张网卡"的问题，所以这里不像其它后端那样
+	// 需要把路由收敛到某一张网卡，而是应该让每一条合法路由都能落地——
+	// 包括没有显式 InterfaceMAC 的路由，只要能推断出合理的归属网卡即可。
+	// 之前的实现里 `if route.InterfaceMAC == "" { continue }`
+	// 会把所有未绑定网卡的路由静默丢弃，与其它后端（把未绑定路由广播/
+	// 分配给某张网卡）行为不一致，属于 bug。
+	routesByIface := resolveRouteTargets(n.cfg.Routes, n.cfg.Interfaces)
 
-		if route.InterfaceMAC == "" {
+	for idx, routes := range routesByIface {
+		if idx < 0 || idx >= len(n.cfg.Interfaces) {
 			continue
 		}
 
-		var ifaceName string
+		ifaceName, err := sanitizeIfaceName(n.cfg.Interfaces[idx].Name)
+		if err != nil {
+			logger.Warnf("writeWickedRoutes: %v, routes for this interface skipped", err)
+			continue
+		}
 
-		for _, iface := range n.cfg.Interfaces {
+		for _, route := range routes {
 
-			if equalMAC(
-				iface.MAC,
-				route.InterfaceMAC,
-			) {
-				ifaceName = iface.Name
-				break
+			gw := "-"
+
+			if route.Gateway != "" {
+				gw = route.Gateway
 			}
+
+			sb.WriteString(
+				fmt.Sprintf(
+					"%s %s - %s\n",
+					route.Destination,
+					gw,
+					ifaceName,
+				),
+			)
 		}
-
-		if ifaceName == "" {
-			continue
-		}
-
-		gw := "-"
-
-		if route.Gateway != "" {
-			gw = route.Gateway
-		}
-
-		sb.WriteString(
-			fmt.Sprintf(
-				"%s %s - %s\n",
-				route.Destination,
-				gw,
-				ifaceName,
-			),
-		)
 	}
 
 	if sb.Len() == 0 {

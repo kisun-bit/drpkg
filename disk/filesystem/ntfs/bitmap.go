@@ -269,7 +269,7 @@ func (p *BitmapParser) parseAttribute(buf []byte) (attribute, error) {
 	// buf[0x14:]) require a full resident attribute header. The caller only
 	// guarantees recLen>0, so a short attribute would panic without this.
 	if err := CheckBounds(0, 0x18, len(buf)); err != nil {
-		return a, fmt.Errorf("ntfs: short attribute header: %w", err)
+		return a, fmt.Errorf("ntfs: short attribute header: %v", err)
 	}
 	a.typeCode = binary.LittleEndian.Uint32(buf[0:])
 	nonResident := buf[8]
@@ -288,7 +288,7 @@ func (p *BitmapParser) parseAttribute(buf []byte) (attribute, error) {
 		contentOff := int(binary.LittleEndian.Uint16(buf[0x14:]))
 		content, err := Slice(buf, contentOff, contentLen)
 		if err != nil {
-			return a, fmt.Errorf("ntfs: resident attr content out of range: %w", err)
+			return a, fmt.Errorf("ntfs: resident attr content out of range: %v", err)
 		}
 		a.residentData = append([]byte(nil), content...)
 		a.realSize = uint64(contentLen)
@@ -298,7 +298,7 @@ func (p *BitmapParser) parseAttribute(buf []byte) (attribute, error) {
 	// (0x30) fields live in the extended (non-resident) header, so require
 	// at least 0x40 bytes before reading them.
 	if err := CheckBounds(0, 0x40, len(buf)); err != nil {
-		return a, fmt.Errorf("ntfs: short non-resident attribute header: %w", err)
+		return a, fmt.Errorf("ntfs: short non-resident attribute header: %v", err)
 	}
 	a.nonResident = true
 	a.startVCN = binary.LittleEndian.Uint64(buf[0x10:])
@@ -311,7 +311,7 @@ func (p *BitmapParser) parseAttribute(buf []byte) (attribute, error) {
 	runOff := int(binary.LittleEndian.Uint16(buf[0x20:]))
 	runData, err := Slice(buf, runOff, len(buf)-runOff)
 	if err != nil {
-		return a, fmt.Errorf("ntfs: bad runlist offset: %w", err)
+		return a, fmt.Errorf("ntfs: bad runlist offset: %v", err)
 	}
 	runs, err := decodeRunList(runData)
 	if err != nil {
@@ -531,7 +531,7 @@ func decodeRunList(buf []byte) ([]dataRun, error) {
 	guard := NewLoopGuard(len(buf) + 1)
 	for i < len(buf) {
 		if err := guard.Next(); err != nil {
-			return nil, fmt.Errorf("ntfs: runlist: %w", err)
+			return nil, fmt.Errorf("ntfs: runlist: %v", err)
 		}
 		header := buf[i]
 		if header == 0 {

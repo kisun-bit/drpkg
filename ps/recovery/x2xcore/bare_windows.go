@@ -156,14 +156,14 @@ func (fixer *windowsSystemFixer) checkPciInDriverStore(up *universal.UniPci) err
 	)
 	if err != nil {
 		logger.Warnf("checkPciInDriverStore: failed to open %s: %v", infKeyPath, err)
-		return fmt.Errorf("open DriverInfFiles: %w", err)
+		return fmt.Errorf("open DriverInfFiles: %v", err)
 	}
 	defer infKey.Close()
 
 	pkgIDs, _, err := infKey.GetStringsValue("Active")
 	if err != nil {
 		logger.Warnf("checkPciInDriverStore: Active value missing: %v", err)
-		return fmt.Errorf("read Active packages: %w", err)
+		return fmt.Errorf("read Active packages: %v", err)
 	}
 
 	//
@@ -224,7 +224,7 @@ func (fixer *windowsSystemFixer) checkPciInDriverStore(up *universal.UniPci) err
 				}
 
 				if err := fixer.enableService(svc); err != nil {
-					return fmt.Errorf("enable service %s: %w", svc, err)
+					return fmt.Errorf("enable service %s: %v", svc, err)
 				}
 
 				logger.Infof("checkPciInDriverStore: enabled service %s", svc)

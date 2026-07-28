@@ -124,7 +124,7 @@ func (p *BitmapParser) read12() (uint16, error) {
 func (p *BitmapParser) parseBootSector() error {
 	buf, err := p.readSeq(90) // need to read up through offset 82~89 (FAT32 fs_type)
 	if err != nil {
-		return fmt.Errorf("read boot sector: %w", err)
+		return fmt.Errorf("read boot sector: %v", err)
 	}
 	sb := &p.sb
 	sb.sectorSize = binary.LittleEndian.Uint16(buf[11:13])
@@ -443,7 +443,7 @@ func (p *BitmapParser) Dump() (bitmapOut *bitmap.FsBitmap, err error) {
 	// Use the first FAT table's first two entries to check the volume state (dirty flag)
 	fatStat, err := p.checkFatStatus()
 	if err != nil {
-		return nil, fmt.Errorf("check fat status: %w", err)
+		return nil, fmt.Errorf("check fat status: %v", err)
 	}
 	switch fatStat {
 	case 1:
@@ -468,7 +468,7 @@ func (p *BitmapParser) Dump() (bitmapOut *bitmap.FsBitmap, err error) {
 			err = fmt.Errorf("unknown fs type")
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read fat entry %d: %w", i, err)
+			return nil, fmt.Errorf("read fat entry %d: %v", i, err)
 		}
 	}
 

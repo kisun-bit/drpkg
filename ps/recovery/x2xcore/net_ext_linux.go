@@ -3,12 +3,15 @@ package x2xcore
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -384,4 +387,169 @@ func hasIfcfg(root string) bool {
 	}
 
 	return false
+}
+
+// ifaceNameRe 限定网卡名允许的字符集，防止把 "../" 之类的内容
+// 拼进 filepath.Join 后逃逸出 baseDir（路径穿越）。
+// Linux 网卡名本身也不允许超过 IFNAMSIZ-1(15) 个字符。
+var ifaceNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.:-]{1,15}$`)
+
+// sanitizeIfaceName 校验网卡名是否安全，可以直接用于拼接文件路径。
+// 所有 "ifcfg-<name>" / "route-<name>" / "<name>.nmconnection" 这类
+// 拼接文件名的地方都必须先过这一步。
+func sanitizeIfaceName(name string) (string, error) {
+	if name == "" {
+		return "", errors.New("empty interface name")
+	}
+	if strings.Contains(name, "..") || strings.ContainsAny(name, `/\`) {
+		return "", errors.Errorf("illegal interface name %q: path traversal-like characters", name)
+	}
+	if !ifaceNameRe.MatchString(name) {
+		return "", errors.Errorf("illegal interface name %q: unexpected characters", name)
+	}
+	return name, nil
+}
+
+// normalizeRoute 校验并规范化一条路由的 Destination/Gateway。
+//
+// 之所以需要这一步，是因为原代码直接把 route.Destination / route.Gateway
+// 拼进配置文件甚至 shell 命令行（/etc/network/interfaces 的 "up ip route add ..."
+// 由 ifup 直接当 shell 命令执行）。如果这两个字段来自不受信任的来源
+// （比如上游备份/迁移元数据被篡改），换行符或 shell 元字符会被当成
+// 新的一行 "up" 指令甚至任意命令执行。
+//
+// net.ParseCIDR / net.ParseIP 本身就会拒绝任何非法格式（含换行、空格、
+// 分号等）的输入，所以这里的校验同时解决了"格式错误"和"注入"两个问题。
+func normalizeRoute(route RouteConfig) (dest string, gw string, isV6 bool, ok bool) {
+	dest = strings.TrimSpace(route.Destination)
+	gw = strings.TrimSpace(route.Gateway)
+
+	switch dest {
+	case "default", "0.0.0.0/0":
+		dest, isV6 = "0.0.0.0/0", false
+	case "::/0", "default6":
+		dest, isV6 = "::/0", true
+	default:
+		ip, ipnet, err := net.ParseCIDR(dest)
+		if err != nil {
+			logger.Warnf("normalizeRoute: invalid destination %q, route skipped", route.Destination)
+			return "", "", false, false
+		}
+		isV6 = ip.To4() == nil
+		dest = ipnet.String() // 规范成 "network/prefix" 形式，去掉主机位干扰
+	}
+
+	if gw != "" {
+		gwIP := net.ParseIP(gw)
+		if gwIP == nil {
+			logger.Warnf("normalizeRoute: invalid gateway %q, route skipped", route.Gateway)
+			return "", "", false, false
+		}
+		if gwIsV6 := gwIP.To4() == nil; gwIsV6 != isV6 {
+			logger.Warnf("normalizeRoute: address family mismatch dest=%q gateway=%q, route skipped",
+				route.Destination, route.Gateway)
+			return "", "", false, false
+		}
+		gw = gwIP.String()
+	}
+
+	return dest, gw, isV6, true
+}
+
+// resolveRouteTargets 决定每一条路由最终应该写到哪一张网卡的配置里。
+//
+// 原实现里，没有指定 InterfaceMAC 的路由会被写进"每一张"网卡的配置
+// (route-ethX / up ip route add / route1= ...)。这在只有一张网卡时没问题，
+// 但只要有 2 张以上网卡，同一条路由就会被注入 N 份：
+//   - ifcfg/interfaces 后端：ifup 对每张网卡都执行一次 "ip route add"，
+//     第二次开始会报 "RTNETLINK answers: File exists"，如果 up 脚本里
+//     没有 "|| true"，甚至会导致该网卡启动失败；
+//   - NetworkManager 后端：同一条路由在多个 connection profile 里
+//     各自生效一次，结果等价，但配置文件语义上是重复/冗余的。
+//
+// 而 wicked 分支反而反过来：没有 InterfaceMAC 的路由直接被丢弃
+// (writeWickedRoutes 里 `if route.InterfaceMAC == "" { continue }`)，
+// 与其它后端行为不一致。
+//
+// 这里统一策略：
+//  1. 显式绑定了 InterfaceMAC 的路由 -> 只写给对应网卡；
+//  2. 未绑定的路由，如果网关地址落在某张网卡的已配置子网内 -> 写给那张网卡；
+//  3. 否则 -> 写给"主网卡"（第一张配置了默认网关的网卡），
+//     没有则退化为第一张网卡，并打印告警方便定位。
+//
+// 每张网卡最终只会拿到属于自己的那一份路由，不会再重复。
+func resolveRouteTargets(routes []RouteConfig, ifaces []InterfaceConfig) map[int][]RouteConfig {
+	result := make(map[int][]RouteConfig)
+	if len(ifaces) == 0 {
+		return result
+	}
+
+	primaryIdx := 0
+	for i, iface := range ifaces {
+		if iface.Gateway != "" {
+			primaryIdx = i
+			break
+		}
+	}
+
+	for _, route := range routes {
+		dest, gw, _, ok := normalizeRoute(route)
+		if !ok {
+			continue
+		}
+		route.Destination = dest
+		route.Gateway = gw
+
+		if route.InterfaceMAC != "" {
+			idx := indexOfIfaceByMAC(ifaces, route.InterfaceMAC)
+			if idx < 0 {
+				logger.Warnf("resolveRouteTargets: route %s via %s references unknown MAC %q, skipped",
+					route.Destination, route.Gateway, route.InterfaceMAC)
+				continue
+			}
+			result[idx] = append(result[idx], route)
+			continue
+		}
+
+		idx := indexOfIfaceBySubnet(ifaces, route.Gateway)
+		if idx < 0 {
+			idx = primaryIdx
+			logger.Debugf("resolveRouteTargets: route %s via %s has no matching subnet, "+
+				"falling back to primary interface %q", route.Destination, route.Gateway, ifaces[idx].Name)
+		}
+		result[idx] = append(result[idx], route)
+	}
+
+	return result
+}
+
+func indexOfIfaceByMAC(ifaces []InterfaceConfig, mac string) int {
+	for i, iface := range ifaces {
+		if equalMAC(iface.MAC, mac) {
+			return i
+		}
+	}
+	return -1
+}
+
+func indexOfIfaceBySubnet(ifaces []InterfaceConfig, gw string) int {
+	if gw == "" {
+		return -1
+	}
+	gwIP := net.ParseIP(gw)
+	if gwIP == nil {
+		return -1
+	}
+	for i, iface := range ifaces {
+		for _, ipcfg := range iface.IPAddr {
+			_, ipnet, err := net.ParseCIDR(ipcfg.Address)
+			if err != nil {
+				continue
+			}
+			if ipnet.Contains(gwIP) {
+				return i
+			}
+		}
+	}
+	return -1
 }

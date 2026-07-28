@@ -91,7 +91,7 @@ type superblock struct {
 func (p *BitmapParser) readSuperblock() (*superblock, error) {
 	raw, err := p.readAt(btrfsSuperInfoOffset, 4096)
 	if err != nil {
-		return nil, fmt.Errorf("read superblock: %w", err)
+		return nil, fmt.Errorf("read superblock: %v", err)
 	}
 	dbg("RAW first 128 bytes @ offset 0x%x: %s", btrfsSuperInfoOffset, hexdump(raw, 128))
 	dbg("magic area raw[64:72] = %s (%q)", hexdump(raw[64:72], 8), string(raw[64:72]))

@@ -65,7 +65,7 @@ func (p *ExfatBitmapParser) Dump() (*bitmap.FsBitmap, error) {
 	// ---- 1. Read and parse the boot sector (equivalent to read_super_blocks in C) ----
 	bs, err := p.readAt(0, 512)
 	if err != nil {
-		return nil, fmt.Errorf("read boot sector: %w", err)
+		return nil, fmt.Errorf("read boot sector: %v", err)
 	}
 	if string(bs[3:11]) != "EXFAT   " {
 		return nil, fmt.Errorf("not an exfat filesystem (bad signature)")
@@ -135,7 +135,7 @@ outer:
 
 		data, err := p.readAt(clusterToByteOffset(cluster), int(clusterSize))
 		if err != nil {
-			return nil, fmt.Errorf("read root dir cluster %d: %w", cluster, err)
+			return nil, fmt.Errorf("read root dir cluster %d: %v", cluster, err)
 		}
 
 		for i := uint64(0); i < entriesPerCluster; i++ {
@@ -157,7 +157,7 @@ outer:
 
 		next, err := nextCluster(cluster)
 		if err != nil {
-			return nil, fmt.Errorf("read FAT entry for cluster %d: %w", cluster, err)
+			return nil, fmt.Errorf("read FAT entry for cluster %d: %v", cluster, err)
 		}
 		cluster = next
 	}
@@ -179,7 +179,7 @@ outer:
 	// ---- 3. Read the raw allocation bitmap (stored contiguously, no need to walk the FAT chain again) ----
 	rawBitmap, err := p.readAt(clusterToByteOffset(bitmapFirstCluster), int(expectedMinLen))
 	if err != nil {
-		return nil, fmt.Errorf("read allocation bitmap data: %w", err)
+		return nil, fmt.Errorf("read allocation bitmap data: %v", err)
 	}
 
 	// ---- 4. Build the sector-level FsBitmap (equivalent to the read_bitmap / pc_set_bit loop in C) ----

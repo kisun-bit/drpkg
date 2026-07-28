@@ -1304,7 +1304,7 @@ func (fixer *linuxSystemFixer) cleanDattoSnapshotOnDevice(
 ) error {
 	_, err := Mount(fixer.ctx, dev.Device, tmpMp, false)
 	if err != nil {
-		return fmt.Errorf("mount %s: %w", dev.Device, err)
+		return fmt.Errorf("mount %s: %v", dev.Device, err)
 	}
 	defer func() {
 		if err := Umount(tmpMp, false); err != nil {
