@@ -1,7 +1,6 @@
 package info
 
 import (
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -135,8 +134,6 @@ func QueryEFIInfo() (e EFI, err error) {
 		if err != nil {
 			return e, err
 		}
-
-		fmt.Println(hex.Dump(data))
 
 		if len(data) == 6 { // 某些固件前4字节是属性
 			data = data[4:]
