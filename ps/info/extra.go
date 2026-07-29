@@ -1,6 +1,7 @@
 package info
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -135,6 +136,8 @@ func QueryEFIInfo() (e EFI, err error) {
 			return e, err
 		}
 
+		fmt.Println(hex.Dump(data))
+
 		if len(data) == 6 { // 某些固件前4字节是属性
 			data = data[4:]
 		}
@@ -144,10 +147,14 @@ func QueryEFIInfo() (e EFI, err error) {
 			return e, err
 		}
 
-		e.BootCurrent = efi.BootEntryName(cur)
-		e.BootFile, err = resolveBootEntry(v.Namespace, cur)
-		if err != nil {
-			return e, err
+		if e.BootCurrent == "" {
+			e.BootCurrent = efi.BootEntryName(cur)
+		}
+		if e.BootFile == "" {
+			e.BootFile, err = resolveBootEntry(v.Namespace, cur)
+			if err != nil {
+				return e, err
+			}
 		}
 
 		//
@@ -171,7 +178,7 @@ func QueryEFIInfo() (e EFI, err error) {
 		if e.BootFile == "" {
 			fillDefaultBootFile(&e)
 		}
-		e.Effective = e.BootFile == ""
+		e.Effective = e.BootFile != ""
 	}
 
 	if e.Effective {
@@ -199,13 +206,16 @@ func QueryEFIInfo() (e EFI, err error) {
 			return e, err
 		}
 
-		e.BootCurrent = efi.BootEntryName(cur)
-		e.BootFile, _ = resolveBootEntry(v.Namespace, cur)
-
+		if e.BootCurrent == "" {
+			e.BootCurrent = efi.BootEntryName(cur)
+		}
+		if e.BootFile == "" {
+			e.BootFile, _ = resolveBootEntry(v.Namespace, cur)
+		}
 		if e.BootFile == "" {
 			fillDefaultBootFile(&e)
 		}
-		e.Effective = e.BootFile == ""
+		e.Effective = e.BootFile != ""
 	}
 
 	return e, nil
