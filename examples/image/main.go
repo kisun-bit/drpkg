@@ -13,6 +13,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
+	"github.com/kisun-bit/drpkg/disk/image/qemublk"
 	"github.com/kisun-bit/drpkg/logger"
 )
 

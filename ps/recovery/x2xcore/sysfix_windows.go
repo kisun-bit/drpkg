@@ -133,7 +133,7 @@ func (fixer *windowsSystemFixer) Repair() error {
 	}
 
 	// FIXME: 后续实现Vista之前版本的驱动注入
-	dismSupported, e := fixer.dismSupported()
+	dismSupported, e := fixer.largerThanNT61()
 	if e != nil {
 		return e
 	}
@@ -1100,7 +1100,7 @@ func removeGraphicsModeDisabled(hiveName, entryGuid string) error {
 	return deleteRegistryTree(registry.LOCAL_MACHINE, graphicsKey)
 }
 
-func (fixer *windowsSystemFixer) dismSupported() (bool, error) {
+func (fixer *windowsSystemFixer) largerThanNT61() (bool, error) {
 	ntVer, ok := define.OsNTVersion[fixer.offsys.windowsVersion]
 	if !ok {
 		return false, errors.New("not supported windows version")
@@ -1117,5 +1117,106 @@ func (fixer *windowsSystemFixer) fixNtfsHeads() error {
 
 	// TODO 未实现
 
+	return nil
+}
+
+// injectConfigService 向离线系统注入配置程序
+func (fixer *windowsSystemFixer) injectConfigService() error {
+	logger.Debugf("injectConfigService: ++")
+	defer logger.Debugf("injectConfigService: --")
+
+	yes, err := fixer.largerThanNT61()
+	if err != nil {
+		return errors.Wrap(err, "check nt version")
+	}
+	if !yes {
+		return errors.New("not supported")
+	}
+
+	const serviceName = "drx2xcfg"
+
+	serviceTgtExePath := fmt.Sprintf("%s:\\Windows\\%s.exe", fixer.offsys.sysVolumeLtr, serviceName)
+
+	serviceSrcExePath := filepath.Join(
+		fixer.opts.RecoveryParam.X2xLibrary,
+		"program",
+		serviceName,
+		"windows",
+		fixer.opts.RecoveryParam.Source.Arch,
+		serviceName+".exe",
+	)
+
+	// 源文件必须存在
+	if _, err := os.Stat(serviceSrcExePath); err != nil {
+		return errors.Wrapf(err, "source exe not found: %s", serviceSrcExePath)
+	}
+
+	servicesRegPath := fmt.Sprintf(
+		"%s\\ControlSet00%d\\Services",
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet,
+	)
+
+	servicesKey, err := registry.OpenKey(registry.LOCAL_MACHINE, servicesRegPath, registry.ALL_ACCESS)
+	if err != nil {
+		return errors.Wrap(err, "open services registry key")
+	}
+	defer servicesKey.Close()
+
+	subKeys, err := servicesKey.ReadSubKeyNames(-1)
+	if err != nil {
+		return errors.Wrap(err, "read services subkeys")
+	}
+
+	serviceInstalled := false
+	for _, s := range subKeys {
+		if strings.EqualFold(s, serviceName) {
+			serviceInstalled = true
+			break
+		}
+	}
+
+	// 1. 拷贝可执行文件到目标系统（无论是否已安装服务，都刷新一遍文件，保证版本一致）
+	if _, err = extend.CopyFile(serviceSrcExePath, serviceTgtExePath); err != nil {
+		return errors.Wrapf(err, "copy service exe to %s", serviceTgtExePath)
+	}
+
+	if serviceInstalled {
+		logger.Debugf("injectConfigService: service %s already installed, skip registry creation", serviceName)
+		return nil
+	}
+
+	// 2. 创建服务注册表项
+	svcKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, servicesRegPath+"\\"+serviceName, registry.ALL_ACCESS)
+	if err != nil {
+		return errors.Wrapf(err, "create service key %s", serviceName)
+	}
+	defer svcKey.Close()
+
+	// ImagePath 使用离线系统盘符对应的运行时路径（如 C:\Windows\drx2xcfg.exe）
+	imagePath := fmt.Sprintf("%s\\Windows\\%s.exe", "C", serviceName) // 挂载盘符 != 目标系统运行时盘符，通常固定写 C
+	if err = svcKey.SetExpandStringValue("ImagePath", imagePath); err != nil {
+		return errors.Wrap(err, "set ImagePath")
+	}
+	if err = svcKey.SetStringValue("DisplayName", serviceName); err != nil {
+		return errors.Wrap(err, "set DisplayName")
+	}
+	// Type: 0x10 = SERVICE_WIN32_OWN_PROCESS
+	if err = svcKey.SetDWordValue("Type", 0x10); err != nil {
+		return errors.Wrap(err, "set Type")
+	}
+	// Start: 2 = SERVICE_AUTO_START
+	if err = svcKey.SetDWordValue("Start", 2); err != nil {
+		return errors.Wrap(err, "set Start")
+	}
+	// ErrorControl: 1 = SERVICE_ERROR_NORMAL
+	if err = svcKey.SetDWordValue("ErrorControl", 1); err != nil {
+		return errors.Wrap(err, "set ErrorControl")
+	}
+	if err = svcKey.SetStringValue("ObjectName", "LocalSystem"); err != nil {
+		return errors.Wrap(err, "set ObjectName")
+	}
+
+	logger.Debugf("injectConfigService: service %s created", serviceName)
 	return nil
 }

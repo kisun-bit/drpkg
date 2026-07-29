@@ -23,22 +23,22 @@ import (
 // * Windows驱动库
 // * Linux驱动库
 type Driver struct {
-	ID            string    `gorm:"column:id;primaryKey;size:64"`
-	Name          string    `gorm:"column:name;size:128;not null"`
-	Modules       string    `gorm:"column:modules;type:text;not null"`
-	Version       string    `gorm:"column:version;size:64"`
-	VersionWeight uint64    `gorm:"column:version_weight;"`
-	Vendor        string    `gorm:"column:vendor;size:128"`
-	Sign          string    `gorm:"column:sign;type:text"`
-	SignWeight    uint64    `gorm:"column:sign_weight;"`
-	OS            string    `gorm:"column:os;size:32;"`
-	Arch          string    `gorm:"column:arch;size:32;"`
-	Family        string    `gorm:"column:family;size:64;"`
-	Type          uint16    `gorm:"column:type;"`
-	Extend        string    `gorm:"column:extend;type:text"`
-	Remark        string    `gorm:"column:remark;type:text"`
-	CreatedAt     time.Time `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;autoUpdateTime"`
+	ID             string    `gorm:"column:id;primaryKey;size:64"`
+	Name           string    `gorm:"column:name;size:128;not null"`
+	Modules        string    `gorm:"column:modules;type:text;not null"`
+	Version        string    `gorm:"column:version;size:64"`
+	VersionWeight  uint64    `gorm:"column:version_weight;"`
+	Vendor         string    `gorm:"column:vendor;size:128"`
+	Sign           string    `gorm:"column:sign;type:text"`
+	SignWeight     uint64    `gorm:"column:sign_weight;"`
+	OS             string    `gorm:"column:os;size:32;"`
+	Arch           string    `gorm:"column:arch;size:32;"`
+	Family         string    `gorm:"column:family;size:64;"`
+	HwPlatformType uint16    `gorm:"column:hw_type;"`
+	Extend         string    `gorm:"column:extend;type:text"`
+	Remark         string    `gorm:"column:remark;type:text"`
+	CreatedAt      time.Time `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt      time.Time `gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (*Driver) TableName() string {
