@@ -7,6 +7,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/glebarez/sqlite v1.11.0
 	github.com/google/uuid v1.6.0
+	github.com/kardianos/service v1.2.2
 	github.com/lunixbochs/struc v0.0.0-20241101090106-8d528fa2c543
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/pkg/errors v0.9.1

@@ -1,8 +1,12 @@
 package extend
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/shirou/gopsutil/v3/process"
 )
@@ -138,3 +142,29 @@ const (
 	VolumeTypeMsStripe             = "stripe"
 	VolumeTypeMsRaid5              = "raid-5"
 )
+
+// WaitSignal 等待系统退出信号，并执行退出回调
+func WaitSignal(onExit func()) {
+
+	ch := make(chan os.Signal, 1)
+
+	signal.Notify(
+		ch,
+		syscall.SIGTERM,
+		syscall.SIGINT,
+		syscall.SIGHUP,
+	)
+
+	sig := <-ch
+	_, _ = fmt.Fprintln(os.Stderr, "Signal received:", sig)
+
+	// 停止监听，避免资源泄漏
+	signal.Stop(ch)
+
+	// 执行业务退出逻辑
+	if onExit != nil {
+
+		onExit()
+
+	}
+}
