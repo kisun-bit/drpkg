@@ -1,6 +1,7 @@
 package x2xcore
 
 import (
+	"fmt"
 	"regexp"
 
 	"github.com/kisun-bit/drpkg/define"
@@ -65,10 +66,11 @@ const (
 	BackendNMKeyfile  NetworkBackend = "network-manager"   // NetworkManager
 )
 
-const (
-	FirstBootPowershellScriptName = "firstboot.h0nk1.ps"
-	FirstBootBatScriptName        = "firstboot.h0nk1.bat"
-	FirstBootShellScriptName      = "firstboot.h0nk1.sh"
-
-	NetworkConfigFileName = "networkconfig.h0nk1.json"
+var (
+	FirstBootProcFilePrefix            = "drx2xcfg.h0nk1"
+	FirstBootProcCompletedFlagFilename = fmt.Sprintf("%s.completed", FirstBootProcFilePrefix)
+	FirstBootProcPowershellScriptName  = fmt.Sprintf("%s.fb.ps", FirstBootProcFilePrefix)
+	FirstBootProcBatScriptName         = fmt.Sprintf("%s.fb.bat", FirstBootProcFilePrefix)
+	FirstBootProcShellScriptName       = fmt.Sprintf("%s.fb.sh", FirstBootProcFilePrefix)
+	FirstBootProcNetworkConfigFileName = fmt.Sprintf("%s.fb.networkconfig.json", FirstBootProcFilePrefix)
 )

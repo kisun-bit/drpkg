@@ -201,7 +201,7 @@ func CopyFile(src, dst string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	func() {
+	defer func() {
 		_ = destination.Close()
 	}()
 

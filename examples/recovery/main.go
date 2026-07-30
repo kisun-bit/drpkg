@@ -79,6 +79,24 @@ func main() {
 					Virt:      "kvm",
 					PciList:   nil,
 				},
+				Network: x2xcore.NetworkConfig{
+					Enable: true,
+					Interfaces: []x2xcore.InterfaceConfig{
+						{
+							MAC:     "52:54:00:3c:50:bd",
+							Name:    "zktest",
+							Enabled: true,
+							DHCP:    false,
+							IPAddr: []x2xcore.IPConfig{
+								{
+									Address: "192.168.122.204/24",
+								},
+							},
+							DNS:     nil,
+							Gateway: "192.168.122.1",
+						},
+					},
+				},
 			},
 		})
 

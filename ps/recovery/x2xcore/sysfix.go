@@ -135,6 +135,9 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 
 	usedInterfaceNames := make(map[string]struct{})
 	for i := 0; i < len(opts.RecoveryParam.Network.Interfaces); i++ {
+		if opts.RecoveryParam.Network.Interfaces[i].Name != "" {
+			continue
+		}
 		for idx := 0; ; idx++ {
 			name := fmt.Sprintf("eth%d", idx)
 			if _, ok := usedInterfaceNames[name]; !ok {

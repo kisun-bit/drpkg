@@ -207,19 +207,19 @@ func buildDriver(opt createDriverOption) (*Driver, error) {
 	modulesJson, _ := json.Marshal(opt.Modules)
 
 	return &Driver{
-		ID:            strings.ReplaceAll(uuid.New().String(), "-", ""),
-		Name:          opt.Name,
-		Modules:       string(modulesJson),
-		Version:       opt.Version,
-		VersionWeight: verWeight,
-		Vendor:        opt.Vendor,
-		Sign:          opt.Signature.String(),
-		SignWeight:    uint64(opt.Signature.Weight()),
-		OS:            opt.OS,
-		Arch:          opt.Architecture,
-		Family:        opt.Family,
-		Type:          opt.DrvType,
-		Remark:        opt.Remark,
+		ID:             strings.ReplaceAll(uuid.New().String(), "-", ""),
+		Name:           opt.Name,
+		Modules:        string(modulesJson),
+		Version:        opt.Version,
+		VersionWeight:  verWeight,
+		Vendor:         opt.Vendor,
+		Sign:           opt.Signature.String(),
+		SignWeight:     uint64(opt.Signature.Weight()),
+		OS:             opt.OS,
+		Arch:           opt.Architecture,
+		Family:         opt.Family,
+		HwPlatformType: opt.DrvType,
+		Remark:         opt.Remark,
 	}, nil
 }
 

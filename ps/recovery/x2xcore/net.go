@@ -1,6 +1,8 @@
 package x2xcore
 
 type NetworkConfig struct {
+	Enable bool `json:"enable"`
+
 	Interfaces []InterfaceConfig `json:"interfaces"`
 
 	// 全局DNS

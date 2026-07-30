@@ -13,7 +13,7 @@ func runWindowsFirstBoot() error {
 
 	marker := filepath.Join(
 		extend.ExecDir(),
-		".firstboot.completed",
+		x2xcore.FirstBootProcCompletedFlagFilename,
 	)
 
 	if extend.IsExisted(marker) {

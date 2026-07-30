@@ -2,6 +2,7 @@ package x2xcore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -76,6 +77,10 @@ func (fixer *windowsSystemFixer) Prepare() error {
 		return errors.Wrap(err, "detect system volume")
 	}
 
+	if err := fixer.chkVolume(); err != nil {
+		return errors.Wrap(err, "check volume")
+	}
+
 	if err := fixer.loadSystemRegistry(); err != nil {
 		return errors.Wrap(err, "mount registry")
 	}
@@ -140,6 +145,14 @@ func (fixer *windowsSystemFixer) Repair() error {
 	if !dismSupported {
 		// TODO 日志提示低版本的Windows未兼容硬件兼容性修复
 		return nil
+	}
+
+	if err := fixer.injectConfigService(); err != nil {
+		return errors.Wrap(err, "inject config service")
+	}
+
+	if err := fixer.injectNetworkConfig(); err != nil {
+		return errors.Wrap(err, "inject network config")
 	}
 
 	if fixer.opts.RecoveryParam.SkipDriverRepairIfPlatformUnchanged &&
@@ -263,6 +276,13 @@ func (fixer *windowsSystemFixer) detectSysVolume() error {
 	}
 	logger.Debugf("detectSysVolume: system volume: %v", fixer.offsys.sysVolumeLtr)
 
+	return nil
+}
+
+func (fixer *windowsSystemFixer) chkVolume() error {
+	for _, v := range fixer.offsys.volumeLtrList {
+		_, _, _ = command.Execute(fmt.Sprintf("chkdsk.exe /f %s:", v), command.WithDebug())
+	}
 	return nil
 }
 
@@ -1025,7 +1045,7 @@ func (fixer *windowsSystemFixer) fixBCD() error {
 	logger.Infof("Fixing Windows BCD")
 
 	const hiveName = `OFFLINEBCDH0NK1`
-	regRoot := `HKLM\` + hiveName
+	regRoot := hiveName
 
 	// 防御性清理:如果上次运行异常退出导致 hive 残留挂载,
 	// 这里先尝试卸载一次,避免 loadReg 因为 key 已存在而失败。
@@ -1163,6 +1183,7 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 		fixer.offsys.registryRootKey,
 		fixer.offsys.currentControlSet,
 	)
+	logger.Debugf("injectConfigService: servicesRegPath: %s", servicesRegPath)
 
 	servicesKey, err := registry.OpenKey(registry.LOCAL_MACHINE, servicesRegPath, registry.ALL_ACCESS)
 	if err != nil {
@@ -1180,6 +1201,18 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 		if strings.EqualFold(s, serviceName) {
 			serviceInstalled = true
 			break
+		}
+	}
+
+	// 重置标记文件
+	firstBootProcFlag := fmt.Sprintf("%s:\\Windows\\%s*", fixer.offsys.sysVolumeLtr, FirstBootProcFilePrefix)
+	files, e := filepath.Glob(firstBootProcFlag)
+	if e != nil {
+		logger.Warnf("injectConfigService: failed to glob %s", firstBootProcFlag)
+	} else {
+		for _, file := range files {
+			_ = os.RemoveAll(file)
+			logger.Debugf("injectConfigService: removed %s", file)
 		}
 	}
 
@@ -1201,10 +1234,12 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 	defer svcKey.Close()
 
 	// ImagePath 使用离线系统盘符对应的运行时路径（如 C:\Windows\drx2xcfg.exe）
-	imagePath := fmt.Sprintf("%s\\Windows\\%s.exe", "C", serviceName) // 挂载盘符 != 目标系统运行时盘符，通常固定写 C
+	imagePath := fmt.Sprintf("C:\\Windows\\%s.exe", serviceName)
 	if err = svcKey.SetExpandStringValue("ImagePath", imagePath); err != nil {
 		return errors.Wrap(err, "set ImagePath")
 	}
+	logger.Debugf("injectConfigService: ImagePath: %s", imagePath)
+
 	if err = svcKey.SetStringValue("DisplayName", serviceName); err != nil {
 		return errors.Wrap(err, "set DisplayName")
 	}
@@ -1226,4 +1261,20 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 
 	logger.Debugf("injectConfigService: service %s created", serviceName)
 	return nil
+}
+
+func (fixer *windowsSystemFixer) injectNetworkConfig() error {
+	logger.Debugf("injectNetworkConfig: ++")
+	defer logger.Debugf("injectNetworkConfig: --")
+
+	if !fixer.opts.RecoveryParam.Network.Enable {
+		logger.Debugf("injectNetworkConfig: network config disabled")
+		return nil
+	}
+
+	netCfgPath := fmt.Sprintf("%s:\\Windows\\%s", fixer.offsys.sysVolumeLtr, FirstBootProcNetworkConfigFileName)
+	_ = os.RemoveAll(netCfgPath)
+	data, _ := json.Marshal(fixer.opts.RecoveryParam.Network)
+
+	return os.WriteFile(netCfgPath, data, 0644)
 }

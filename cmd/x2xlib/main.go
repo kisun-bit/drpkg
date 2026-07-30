@@ -20,7 +20,7 @@ func main() {
 	//addVirtioForWin81(x)
 	//addVirtioForWin10(x)
 	//addVirtioForWin11(x)
-	//addVirtioForWin2k8r2(x)
+	addVirtioForWin2k8r2(x)
 	//addVirtioForWin2k12(x)
 	//addVirtioForWin2k12R2(x)
 	//addVirtioForWin2k16(x)

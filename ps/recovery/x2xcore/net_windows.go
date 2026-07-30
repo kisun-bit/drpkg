@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
@@ -57,6 +58,7 @@ func runNetsh(args ...string) (string, error) {
 		return output, errors.Errorf("netsh %s execution failed: %v, output: %s",
 			strings.Join(args, " "), err, strings.TrimSpace(output))
 	}
+	logger.Debugf("runNetSh: `netsh %s`\n%s", strings.Join(args, " "), output)
 	return output, nil
 }
 
@@ -383,9 +385,13 @@ func applyRoute(r RouteConfig, macToName map[string]string) error {
 // 顶层入口
 // ---------------------------------------------------------------------------
 
-// Apply 应用整份网络配置。单个接口/路由失败不会阻断其它项，
+// ApplyNetworkConfig 应用整份网络配置。单个接口/路由失败不会阻断其它项，
 // 所有错误会在最后汇总返回；调用方可根据需要决定是否整体重试或回滚。
 func ApplyNetworkConfig(cfg NetworkConfig) error {
+	if err := waitNetworkInterfacesReady(cfg, 120*time.Second); err != nil {
+		logger.Warnf("failed to wait for network interfaces ready: %v", err)
+	}
+
 	var errs []string
 	macToName := make(map[string]string)
 
@@ -414,8 +420,66 @@ func ApplyNetworkConfig(cfg NetworkConfig) error {
 	}
 
 	if len(errs) > 0 {
-		return errors.Errorf("网络配置应用过程中出现 %d 个错误:\n- %s",
+		return errors.Errorf("encountered %d error(s) while applying network configuration:\n- %s",
 			len(errs), strings.Join(errs, "\n- "))
 	}
 	return nil
+}
+
+func waitNetworkInterfacesReady(
+	cfg NetworkConfig,
+	timeout time.Duration,
+) error {
+
+	deadline := time.Now().Add(timeout)
+
+	targetMACs := make(map[string]struct{})
+
+	for _, ic := range cfg.Interfaces {
+		if ic.Enabled {
+			targetMACs[normalizeMAC(ic.MAC)] = struct{}{}
+		}
+	}
+
+	for time.Now().Before(deadline) {
+
+		ready := true
+
+		interfaces, err := net.Interfaces()
+		if err != nil {
+			ready = false
+		} else {
+
+			found := make(map[string]bool)
+
+			for _, nic := range interfaces {
+
+				mac := normalizeMAC(string(nic.HardwareAddr))
+
+				if _, ok := targetMACs[mac]; ok {
+
+					// 网卡存在即可
+					// 如果希望更严格，可以判断 OperStatus
+					found[mac] = true
+				}
+			}
+
+			for mac := range targetMACs {
+				if !found[mac] {
+					ready = false
+					break
+				}
+			}
+		}
+
+		if ready {
+			return nil
+		}
+
+		time.Sleep(2 * time.Second)
+	}
+
+	return errors.Errorf(
+		"timed out waiting for Windows network device initialization (%s)",
+		timeout)
 }

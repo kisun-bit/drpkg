@@ -367,7 +367,7 @@ func (x *X2XLib) SelectWindowsBestVirtualDriver(
 		).
 		Where("driver.os = ?", define.OsWindows).
 		Where("driver.arch = ?", architecture).
-		Where("driver.type = ?", drvType).
+		Where("driver.hw_type = ?", drvType).
 		Where("? = nt_compat.windows_version", windowsVersion).
 		Order("driver.version_weight DESC").
 		Find(&drivers).
@@ -427,7 +427,7 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 		`).
 		Where("driver.os = ?", define.OsWindows).
 		Where("driver.arch = ?", architecture).
-		Where("driver.type = ?", driverTypeNormal).
+		Where("driver.hw_type = ?", driverTypeNormal).
 		Where(
 			"hardware_compat.compat_id IN ?",
 			compatIds,
@@ -513,7 +513,7 @@ func (x *X2XLib) SelectLinuxBestNormalDriver(
 		Where("driver.os = ?", define.OsLinux).
 		Where("driver.arch = ?", architecture).
 		Where("driver.family = ?", family).
-		Where("driver.type = ?", driverTypeNormal).
+		Where("driver.hw_type = ?", driverTypeNormal).
 		Where("kernel_compat.kernel = ?", kernel).
 		Order("driver.version_weight DESC").
 		Order("driver.sign_weight DESC").
@@ -571,7 +571,7 @@ func (x *X2XLib) SelectLinuxBestVirtualDriver(
 		).
 		Where("driver.os = ?", define.OsLinux).
 		Where("driver.arch = ?", architecture).
-		Where("driver.type = ?", drvType).
+		Where("driver.hw_type = ?", drvType).
 		Where("? = kernel_compat.kernel", kernel).
 		Order("driver.version_weight DESC").
 		Find(&drivers).

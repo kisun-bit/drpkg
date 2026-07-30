@@ -15,7 +15,7 @@ func executeFirstBootScript() {
 
 	script := filepath.Join(
 		extend.ExecDir(),
-		x2xcore.FirstBootPowershellScriptName,
+		x2xcore.FirstBootProcPowershellScriptName,
 	)
 
 	if !extend.IsExisted(script) {

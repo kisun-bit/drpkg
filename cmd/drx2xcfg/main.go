@@ -82,10 +82,9 @@ func main() {
 }
 
 func initLogger() {
-
 	logFile := filepath.Join(
 		extend.ExecDir(),
-		"default.log",
+		fmt.Sprintf("%s.default.log", x2xcore.FirstBootProcFilePrefix),
 	)
 
 	lg := logger.NewLogger(
@@ -100,7 +99,6 @@ func initLogger() {
 	)
 
 	logger.SetupDefaultLogger(lg)
-
 }
 
 func buildServiceConfig() service.Config {
@@ -170,11 +168,11 @@ func renameProcessedFiles() {
 
 	files := []string{
 
-		x2xcore.FirstBootPowershellScriptName,
-		x2xcore.FirstBootBatScriptName,
-		x2xcore.FirstBootShellScriptName,
+		x2xcore.FirstBootProcPowershellScriptName,
+		x2xcore.FirstBootProcBatScriptName,
+		x2xcore.FirstBootProcShellScriptName,
 
-		x2xcore.NetworkConfigFileName,
+		x2xcore.FirstBootProcNetworkConfigFileName,
 	}
 
 	for _, name := range files {

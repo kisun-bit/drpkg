@@ -15,7 +15,7 @@ func applyNetworkConfig() {
 
 	configFile := filepath.Join(
 		extend.ExecDir(),
-		x2xcore.NetworkConfigFileName,
+		x2xcore.FirstBootProcNetworkConfigFileName,
 	)
 
 	if !extend.IsExisted(configFile) {
