@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
+	"github.com/kisun-bit/drpkg/ps/bus/pci/universal"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/thoas/go-funk"
@@ -22,6 +24,8 @@ type Generic struct {
 	Cpu CpuStat `json:"cpu"`
 	// Mem 内存信息
 	Mem mem.VirtualMemoryStat `json:"mem"`
+	// PCI PCI列表
+	PCI []string `json:"pci"`
 }
 
 type CpuStat struct {
@@ -34,6 +38,8 @@ type CpuStat struct {
 	Slots int `json:"slots"`
 	// PhysicalCores 物理核心数
 	PhysicalCores int `json:"physicalCores"`
+	// Features 特性
+	Features string `json:"features"`
 }
 
 // QueryGeneric 查询通用信息
@@ -55,6 +61,14 @@ func QueryGeneric() (g Generic, err error) {
 	}
 	g.Mem = *m
 
+	ups, e := universal.ListUniPci()
+	if e != nil {
+		return g, e
+	}
+	for _, up := range ups {
+		g.PCI = append(g.PCI, up.String())
+	}
+
 	return g, nil
 }
 
@@ -71,6 +85,9 @@ func QueryCpuStat() (cs CpuStat, err error) {
 		}
 		if c.ModelName != "" && !funk.InStrings(cs.Models, c.ModelName) {
 			cs.Models = append(cs.Models, c.ModelName)
+		}
+		if cs.Features == "" {
+			cs.Features = strings.Join(c.Flags, ",")
 		}
 		slotId := fmt.Sprintf("%s-%s", c.PhysicalID, c.CoreID)
 		if !funk.InStrings(slotList, slotId) {

@@ -14,6 +14,6 @@ type DmiInfo struct {
 	SystemName    string `json:"systemName"`
 	SystemSerial  string `json:"systemSerial"`
 	SystemSku     string `json:"systemSKU"`
-	SystemUUID    string `json:"systemUuid"`
+	SystemUUID    string `json:"systemUUID"`
 	SystemVersion string `json:"systemVersion"`
 }

@@ -1,33 +1,28 @@
-// Package define provides common constants and type definitions
-// for operating systems, architectures, filesystems,
-// virtualization platforms and hardware environments.
 package define
 
-// OSType represents operating system type.
-type OSType string
+type OsType = string
 
 const (
-	OSTypeWindows OSType = "windows"
-	OSTypeLinux   OSType = "linux"
+	OsWindows OsType = "windows"
+	OsLinux          = "linux"
 )
 
-// OSArchitecture represents CPU architecture.
-type OSArchitecture string
+type OsArchitecture = string
 
 const (
-	ArchAMD64   OSArchitecture = "amd64"
-	ArchARM64   OSArchitecture = "arm64"
-	Arch386     OSArchitecture = "386"
-	ArchLoong64 OSArchitecture = "loong64"
-	ArchRISCV64 OSArchitecture = "riscv64"
+	ArchAmd64   OsArchitecture = "amd64"
+	ArchArm64                  = "arm64"
+	Arch386                    = "386"
+	ArchLoong64                = "loong64"
+	ArchRiscv64                = "riscv64"
 )
 
-// OSDistro represents Linux distribution ID.
-type OSDistro string
+type OsDistro = string
 
+// Linux发行版ID
 const (
 	// RHEL family
-	DistroFedora          OSDistro = "fedora"
+	DistroFedora          OsDistro = "fedora"
 	DistroRHEL                     = "rhel"
 	DistroCentOS                   = "centos"
 	DistroCircle                   = "circle"
@@ -42,32 +37,31 @@ const (
 	DistroAlma                     = "almalinux"
 
 	// ALT family
-	DistroALTLinux OSDistro = "altlinux"
+	DistroALTLinux = "altlinux"
 
 	// SUSE family
-	DistroSLES      OSDistro = "sles"
-	DistroSUSEBased          = "suse-based"
-	DistroOpenSUSE           = "opensuse"
+	DistroSLES      = "sles"
+	DistroSUSEBased = "suse-based"
+	DistroOpenSUSE  = "opensuse"
 
 	// Debian family
-	DistroDebian    OSDistro = "debian"
-	DistroUbuntu             = "ubuntu"
-	DistroLinuxMint          = "linuxmint"
-	DistroKaliLinux          = "kalilinux"
-
-	// Microsoft
-	DistroMicrosoft OSDistro = "microsoft"
+	DistroDebian    = "debian"
+	DistroUbuntu    = "ubuntu"
+	DistroLinuxMint = "linuxmint"
+	DistroKaliLinux = "kalilinux"
 )
 
-// WindowsVersion represents Windows version.
-type WindowsVersion string
+const (
+	DistroMicrosoft OsDistro = "microsoft"
+)
+
+type WindowsVersion = string
 
 const (
 	WinUnknown WindowsVersion = "Unknown"
-
-	Win2k    WindowsVersion = "win2k"
-	WinXP                   = "winxp"
-	WinVista                = "winvista"
+	Win2k                     = "win2k"
+	WinXP                     = "winxp"
+	WinVista                  = "winvista"
 
 	Win7  = "win7"
 	Win8  = "win8"
@@ -86,8 +80,7 @@ const (
 	Win2k25   = "win2k25"
 )
 
-// NTVersion represents Windows NT kernel version.
-type NTVersion int
+type NTVersion = int
 
 const (
 	NTUnknown NTVersion = iota
@@ -99,7 +92,7 @@ const (
 	NT51
 	NT52
 
-	// Windows Vista / Server 2008
+	// Vista / Server 2008
 	NT60
 
 	// Windows 7 / Server 2008 R2
@@ -115,11 +108,11 @@ const (
 	NT100
 )
 
-// OsNTVersion maps Windows version to NT version.
 var OsNTVersion = map[WindowsVersion]NTVersion{
 	Win2k: NT50,
 
-	WinXP:  NT51,
+	WinXP: NT51,
+
 	Win2k3: NT52,
 
 	WinVista: NT60,
@@ -143,7 +136,6 @@ var OsNTVersion = map[WindowsVersion]NTVersion{
 	Win2k25: NT100,
 }
 
-// HALType represents Windows Hardware Abstraction Layer type.
 type HALType int
 
 const (
@@ -156,32 +148,30 @@ const (
 	HALMPSUniprocessor
 )
 
-// OSFamily represents operating system family.
-type OSFamily string
+type OsFamily = string
 
 const (
-	LinuxFamilyRHEL   OSFamily = "RHEL"
+	LinuxFamilyRHEL   OsFamily = "RHEL"
 	LinuxFamilyALT             = "ALT"
 	LinuxFamilySUSE            = "SUSE"
 	LinuxFamilyDebian          = "DEBIAN"
-
-	WindowsFamily OSFamily = "MICROSOFT"
+	WindowsFamily              = "MICROSOFT"
 )
 
-// Initrd generation tools.
+// Initrd生成工具的类型
 const (
 	InitrdToolDracut          = "dracut"
 	InitrdToolUpdateInitramfs = "update-initramfs"
 	InitrdToolMkinitrd        = "mkinitrd"
 )
 
-// Virtual machine chipset.
+// 虚拟主板型号
 const (
 	ChipsetQ35    = "q35"
 	ChipsetI440fx = "i440fx"
 )
 
-// Virtual GPU type.
+// 显卡类型
 const (
 	VideoBochs  = "bochs"
 	VideoVGA    = "vga"
@@ -189,7 +179,7 @@ const (
 	VideoRamfb  = "ramfb"
 )
 
-// Disk bus type.
+// 磁盘总线类型
 const (
 	DiskBusIde        = "ide"
 	DiskBusSata       = "sata"
@@ -197,21 +187,20 @@ const (
 	DiskBusVirtio     = "virtio"
 )
 
-// Network device type.
+// 网卡类型
 const (
 	NetworkTypeE1000   = "e1000"
 	NetworkTypeRTL8192 = "rtl8192"
 	NetworkTypeVIRTIO  = "virtio"
 )
 
-// Filesystem type.
+// 文件系统类型
 const (
 	FsTypeUnknown = "unknown"
-
-	FsTypeExt4  = "ext4"
-	FsTypeExt3  = "ext3"
-	FsTypeExt2  = "ext2"
-	FsTypeExtFs = "ext2/3/4"
+	FsTypeExt4    = "ext4"
+	FsTypeExt3    = "ext3"
+	FsTypeExt2    = "ext2"
+	FsTypeExtFs   = "ext2/3/4"
 
 	FsTypeXFS   = "xfs"
 	FsTypeBtrfs = "btrfs"
@@ -237,16 +226,16 @@ const (
 	FsTypeSwap = "swap"
 )
 
-// HardwarePlatform represents physical or virtual platform.
+// HardwarePlatform 基础硬件平台
 type HardwarePlatform string
 
 const (
 	HPUnknown   HardwarePlatform = "unknown"
-	HPVirt      HardwarePlatform = "virtual"
-	HPBareMetal HardwarePlatform = "bare-metal"
+	HPVirt      HardwarePlatform = "virtual"    // 虚拟化 / 云平台
+	HPBareMetal HardwarePlatform = "bare-metal" // 裸机（物理机）
 )
 
-// HPVirtType represents virtualization platform.
+// HPVirtType 虚拟化/云平台的类别
 type HPVirtType string
 
 const (
@@ -258,7 +247,7 @@ const (
 	HPVTParallels HPVirtType = "parallels"
 )
 
-// BootMode represents system boot mode.
+// BootMode 启动模式
 type BootMode string
 
 const (
@@ -266,25 +255,37 @@ const (
 	BootModeBIOS BootMode = "bios"
 )
 
-// Signer represents driver signature issuer.
+// 签名主体
 type Signer string
 
 const (
-	DrvSignerPrivate   Signer = "sign-private"
-	DrvSignerVendor           = "sign-vendor"
-	DrvSignerDistro           = "sign-distro"
-	DrvSignerMicrosoft        = "sign-microsoft"
-	DrvSignerWHQL             = "sign-whql"
+	// 私有签名
+	// 如：自签证书、测试证书、企业内部CA签发证书等
+	DrvSignerPrivate Signer = "sign-private"
+
+	// 第三方厂商签名
+	// 如：Intel、VMware、HPE、Broadcom、Red Hat VirtIO 等
+	DrvSignerVendor Signer = "sign-vendor"
+
+	// Linux 发行版官方签名
+	// 如：Red Hat、SUSE、Canonical、Oracle Linux 等
+	DrvSignerDistro Signer = "sign-distro"
+
+	// Windows Attestation
+	DrvSignerMicrosoft Signer = "sign-microsoft"
+
+	// Windows WHQL
+	DrvSignerWHQL Signer = "sign-whql"
 )
 
-// Hash represents cryptographic hash algorithm.
+// 签名算法
 type Hash string
 
 const (
 	DrvHashUnknown Hash = "unknown"
-	DrvHashSHA1         = "sha1"
-	DrvHashSHA224       = "sha224"
-	DrvHashSHA256       = "sha256"
-	DrvHashSHA384       = "sha384"
-	DrvHashSHA512       = "sha512"
+	DrvHashSHA1    Hash = "sha1"
+	DrvHashSHA224  Hash = "sha224"
+	DrvHashSHA256  Hash = "sha256"
+	DrvHashSHA384  Hash = "sha384"
+	DrvHashSHA512  Hash = "sha512"
 )
