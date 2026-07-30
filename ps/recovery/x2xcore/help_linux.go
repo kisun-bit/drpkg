@@ -545,3 +545,7 @@ func findDriverStoreDir(root string) (string, error) {
 
 	return "", os.ErrNotExist
 }
+
+func ImportForeignDisk() error {
+	return errors.New("ImportForeignDisk not implemented yet")
+}

@@ -142,40 +142,46 @@ func (fixer *windowsSystemFixer) Repair() error {
 		return nil
 	}
 
-	var unconfigFun = fixer.unconfigBareMetal
-	switch fixer.opts.RecoveryParam.Source.Virt {
-	case define.HPVTXen:
-		unconfigFun = fixer.unconfigXen
-	case define.HPVTVmware:
-		unconfigFun = fixer.unconfigVmware
-	case define.HPVTKvm:
-		unconfigFun = fixer.unconfigKvm
-	case define.HPVTHyperV:
-		unconfigFun = fixer.unconfigHyperV
-	case define.HPVTParallels:
-		unconfigFun = fixer.unconfigParallel
-	}
+	if fixer.opts.RecoveryParam.SkipDriverRepairIfPlatformUnchanged &&
+		fixer.opts.RecoveryParam.Source.Base == define.HPVirt &&
+		fixer.opts.RecoveryParam.Target.Base == define.HPVirt &&
+		fixer.opts.RecoveryParam.Source.Virt == fixer.opts.RecoveryParam.Target.Virt {
+		// TODO 虚拟化硬件平台相同时，忽略修复
+	} else {
+		var unconfigFun = fixer.unconfigBareMetal
+		switch fixer.opts.RecoveryParam.Source.Virt {
+		case define.HPVTXen:
+			unconfigFun = fixer.unconfigXen
+		case define.HPVTVmware:
+			unconfigFun = fixer.unconfigVmware
+		case define.HPVTKvm:
+			unconfigFun = fixer.unconfigKvm
+		case define.HPVTHyperV:
+			unconfigFun = fixer.unconfigHyperV
+		case define.HPVTParallels:
+			unconfigFun = fixer.unconfigParallel
+		}
 
-	var configFun = fixer.configBareMetal
-	switch fixer.opts.RecoveryParam.Target.Virt {
-	case define.HPVTXen:
-		configFun = fixer.configXen
-	case define.HPVTVmware:
-		configFun = fixer.configVmware
-	case define.HPVTKvm:
-		configFun = fixer.configKvm
-	case define.HPVTHyperV:
-		configFun = fixer.configHyperV
-	case define.HPVTParallels:
-		configFun = fixer.configParallel
-	}
+		var configFun = fixer.configBareMetal
+		switch fixer.opts.RecoveryParam.Target.Virt {
+		case define.HPVTXen:
+			configFun = fixer.configXen
+		case define.HPVTVmware:
+			configFun = fixer.configVmware
+		case define.HPVTKvm:
+			configFun = fixer.configKvm
+		case define.HPVTHyperV:
+			configFun = fixer.configHyperV
+		case define.HPVTParallels:
+			configFun = fixer.configParallel
+		}
 
-	if err := unconfigFun(); err != nil {
-		return errors.Wrapf(err, "unconfig %s", fixer.opts.RecoveryParam.Source.Virt)
-	}
-
-	if err := configFun(); err != nil {
-		return errors.Wrapf(err, "config %s", fixer.opts.RecoveryParam.Target.Virt)
+		if err := unconfigFun(); err != nil {
+			return errors.Wrapf(err, "unconfig %s", fixer.opts.RecoveryParam.Source.Virt)
+		}
+		if err := configFun(); err != nil {
+			return errors.Wrapf(err, "config %s", fixer.opts.RecoveryParam.Target.Virt)
+		}
 	}
 
 	return nil
@@ -1139,7 +1145,8 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 
 	serviceSrcExePath := filepath.Join(
 		fixer.opts.RecoveryParam.X2xLibrary,
-		"program",
+		"extra",
+		"firstboot",
 		serviceName,
 		"windows",
 		fixer.opts.RecoveryParam.Source.Arch,
@@ -1147,7 +1154,7 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 	)
 
 	// 源文件必须存在
-	if _, err := os.Stat(serviceSrcExePath); err != nil {
+	if _, err = os.Stat(serviceSrcExePath); err != nil {
 		return errors.Wrapf(err, "source exe not found: %s", serviceSrcExePath)
 	}
 

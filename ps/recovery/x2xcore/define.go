@@ -64,3 +64,11 @@ const (
 	BackendWicked     NetworkBackend = "suse-wicked"       // SUSE wicked
 	BackendNMKeyfile  NetworkBackend = "network-manager"   // NetworkManager
 )
+
+const (
+	FirstBootPowershellScriptName = "firstboot.h0nk1.ps"
+	FirstBootBatScriptName        = "firstboot.h0nk1.bat"
+	FirstBootShellScriptName      = "firstboot.h0nk1.sh"
+
+	NetworkConfigFileName = "networkconfig.h0nk1.json"
+)

@@ -3,45 +3,213 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/kardianos/service"
+	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/minisvc"
+	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
+
+	"go.uber.org/zap/zapcore"
 )
 
-//
-// 实现恢复后首次启动的自动配置
-//
+const (
+	serviceName = "drx2xcfg"
+	version     = "6.19.00083"
+)
 
 func main() {
-	version := "6.19.00083"
 
-	cfg := service.Config{
-		Name:        "drx2xcfg",
-		DisplayName: "drx2xCfg",
-		Description: "Used to automate system configuration during the first boot after recovery or migration",
-	}
+	initLogger()
 
-	switch runtime.GOOS {
-	case "windows":
-		cfg.Option["OnFailure"] = "restart"
-	case "linux":
-		cfg.Dependencies = []string{"After=network.target syslog.target"}
-	}
+	logger.Infof(
+		"service=%s version=%s event=start",
+		serviceName,
+		version,
+	)
 
-	e := minisvc.Run(minisvc.Options{
+	cfg := buildServiceConfig()
+
+	err := minisvc.Run(minisvc.Options{
+
 		Version: version,
-		Config:  cfg,
+
+		Config: cfg,
+
 		Lifecycle: minisvc.Lifecycle{
+
 			Start: func() error {
-				// TODO 1.读取首次启动脚本并执行；2.读取网络配置并执行；
-				return nil
+
+				switch runtime.GOOS {
+
+				case "windows":
+
+					return runWindowsFirstBoot()
+
+				case "linux":
+
+					logger.Infof(
+						"platform=linux event=firstboot_not_implemented",
+					)
+
+					return nil
+
+				default:
+
+					logger.Warnf(
+						"unsupported platform=%s",
+						runtime.GOOS,
+					)
+
+					return nil
+				}
 			},
 		},
 	})
 
-	if e != nil {
-		_, _ = fmt.Fprintln(os.Stderr, e)
+	if err != nil {
+
+		_, _ = fmt.Fprintln(
+			os.Stderr,
+			err,
+		)
+
 		os.Exit(1)
 	}
+}
+
+func initLogger() {
+
+	logFile := filepath.Join(
+		extend.ExecDir(),
+		"default.log",
+	)
+
+	lg := logger.NewLogger(
+		serviceName,
+		zapcore.DebugLevel,
+		logger.NewFileLogWriter(
+			logFile,
+			30<<20,
+			7,
+			0,
+		),
+	)
+
+	logger.SetupDefaultLogger(lg)
+
+}
+
+func buildServiceConfig() service.Config {
+
+	cfg := service.Config{
+
+		Name: serviceName,
+
+		DisplayName: serviceName,
+
+		Description: "Used to automate system configuration during the first boot after recovery or migration",
+	}
+
+	switch runtime.GOOS {
+
+	case "windows":
+
+		cfg.Option = map[string]interface{}{
+			"OnFailure": "restart",
+		}
+
+	case "linux":
+
+		cfg.Dependencies = []string{
+			"After=network.target syslog.target",
+		}
+	}
+
+	return cfg
+}
+
+func markFirstBootCompleted(
+	marker string,
+) {
+
+	content := fmt.Sprintf(
+		"first boot configuration completed at %s\n",
+		time.Now().Format(time.RFC3339),
+	)
+
+	err := os.WriteFile(
+		marker,
+		[]byte(content),
+		0644,
+	)
+
+	if err != nil {
+
+		logger.Errorf(
+			"component=firstboot action=mark status=failed error=%v",
+			err,
+		)
+
+		return
+	}
+
+	logger.Infof(
+		"component=firstboot action=mark status=completed file=%s",
+		marker,
+	)
+
+	renameProcessedFiles()
+
+}
+
+func renameProcessedFiles() {
+
+	files := []string{
+
+		x2xcore.FirstBootPowershellScriptName,
+		x2xcore.FirstBootBatScriptName,
+		x2xcore.FirstBootShellScriptName,
+
+		x2xcore.NetworkConfigFileName,
+	}
+
+	for _, name := range files {
+
+		src := filepath.Join(
+			extend.ExecDir(),
+			name,
+		)
+
+		if !extend.IsExisted(src) {
+
+			continue
+		}
+
+		dst := src + ".processed"
+
+		if err := os.Rename(
+			src,
+			dst,
+		); err != nil {
+
+			logger.Warnf(
+				"component=firstboot action=archive file=%s status=failed error=%v",
+				src,
+				err,
+			)
+
+			continue
+		}
+
+		logger.Infof(
+			"component=firstboot action=archive file=%s status=success",
+			src,
+		)
+
+	}
+
 }

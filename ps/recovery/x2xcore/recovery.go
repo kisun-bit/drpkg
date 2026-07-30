@@ -164,6 +164,9 @@ type RecoveryParameter struct {
 	// FsckFs 强制修复文件系统
 	FsckFs bool `json:"fsckFs"`
 
+	// SkipDriverRepairIfPlatformUnchanged 虚拟硬件平台相同时忽略硬件驱动的修复
+	SkipDriverRepairIfPlatformUnchanged bool `json:"skipDriverRepairIfPlatformUnchanged"`
+
 	//
 	// 原机配置相关
 	//

@@ -21,6 +21,11 @@ type linuxNetworkInjector struct {
 	backend NetworkBackend
 }
 
+func ApplyNetworkConfig(cfg NetworkConfig) error {
+	_ = cfg
+	return errors.New("ApplyNetworkConfig not implemented yet")
+}
+
 func NewNetworkInjector(root string, cfg *NetworkConfig) (NetworkInjector, error) {
 	logger.Debugf("newLinuxNetworkInjector(%q) ++", root)
 	defer logger.Debugf("newLinuxNetworkInjector(%q) --", root)
