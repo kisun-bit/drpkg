@@ -1,0 +1,158 @@
+syntax="proto3";
+
+option go_package="drpkg/rpc/aio/proto;proto";
+
+package aio;
+
+
+// OpenFile 请求
+//
+// 用于在远程主机打开一个文件。
+// 打开成功后返回一个 handle，后续读写关闭操作均使用该 handle。
+message OpenFileRequest {
+
+  // 文件路径
+  //
+  // 可以是绝对路径或相对路径。
+  // 路径格式由服务端操作系统决定。
+  //
+  // 示例:
+  // Linux: /etc/config.json
+  // Windows: C:\config.json
+  string path = 1;
+
+
+  // 文件打开模式
+  enum Mode {
+
+    // 只读模式
+    READ_ONLY = 0;
+
+
+    // 只写模式
+    //
+    // 如果文件不存在，由服务端决定是否创建。
+    WRITE_ONLY = 1;
+
+
+    // 读写模式
+    READ_WRITE = 2;
+  }
+
+
+  // 打开文件模式
+  Mode mode = 2;
+}
+
+
+// OpenFile 响应
+message OpenFileResponse {
+
+  // 文件句柄
+  //
+  // 服务端生成的唯一标识。
+  // 客户端后续调用 ReadFile、WriteFile、CloseFile 时使用。
+  uint64 handle = 1;
+
+}
+
+
+
+// ReadFile 请求
+//
+// 根据文件句柄读取指定范围的数据。
+message ReadFileRequest {
+
+  // 文件句柄
+  //
+  // 由 OpenFile 返回。
+  uint64 handle = 1;
+
+
+  // 文件读取偏移量
+  //
+  // 相对于文件开始位置的字节偏移。
+  uint64 offset = 2;
+
+
+  // 读取数据大小
+  //
+  // 单位: 字节。
+  // 服务端可能返回少于该大小的数据。
+  uint32 size = 3;
+
+}
+
+
+
+// ReadFile 响应
+message ReadFileResponse {
+
+  // 读取的数据
+  bytes data = 1;
+
+
+  // 是否已经到达文件末尾
+  //
+  // true 表示本次读取后已经没有更多数据。
+  bool eof = 2;
+
+}
+
+
+
+// WriteFile 请求
+//
+// 根据文件句柄向指定位置写入数据。
+message WriteFileRequest {
+
+  // 文件句柄
+  //
+  // 由 OpenFile 返回。
+  uint64 handle = 1;
+
+
+  // 文件写入偏移量
+  //
+  // 相对于文件开始位置的字节偏移。
+  uint64 offset = 2;
+
+
+  // 写入的数据
+  bytes data = 3;
+
+}
+
+
+
+// WriteFile 响应
+message WriteFileResponse {
+
+  // 实际写入字节数
+  uint32 size = 1;
+
+}
+
+
+
+// CloseFile 请求
+//
+// 关闭已经打开的文件句柄。
+message CloseFileRequest {
+
+  // 文件句柄
+  //
+  // 由 OpenFile 返回。
+  uint64 handle = 1;
+
+}
+
+
+
+// CloseFile 响应
+message CloseFileResponse {
+
+  // 是否关闭成功
+  bool success = 1;
+
+}

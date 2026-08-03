@@ -1,0 +1,105 @@
+// cd drpkg:
+//     protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative rpc/aio/proto/*.proto
+
+syntax = "proto3";
+
+option go_package = "drpkg/rpc/aio/proto;proto";
+
+package aio;
+
+
+import "rpc/aio/proto/msg_file.proto";
+import "rpc/aio/proto/msg_generic.proto";
+import "rpc/aio/proto/msg_cmd.proto";
+
+
+
+// 通用 RPC 服务。
+//
+// 提供动态调用能力以及基础系统操作接口。
+service GenericService {
+
+  //
+  // 自定义
+  //
+
+
+  // 通用 RPC 调用。
+  //
+  // 用于执行动态注册的方法。
+  rpc Invoke(GenericRequest)
+      returns(GenericResponse);
+
+
+
+  // 执行命令。
+  //
+  // 适用于短时间运行的命令。
+  rpc ExecuteCmd(ExecuteRequest)
+      returns(ExecuteResponse);
+
+
+
+  //
+  // 命令执行相关
+  //
+
+
+
+  // 启动长时间运行命令。
+  //
+  // 返回任务句柄，后续可通过 GetStatusOfCmdTask 查询状态。
+  rpc StartCmdTask(StartRequest)
+      returns(StartResponse);
+
+
+
+  // 查询命令执行状态。
+  rpc GetStatusOfCmdTask(GetStatusRequest)
+      returns(GetStatusResponse);
+
+
+
+  // 终止正在运行的命令。
+  rpc KillCmdTask(KillRequest)
+      returns(KillResponse);
+
+
+
+  //
+  // 文件读写相关
+  //
+
+
+
+  // 打开文件。
+  //
+  // 返回文件句柄，后续文件读写操作使用该句柄。
+  rpc OpenFile(OpenFileRequest)
+      returns(OpenFileResponse);
+
+
+
+  // 读取文件数据。
+  //
+  // 根据文件句柄和偏移读取指定长度的数据。
+  rpc ReadFile(ReadFileRequest)
+      returns(ReadFileResponse);
+
+
+
+  // 写入文件数据。
+  //
+  // 根据文件句柄和偏移写入数据。
+  rpc WriteFile(WriteFileRequest)
+      returns(WriteFileResponse);
+
+
+
+  // 关闭文件。
+  //
+  // 释放服务端维护的文件句柄资源。
+  rpc CloseFile(CloseFileRequest)
+      returns(CloseFileResponse);
+
+}

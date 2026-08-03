@@ -1,0 +1,199 @@
+syntax = "proto3";
+
+option go_package = "drpkg/rpc/aio/proto;proto";
+
+package aio;
+
+
+// 命令执行请求。
+message ExecuteRequest {
+
+
+  // 可执行文件路径。
+  //
+  // 示例:
+  // Linux: /usr/bin/ls
+  // Windows: C:\Windows\System32\cmd.exe
+  string executable = 1;
+
+
+  // 命令参数。
+  //
+  // 不包含 executable 本身。
+  repeated string args = 2;
+
+
+  // 工作目录。
+  string work_dir = 3;
+
+
+  // 环境变量。
+  //
+  // 示例:
+  // PATH=/usr/bin
+  map<string,string> environment = 4;
+
+
+  // 超时时间。
+  //
+  // 单位: 毫秒。
+  //
+  // 超时后服务端可以主动终止进程。
+  uint64 timeout_ms = 5;
+
+
+  // 是否以管理员/root权限执行。
+  //
+  // 是否支持由服务端实现决定。
+  bool privileged = 6;
+}
+
+
+
+// 命令执行响应。
+message ExecuteResponse {
+
+
+  // 是否执行成功。
+  //
+  // 表示命令是否正常启动并执行完成。
+  bool success = 1;
+
+
+  // 进程退出码。
+  //
+  // Linux:
+  //   0 表示成功
+  //
+  // Windows:
+  //   根据进程返回值决定。
+  int32 exit_code = 2;
+
+
+  // 标准输出。
+  bytes stdout = 3;
+
+
+  // 标准错误输出。
+  bytes stderr = 4;
+
+
+  // 错误信息。
+  //
+  // 例如:
+  // 无法启动进程
+  // 超时
+  // 权限不足
+  string error_message = 5;
+}
+
+
+
+// 启动命令请求。
+message StartRequest {
+
+  // 可执行文件。
+  string executable = 1;
+
+
+  // 命令参数。
+  repeated string args = 2;
+
+
+  // 工作目录。
+  string work_dir = 3;
+
+
+  // 环境变量。
+  map<string,string> environment = 4;
+
+}
+
+
+
+// 启动命令响应。
+message StartResponse {
+
+
+  // 任务句柄。
+  //
+  // 后续查询和终止操作使用。
+  uint64 task_id = 1;
+
+}
+
+
+
+// 查询状态请求。
+message GetStatusRequest {
+
+  // 任务句柄。
+  uint64 task_id = 1;
+
+}
+
+
+
+// 查询状态响应。
+message GetStatusResponse {
+
+
+  enum Status {
+
+    // 未知状态。
+    STATUS_UNSPECIFIED = 0;
+
+
+    // 正在运行。
+    RUNNING = 1;
+
+
+    // 已完成。
+    FINISHED = 2;
+
+
+    // 已失败。
+    FAILED = 3;
+
+
+    // 已终止。
+    KILLED = 4;
+  }
+
+
+  // 当前状态。
+  Status status = 1;
+
+
+  // 退出码。
+  int32 exit_code = 2;
+
+
+  // 当前输出。
+  bytes stdout = 3;
+
+
+  // 当前错误输出。
+  bytes stderr = 4;
+
+}
+
+
+
+// 终止命令请求。
+message KillRequest {
+
+  // 任务句柄。
+  uint64 task_id = 1;
+
+}
+
+
+
+// 终止命令响应。
+message KillResponse {
+
+  // 是否终止成功。
+  bool success = 1;
+
+}

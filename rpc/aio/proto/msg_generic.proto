@@ -1,0 +1,129 @@
+syntax="proto3";
+
+option go_package="drpkg/rpc/aio/proto;proto";
+
+package aio;
+
+// RPC 参数及返回值的数据编码格式。
+enum PayloadType {
+
+  // 未指定编码类型。
+  PAYLOAD_TYPE_UNSPECIFIED = 0;
+
+
+  // JSON 文本格式。
+  JSON = 1;
+
+
+  // Protocol Buffers 二进制格式。
+  PROTOBUF = 2;
+
+
+  // 自定义二进制格式。
+  //
+  // 例如:
+  // Go binary.Write/binary.Read
+  BINARY = 3;
+
+
+  // 原始字节数据。
+  //
+  // 不进行任何序列化和反序列化处理。
+  RAW = 4;
+}
+
+
+
+// 通用 RPC 请求。
+//
+// 用于调用动态注册的 RPC 方法。
+// 适用于业务扩展、插件调用等场景。
+message GenericRequest {
+
+  // 请求唯一标识。
+  //
+  // 用于请求跟踪、日志关联以及异步调用场景。
+  string request_id = 1;
+
+
+  // 协议版本号。
+  //
+  // 用于客户端和服务端之间的协议兼容控制。
+  uint32 version = 2;
+
+
+  // 调用方法名称。
+  //
+  // 用于标识具体业务操作。
+  //
+  // 示例:
+  // "system.get_info"
+  // "disk.create_snapshot"
+  // "network.apply_config"
+  string method = 3;
+
+
+  // 参数数据编码类型。
+  PayloadType args_type = 4;
+
+
+  // 方法参数数据。
+  //
+  // 根据 args_type 使用对应方式解析。
+  bytes args = 5;
+
+
+  // 请求超时时间。
+  //
+  // 单位: 毫秒。
+  uint64 timeout_ms = 6;
+
+
+  // 扩展元数据。
+  //
+  // 用于传递额外控制信息。
+  map<string,string> metadata = 7;
+}
+
+
+
+// 通用 RPC 响应。
+//
+// 返回动态 RPC 调用结果。
+message GenericResponse {
+
+  // 请求唯一标识。
+  //
+  // 与 GenericRequest.request_id 对应。
+  string request_id = 1;
+
+
+  // 调用是否成功。
+  bool success = 2;
+
+
+  // 错误码。
+  //
+  // success=false 时有效。
+  int32 error_code = 3;
+
+
+  // 错误描述信息。
+  //
+  // success=false 时有效。
+  string error_message = 4;
+
+
+  // 返回数据编码类型。
+  PayloadType return_type = 5;
+
+
+  // 方法返回数据。
+  //
+  // 根据 return_type 使用对应方式解析。
+  bytes result = 6;
+
+
+  // 扩展元数据。
+  map<string,string> metadata = 7;
+}

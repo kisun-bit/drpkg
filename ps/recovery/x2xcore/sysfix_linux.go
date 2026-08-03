@@ -127,7 +127,7 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		return errors.Wrap(err, "deactivate lvm")
 	}
 
-	if err := fixer.activeLVm(); err != nil {
+	if err := fixer.activeLvm(); err != nil {
 		return errors.Wrap(err, "active lvm")
 	}
 
@@ -513,8 +513,8 @@ func (fixer *linuxSystemFixer) deactiveLvm() error {
 	return DeactivateVgs()
 }
 
-// activeLVm 激活LVM
-func (fixer *linuxSystemFixer) activeLVm() error {
+// activeLvm 激活LVM
+func (fixer *linuxSystemFixer) activeLvm() error {
 	logger.Debugf("activeLVm ++")
 	defer logger.Debugf("activeLVm --")
 
@@ -546,7 +546,7 @@ func (fixer *linuxSystemFixer) openCryptoLUKS() error {
 	}
 
 	if len(fixer.offsys.luksDeviceList) != 0 {
-		if err = fixer.activeLVm(); err != nil {
+		if err = fixer.activeLvm(); err != nil {
 			return errors.Wrap(err, "active lvm")
 		}
 	}
