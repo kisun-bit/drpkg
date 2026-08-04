@@ -12,7 +12,7 @@ import (
 
 var (
 	ioToolName  = "imgio"
-	imgToolName = "img"
+	imgToolName = "qemu-img"
 
 	ioToolPath  = ioToolName
 	imgToolPath = imgToolName

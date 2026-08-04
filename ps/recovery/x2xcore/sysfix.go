@@ -2,7 +2,6 @@ package x2xcore
 
 import (
 	"fmt"
-	"runtime"
 
 	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
@@ -48,11 +47,7 @@ type PreferConfig struct {
 	// TODO 更多
 }
 
-func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
-
-	//
-	// 检查
-	//
+func CheckAndFillFixerCreateOptions(opts *FixerCreateOptions) error {
 
 	if opts == nil {
 		return errors.New("FixerCreateOptions is nil")
@@ -65,10 +60,24 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 			return errors.Errorf("FixerCreateOptions disk(%s) does not exist", disk)
 		}
 	}
-	for _, platform := range []Platform{opts.RecoveryParam.Source, opts.RecoveryParam.Target} {
-		if platform.Arch != runtime.GOARCH {
-			return errors.New("FixerCreateOptions Arch is invalid")
-		}
+
+	return CheckAndFillRecoveryParameter(&opts.RecoveryParam)
+}
+
+func CheckAndFillRecoveryParameter(rp *RecoveryParameter) error {
+
+	if rp.Source.Arch != rp.Target.Arch {
+		return errors.Errorf("source and target are not same")
+	}
+
+	if rp.OSType != "windows" && rp.OSType != "linux" {
+		return errors.Errorf("unsupported os: %s", rp.OSType)
+	}
+
+	for _, platform := range []Platform{rp.Source, rp.Target} {
+		//if platform.Arch != runtime.GOARCH {
+		//	return errors.New("FixerCreateOptions Arch is invalid")
+		//}
 		if platform.Base != define.HPUnknown &&
 			platform.Base != define.HPVirt &&
 			platform.Base != define.HPBareMetal {
@@ -87,23 +96,23 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 		}
 	}
 
-	if opts.RecoveryParam.X2xLibrary == "" {
-		//opts.RecoveryParam.X2xLibrary = filepath.Join(extend.ExecDir(), "library")
+	if rp.X2xLibrary == "" {
+		//rp.X2xLibrary = filepath.Join(extend.ExecDir(), "library")
 		dir, err := FindX2xLibraryDir()
 		if err != nil {
 			return errors.Wrap(err, "FindX2xLibraryDir")
 		}
-		opts.RecoveryParam.X2xLibrary = dir
+		rp.X2xLibrary = dir
 	}
-	//if !extend.IsExisted(opts.RecoveryParam.X2xLibrary) {
-	//	return errors.Errorf("FixerCreateOptions X2XLibrary(%s) is empty", opts.RecoveryParam.X2xLibrary)
+	//if !extend.IsExisted(rp.X2xLibrary) {
+	//	return errors.Errorf("FixerCreateOptions X2XLibrary(%s) is empty", rp.X2xLibrary)
 	//}
 
 	//
 	// 修正
 	//
 
-	plats := []*Platform{&opts.RecoveryParam.Source, &opts.RecoveryParam.Target}
+	plats := []*Platform{&rp.Source, &rp.Target}
 	for i := 0; i < len(plats); i++ {
 		if plats[i].Base != "" {
 			continue
@@ -134,14 +143,14 @@ func CheckFixerCreateOptions(opts *FixerCreateOptions) error {
 	}
 
 	usedInterfaceNames := make(map[string]struct{})
-	for i := 0; i < len(opts.RecoveryParam.Network.Interfaces); i++ {
-		if opts.RecoveryParam.Network.Interfaces[i].Name != "" {
+	for i := 0; i < len(rp.Network.Interfaces); i++ {
+		if rp.Network.Interfaces[i].Name != "" {
 			continue
 		}
 		for idx := 0; ; idx++ {
 			name := fmt.Sprintf("eth%d", idx)
 			if _, ok := usedInterfaceNames[name]; !ok {
-				opts.RecoveryParam.Network.Interfaces[i].Name = name
+				rp.Network.Interfaces[i].Name = name
 				usedInterfaceNames[name] = struct{}{}
 				break
 			}

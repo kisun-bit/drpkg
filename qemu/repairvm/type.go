@@ -3,6 +3,7 @@ package repairvm
 import (
 	"os/exec"
 
+	"github.com/google/uuid"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
 )
 
@@ -27,9 +28,7 @@ type Option struct {
 	// VmBootDiskFile 虚拟机启动磁盘镜像。
 	//
 	// 支持的类型包括：
-	//   - ISO 镜像文件
 	//   - QCOW2 等虚拟磁盘镜像
-	//   - 物理块设备（如 /dev/sda）
 	VmBootDiskFile string `json:"vmBootDiskFile"`
 
 	// OfflineSystemDisks 离线系统磁盘列表。
@@ -51,10 +50,23 @@ type Option struct {
 	//     "arm64": "qemu-system-aarch64"
 	// }
 	SimulatorConfigFile string `json:"simulatorConfig"`
+
+	// DriverDBImageFile 驱动库文件路径。
+	DriverDBImageFile string `json:"driverDBImageFile"`
 }
 
 type Vm struct {
-	opt  Option
-	sock string
-	cmd  *exec.Cmd
+	opt *Option
+
+	vmBootDisk  string // 修复虚拟机：启动磁盘的磁盘文件
+	vmBootImage string // 修复虚拟机：启动镜像的镜像文件
+	sockFile    string // 修复虚拟机：virtio-serial
+	arch        string // 修复虚拟机：架构
+	simulator   string // 修复虚拟机：模拟器
+
+	uuid_     uuid.UUID
+	cacheDir  string
+	cmdCaller string
+	cmdArgs   []string
+	cmd       *exec.Cmd
 }

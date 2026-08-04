@@ -158,6 +158,9 @@ type RecoveryParameter struct {
 	// 修复相关
 	//
 
+	// OSType 系统类型
+	OSType string `json:"osType"`
+
 	// X2xLibrary 驱动库路径
 	X2xLibrary string `json:"x2xLibrary"`
 

@@ -103,7 +103,7 @@ type kernel struct {
 
 func NewSysFixer(ctx context.Context, opts *FixerCreateOptions) (fixer SysFixer, err error) {
 	logger.Debugf("NewSysFixer: opts:\n%s", extend.Pretty(opts))
-	if err = CheckFixerCreateOptions(opts); err != nil {
+	if err = CheckAndFillFixerCreateOptions(opts); err != nil {
 		return nil, err
 	}
 	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}

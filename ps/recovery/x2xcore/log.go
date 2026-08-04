@@ -1,21 +1,19 @@
 package x2xcore
 
-import "time"
-
-type LogLevel int
+type LogLevel = string
 
 const (
-	LogDebug LogLevel = iota
-	LogInfo
-	LogWarn
-	LogError
+	LogDebug LogLevel = "debug"
+	LogInfo           = "info"
+	LogWarn           = "warn"
+	LogError          = "error"
 )
 
 type LogEntry struct {
-	Time      time.Time
-	Level     LogLevel
-	MessageEn string
-	MessageZh string
+	Time  string   `json:"time"`
+	Level LogLevel `json:"level"`
+	MsgEn string   `json:"msgEn"`
+	MsgZh string   `json:"msgZh"`
 }
 
 type LangTpl struct {
