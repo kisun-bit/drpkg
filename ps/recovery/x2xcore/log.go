@@ -148,8 +148,8 @@ var (
 	}
 
 	LogTplForIgnoreRepairWith1Args = LangTpl{
-		Zh: "系统版本（%s）过旧，跳过硬件兼容性修复。恢复后请使用兼容硬件配置（如 IDE 控制器、低版本主板型号）尝试启动",
-		En: "System version (%s) is too old. Hardware compatibility repair is skipped. After recovery, try booting with compatible hardware settings (such as IDE controller and legacy machine type).",
+		Zh: "系统版本（%s）过旧，跳过硬件修复和网络注入。恢复后请使用IDE等传统硬件启动。",
+		En: "System version (%s) is too old. Skipping hardware repair/network injection. Boot with legacy hardware (e.g., IDE) after recovery.",
 	}
 
 	LogTplForOptimizeUEFIWith0Args = LangTpl{
