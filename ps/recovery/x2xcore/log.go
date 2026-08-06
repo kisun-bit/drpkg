@@ -100,6 +100,11 @@ var (
 		En: "Loading registry",
 	}
 
+	LogTplForUnloadRegistryWith0Args = LangTpl{
+		Zh: "卸载注册表",
+		En: "Unloading registry",
+	}
+
 	LogTplForMountSystemWith0Args = LangTpl{
 		Zh: "切换至离线系统环境",
 		En: "Switching to offline system environment",

@@ -18,7 +18,7 @@ func main() {
 			OfflineSystemDisks: []repairvm.Disk{
 				{
 					Index: 0,
-					Path:  "/var/lib/libvirt/images/xp.qcow2",
+					Path:  "/data/runstor/restore/sysbackup/kvm_restore_virt_6obC762Nkr1ASmam7z/31c9aac91c6b5c4eeeba8a0ffcfe130b.qcow2",
 					LBA:   512,
 					PBA:   512,
 					Size:  107374182400,

@@ -92,6 +92,7 @@ func (fixer *windowsSystemFixer) Prepare() error {
 		return errors.Wrap(err, "check volume")
 	}
 
+	fixer.infof(LogTplForLoadRegistryWith0Args)
 	if err := fixer.loadSystemRegistry(); err != nil {
 		return errors.Wrap(err, "mount registry")
 	}
@@ -249,6 +250,7 @@ func (fixer *windowsSystemFixer) Cleanup() error {
 	logger.Debugf("Cleanup: ++")
 	defer logger.Debugf("Cleanup: --")
 
+	fixer.infof(LogTplForMountSystemWith0Args)
 	if err := fixer.unloadSystemRegistry(); err != nil {
 		return errors.Wrap(err, "cleanup")
 	}
@@ -343,8 +345,6 @@ func (fixer *windowsSystemFixer) chkVolume() error {
 func (fixer *windowsSystemFixer) loadSystemRegistry() error {
 	logger.Debugf("mountRegistry: ++")
 	defer logger.Debugf("mountRegistry: --")
-
-	fixer.infof(LogTplForLoadRegistryWith0Args)
 
 	if fixer.offsys.registryRootLoaded {
 		return nil
