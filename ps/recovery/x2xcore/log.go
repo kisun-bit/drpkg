@@ -1,6 +1,10 @@
 package x2xcore
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/kisun-bit/drpkg/logger"
+)
 
 type LogLevel = string
 
@@ -19,6 +23,20 @@ type LogEntry struct {
 func (le *LogEntry) String() string {
 	return fmt.Sprintf("LOG(\"%s\", \"%s\", \"%s\")",
 		le.Level, le.MsgZh, le.MsgEn)
+}
+
+func (le *LogEntry) Println() {
+	var lg = logger.Debugf
+	switch le.Level {
+	case LogInfo:
+		lg = logger.Infof
+	case LogWarn:
+		lg = logger.Warnf
+	case LogError:
+		lg = logger.Errorf
+	}
+
+	lg(le.String())
 }
 
 type LangTpl struct {

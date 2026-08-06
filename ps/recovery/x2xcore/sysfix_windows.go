@@ -1364,14 +1364,7 @@ func (fixer *windowsSystemFixer) logf(level LogLevel, tpl LangTpl, v ...interfac
 		return
 	}
 
-	switch level {
-	case LogWarn:
-		logger.Warn(le.String())
-	case LogError:
-		logger.Error(le.String())
-	default:
-		logger.Info(le.String())
-	}
+	le.Println()
 }
 
 func (fixer *windowsSystemFixer) infof(tpl LangTpl, v ...interface{}) {

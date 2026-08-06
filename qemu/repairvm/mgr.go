@@ -420,7 +420,7 @@ func (vm *Vm) Repair() (err error) {
 			if err = json.Unmarshal(sm.Body, &logE); err != nil {
 				return err
 			}
-			logger.Debugf("Repair log: %s", logE)
+			logE.Println()
 			// TODO 缓存日志
 
 		case x2xcore.SerialMessageTypeRepairResult:
