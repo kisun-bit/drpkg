@@ -1,6 +1,8 @@
 package repairvm
 
 import (
+	"context"
+	"net"
 	"os/exec"
 
 	"github.com/google/uuid"
@@ -56,17 +58,25 @@ type Option struct {
 }
 
 type Vm struct {
+	ctx context.Context
+
 	opt *Option
 
 	vmBootDisk  string // 修复虚拟机：启动磁盘的磁盘文件
 	vmBootImage string // 修复虚拟机：启动镜像的镜像文件
-	sockFile    string // 修复虚拟机：virtio-serial
+	reqSockFile string // 修复虚拟机：virtio-serial，用于请求调用
+	logSockFile string // 修复虚拟机：virtio-serial，用于日志
 	arch        string // 修复虚拟机：架构
 	simulator   string // 修复虚拟机：模拟器
 
-	uuid_     uuid.UUID
-	cacheDir  string
-	cmdCaller string
-	cmdArgs   []string
-	cmd       *exec.Cmd
+	uuid_        uuid.UUID
+	reqSockName  string
+	logSockName  string
+	reqSockConn  *net.Conn
+	logSockConn  *net.Conn
+	cacheDir     string
+	cmdCaller    string
+	cmdArgs      []string
+	offlineDisks []string
+	cmd          *exec.Cmd
 }

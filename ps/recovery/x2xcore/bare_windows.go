@@ -59,9 +59,10 @@ func (fixer *windowsSystemFixer) configBareMetal() error {
 
 		if err != nil {
 			if up.BaseClassId() == 0x01 {
+				fixer.errorf(LogTplForIncompatibleBootPCIWith2Args, p, up.Human())
 				return errors.Wrapf(err, "incompatible pci(%s): %s", up, up.MsHardwareId()[0])
 			}
-			// TODO 日志警告
+			fixer.warnf(LogTplForIncompatibleNonBootPCIWith2Args, p, up.Human())
 		}
 	}
 

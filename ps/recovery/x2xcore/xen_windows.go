@@ -11,6 +11,8 @@ func (fixer *windowsSystemFixer) unconfigXen() error {
 	logger.Debugf("unconfigXen: ++")
 	defer logger.Debugf("unconfigXen: --")
 
+	fixer.infof(LogTplForUnconfigXenWith0Args)
+
 	xenDrivers := []string{
 		"XEN",
 		"xenagent",
@@ -46,6 +48,8 @@ func (fixer *windowsSystemFixer) unconfigXen() error {
 func (fixer *windowsSystemFixer) configXen() error {
 	logger.Debugf("configXen: ++")
 	defer logger.Debugf("configXen: --")
+
+	fixer.infof(LogTplForConfigXenWith0Args)
 
 	ds, err := fixer.x2xLib.SelectWindowsBestVirtualDriver(
 		define.HPVTXen,

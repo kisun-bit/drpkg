@@ -7,6 +7,8 @@ func (fixer *windowsSystemFixer) unconfigVmware() error {
 	logger.Debugf("unconfigVmware: ++")
 	defer logger.Debugf("unconfigVmware: --")
 
+	fixer.infof(LogTplForUnconfigVmwareWith0Args)
+
 	for _, v := range []string{
 		"vmci",
 		"vmhgfs",
@@ -29,6 +31,8 @@ func (fixer *windowsSystemFixer) unconfigVmware() error {
 func (fixer *windowsSystemFixer) configVmware() error {
 	logger.Debugf("configVmware: ++")
 	defer logger.Debugf("configVmware: --")
+
+	fixer.infof(LogTplForConfigVmwareWith0Args)
 
 	// TODO 安装vmtools相关的驱动
 

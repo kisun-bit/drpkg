@@ -67,7 +67,7 @@ const (
 )
 
 var (
-	FirstBootProcFilePrefix            = "drx2xcfg.h0nk1"
+	FirstBootProcFilePrefix            = "drfirstboot.h0nk1"
 	FirstBootProcCompletedFlagFilename = fmt.Sprintf("%s.completed", FirstBootProcFilePrefix)
 	FirstBootProcPowershellScriptName  = fmt.Sprintf("%s.fb.ps", FirstBootProcFilePrefix)
 	FirstBootProcBatScriptName         = fmt.Sprintf("%s.fb.bat", FirstBootProcFilePrefix)

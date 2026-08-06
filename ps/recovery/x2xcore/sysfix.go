@@ -32,10 +32,13 @@ type SysFixer interface {
 
 type FixerCreateOptions struct {
 	// OfflineSysDisks 离线系统磁盘集合
-	OfflineSysDisks []string
+	OfflineSysDisks []string `json:"offlineSysDisks"`
 
 	// RecoveryParam 恢复参数
-	RecoveryParam RecoveryParameter
+	RecoveryParam RecoveryParameter `json:"recoveryParam"`
+
+	// InRepairVM 标识当前是否运行在修复虚拟机环境中
+	InRepairVM bool `json:"inRepairVM"`
 }
 
 type PreferConfig struct {
@@ -99,10 +102,9 @@ func CheckAndFillRecoveryParameter(rp *RecoveryParameter) error {
 	if rp.X2xLibrary == "" {
 		//rp.X2xLibrary = filepath.Join(extend.ExecDir(), "library")
 		dir, err := FindX2xLibraryDir()
-		if err != nil {
-			return errors.Wrap(err, "FindX2xLibraryDir")
+		if err == nil {
+			rp.X2xLibrary = dir
 		}
-		rp.X2xLibrary = dir
 	}
 	//if !extend.IsExisted(rp.X2xLibrary) {
 	//	return errors.Errorf("FixerCreateOptions X2XLibrary(%s) is empty", rp.X2xLibrary)

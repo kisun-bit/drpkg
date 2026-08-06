@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -25,9 +26,11 @@ import (
 
 type linuxSystemFixer struct {
 	ctx          context.Context
+	cancel       context.CancelFunc
 	opts         *FixerCreateOptions // 恢复参数
 	logs         <-chan LogEntry     // 日志缓存通道
 	x2xLib       *x2xlib.X2XLib      // 驱动库
+	reqPort      io.Writer           // 修复虚拟机的通信信道
 	offsys       offlineSystem       // 离线系统的私有信息
 	repairFinish bool
 }
@@ -101,12 +104,21 @@ type kernel struct {
 	KConfigs map[string]string `json:"-"`
 }
 
-func NewSysFixer(ctx context.Context, opts *FixerCreateOptions) (fixer SysFixer, err error) {
+func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io.Writer) (fixer SysFixer, err error) {
 	logger.Debugf("NewSysFixer: opts:\n%s", extend.Pretty(opts))
 	if err = CheckAndFillFixerCreateOptions(opts); err != nil {
 		return nil, err
 	}
 	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
+	if opts.RecoveryParam.TimeoutSeconds > 0 {
+		lf.ctx, lf.cancel = context.WithTimeout(ctx, time.Duration(opts.RecoveryParam.TimeoutSeconds)*time.Second)
+	}
+	if opts.InRepairVM {
+		if serialReqPort == nil {
+			return nil, errors.New("serialReqPort is required")
+		}
+		lf.reqPort = serialReqPort
+	}
 	lf.x2xLib, err = x2xlib.NewX2XLib(opts.RecoveryParam.X2xLibrary, true)
 	if err != nil {
 		return nil, err
@@ -298,6 +310,10 @@ func (fixer *linuxSystemFixer) CustomProcess(fn func() error) error {
 func (fixer *linuxSystemFixer) Cleanup() error {
 	logger.Debugf("Cleanup: ++")
 	defer logger.Debugf("Cleanup: --")
+
+	if !extend.IsNilType(fixer.cancel) {
+		fixer.cancel()
+	}
 
 	fixer.syncFs()
 

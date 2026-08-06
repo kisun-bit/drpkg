@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	serviceName = "drx2xcfg"
+	serviceName = "drfirstboot"
 	version     = "6.19.00083"
 )
 

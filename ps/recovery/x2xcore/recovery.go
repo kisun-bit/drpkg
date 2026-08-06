@@ -158,6 +158,9 @@ type RecoveryParameter struct {
 	// 修复相关
 	//
 
+	// TimeoutSeconds 超时
+	TimeoutSeconds int `json:"timeoutSeconds"`
+
 	// OSType 系统类型
 	OSType string `json:"osType"`
 

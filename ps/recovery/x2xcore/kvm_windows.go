@@ -16,7 +16,7 @@ func (fixer *windowsSystemFixer) unconfigKvm() error {
 	logger.Debugf("unconfigKvm: ++")
 	defer logger.Debugf("unconfigKvm: --")
 
-	logger.Debugf("unconfigKvm: do nothing")
+	fixer.infof(LogTplForUnconfigKVMWith0Args)
 
 	for _, driver := range kvmDrivers {
 		if e := fixer.disableService(driver); e != nil {
@@ -30,6 +30,8 @@ func (fixer *windowsSystemFixer) unconfigKvm() error {
 func (fixer *windowsSystemFixer) configKvm() error {
 	logger.Debugf("configKvm: ++")
 	defer logger.Debugf("configKvm: --")
+
+	fixer.infof(LogTplForConfigKVMWith0Args)
 
 	isAllExisted := true
 	for _, v := range kvmDrivers {

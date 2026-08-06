@@ -13,6 +13,8 @@ func (fixer *windowsSystemFixer) unconfigHyperV() error {
 
 	logger.Debugf("unconfigHyperV: do nothing")
 
+	fixer.infof(LogTplForUnconfigHVWith0Args)
+
 	for _, service := range hyperVServices {
 		if err := fixer.disableService(service); err != nil {
 			return err
@@ -25,6 +27,8 @@ func (fixer *windowsSystemFixer) unconfigHyperV() error {
 func (fixer *windowsSystemFixer) configHyperV() error {
 	logger.Debugf("configHyperV: ++")
 	defer logger.Debugf("configHyperV: --")
+
+	fixer.infof(LogTplForConfigHVWith0Args)
 
 	// Windows 7 / Server 2008 R2 及以上通常已内置 Hyper-V Integration Services。
 	// XP/2003 等较老版本需要单独安装 Integration Services。

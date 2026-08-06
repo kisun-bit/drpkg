@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/kisun-bit/drpkg/disk/image/qemublk"
+	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
 	"github.com/pkg/errors"
 )
@@ -29,9 +31,9 @@ func (o *Option) Validate() error {
 		return err
 	}
 
-	if isqcow2, _ := isQCOW2(o.VmBootDiskFile); !isqcow2 {
-		return errors.New("boot file format is not qcow2")
-	}
+	//if isqcow2, _ := isQCOW2(o.VmBootDiskFile); !isqcow2 {
+	//	return errors.New("boot file format is not qcow2")
+	//}
 
 	if len(o.OfflineSystemDisks) == 0 {
 		return errors.Errorf(
@@ -47,7 +49,7 @@ func (o *Option) Validate() error {
 			disk,
 		); err != nil {
 			return errors.Errorf(
-				"offline system disk[%d]: %w",
+				"offline system disk[%d]: %v",
 				i,
 				err,
 			)
@@ -161,7 +163,7 @@ func validatePath(
 		}
 
 		return errors.Errorf(
-			"stat %s failed: %w",
+			"stat %s failed: %v",
 			name,
 			err,
 		)
@@ -263,7 +265,7 @@ func createBootOverlay(
 
 	if err != nil {
 		return "", errors.Errorf(
-			"get boot file size failed: %w",
+			"get boot file size failed: %v",
 			err,
 		)
 	}
@@ -277,10 +279,52 @@ func createBootOverlay(
 
 	if err != nil {
 		return "", errors.Errorf(
-			"create qcow2 overlay failed: %w",
+			"create qcow2 overlay failed: %v",
 			err,
 		)
 	}
 
 	return newBootFile, nil
+}
+
+// WaitSerialSocketReady 等待 virtio-serial socket 就绪并返回可用连接。
+// 调用方负责关闭返回的 net.Conn。
+func WaitSerialSocketReady(ctx context.Context, sockFile string, retryCount int, retryInterval time.Duration) (*net.Conn, error) {
+	if retryCount <= 0 {
+		retryCount = 1
+	}
+	if retryInterval <= 0 {
+		retryInterval = time.Second
+	}
+
+	var lastErr error
+	for i := 0; i < retryCount; i++ {
+		select {
+		case <-ctx.Done():
+			return nil, errors.Errorf("waiting for serial socket %q cancelled: %v", sockFile, ctx.Err())
+		default:
+		}
+
+		dialCtx, dialCancel := context.WithTimeout(ctx, retryInterval)
+		conn, err := (&net.Dialer{}).DialContext(dialCtx, "unix", sockFile)
+		dialCancel()
+
+		if err == nil {
+			logger.Debugf("[Host] connected to virtio-serial channel %s (attempt %d/%d)", sockFile, i+1, retryCount)
+			return &conn, nil
+		}
+
+		lastErr = err
+		logger.Debugf("[Host] failed to connect to %s (%d/%d): %v", sockFile, i+1, retryCount, err)
+
+		if i < retryCount-1 {
+			select {
+			case <-ctx.Done():
+				return nil, errors.Errorf("waiting for serial socket %q cancelled: %v", sockFile, ctx.Err())
+			case <-time.After(retryInterval):
+			}
+		}
+	}
+
+	return nil, errors.Errorf("failed to connect to serial socket %q after %d retries: %v", sockFile, retryCount, lastErr)
 }

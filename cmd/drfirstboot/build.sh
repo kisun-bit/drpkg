@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# drx2xcfg cross compile script
+# drfirstboot cross compile script
 #
 # Supported targets:
 #   windows amd64
@@ -63,10 +63,10 @@ if [ "$OS" = "windows" ]; then
 fi
 
 
-OUTPUT="../../ps/recovery/x2xlib/library/extra/firstboot/drx2xcfg/$OS/$ARCH/drx2xcfg${EXT}"
+OUTPUT="../../ps/recovery/x2xlib/library/extra/firstboot/drfirstboot/$OS/$ARCH/drfirstboot${EXT}"
 
 
-echo "Building drx2xcfg..."
+echo "Building drfirstboot..."
 echo "GOOS=$GOOS"
 echo "GOARCH=$GOARCH"
 echo "OUTPUT=$OUTPUT"

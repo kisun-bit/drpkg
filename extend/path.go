@@ -483,9 +483,6 @@ func EffectiveForBoot(dir string) bool {
 }
 
 func IsWindowsRoot(dir string) bool {
-	if !ContainAllSubDirs(dir, "Windows") {
-		return false
-	}
 	registryPath := filepath.Join(dir, "Windows", "System32", "config", "SYSTEM")
 	return IsExisted(registryPath)
 }

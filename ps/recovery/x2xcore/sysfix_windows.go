@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,11 +30,12 @@ const (
 )
 
 type windowsSystemFixer struct {
-	ctx    context.Context
-	opts   *FixerCreateOptions // 恢复参数
-	logs   <-chan LogEntry     // 日志缓存通道
-	x2xLib *x2xlib.X2XLib      // 驱动库
-	offsys offlineSystem       // 离线系统的私有信息
+	ctx     context.Context
+	opts    *FixerCreateOptions // 恢复参数
+	logs    <-chan LogEntry     // 日志缓存通道
+	x2xLib  *x2xlib.X2XLib      // 驱动库
+	reqPort io.Writer           // 修复虚拟机与宿主机的通信信道
+	offsys  offlineSystem       // 离线系统的私有信息
 }
 
 type offlineSystem struct {
@@ -50,13 +52,21 @@ type offlineSystem struct {
 	halType            define.HALType
 }
 
-func NewSysFixer(ctx context.Context, opts *FixerCreateOptions) (fixer SysFixer, err error) {
+func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io.Writer) (fixer SysFixer, err error) {
 	logger.Debugf("NewSysFixer: opts:\n%s", extend.Pretty(opts))
 	if err = CheckAndFillFixerCreateOptions(opts); err != nil {
 		return nil, err
 	}
 	logger.Debugf("NewSysFixer: opts(repaired):\n%s", extend.Pretty(opts))
 	lf := &windowsSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
+
+	if opts.InRepairVM {
+		if serialReqPort == nil {
+			return nil, errors.New("serialReqPort is required")
+		}
+		lf.reqPort = serialReqPort
+	}
+
 	lf.x2xLib, err = x2xlib.NewX2XLib(opts.RecoveryParam.X2xLibrary, true)
 	if err != nil {
 		return nil, err
@@ -68,8 +78,9 @@ func (fixer *windowsSystemFixer) Prepare() error {
 	logger.Debugf("Prepare: ++")
 	defer logger.Debugf("Prepare: --")
 
+	fixer.infof(LogTplForReadyWith0Args)
+
 	if err := fixer.importForeignDisk(); err != nil {
-		//return errors.Wrap(err, "import foreign disk")
 		logger.Warnf("Prepare: importForeignDisk: %v", err)
 	}
 
@@ -88,6 +99,7 @@ func (fixer *windowsSystemFixer) Prepare() error {
 	if err := fixer.detectCurrentControlSet(); err != nil {
 		return errors.Wrap(err, "detect current control set")
 	}
+	fixer.infof(LogTplForPrintControlSetWith1Args, fixer.offsys.currentControlSet)
 
 	if err := fixer.detectDriverDatabaseType(); err != nil {
 		return errors.Wrap(err, "detect driver database")
@@ -109,95 +121,121 @@ func (fixer *windowsSystemFixer) Prepare() error {
 	return nil
 }
 
-func (fixer *windowsSystemFixer) Repair() error {
+func (fixer *windowsSystemFixer) Repair() (err error) {
 	logger.Debugf("Repair: ++")
 	defer logger.Debugf("Repair: --")
 
-	if err := fixer.disableArpCheck(); err != nil {
-		return errors.Wrap(err, "disable arp check")
+	// 1. 基础系统修复
+	if err = fixer.repairBaseSystem(); err != nil {
+		return err
 	}
 
-	if err := fixer.disableAutoReboot(); err != nil {
-		return errors.Wrap(err, "disable auto reboot")
-	}
-
-	if err := fixer.enableIDE(); err != nil {
-		return errors.Wrap(err, "enable ide")
-	}
-
-	if err := fixer.enableSATA(); err != nil {
-		return errors.Wrap(err, "enable sata")
-	}
-
-	if err := fixer.fixUefi(); err != nil {
-		return errors.Wrap(err, "fix uefi")
-	}
-
-	if err := fixer.fixBCD(); err != nil {
-		return errors.Wrap(err, "fix bcd")
-	}
-
-	// FIXME: 后续实现Vista之前版本的驱动注入
+	// 2. 低版本 Windows 不支持 DISM，跳过后续硬件兼容性修复
 	dismSupported, e := fixer.largerThanNT61()
 	if e != nil {
 		return e
 	}
 	if !dismSupported {
-		// TODO 日志提示低版本的Windows未兼容硬件兼容性修复
+		fixer.warnf(LogTplForIgnoreRepairWith1Args, fixer.offsys.windowsVersion)
 		return nil
 	}
 
-	if err := fixer.injectConfigService(); err != nil {
+	// 3. 注入配置与网络服务
+	if err = fixer.injectConfigService(); err != nil {
 		return errors.Wrap(err, "inject config service")
 	}
-
-	if err := fixer.injectNetworkConfig(); err != nil {
+	if err = fixer.injectNetworkConfig(); err != nil {
 		return errors.Wrap(err, "inject network config")
 	}
 
-	if fixer.opts.RecoveryParam.SkipDriverRepairIfPlatformUnchanged &&
-		fixer.opts.RecoveryParam.Source.Base == define.HPVirt &&
-		fixer.opts.RecoveryParam.Target.Base == define.HPVirt &&
-		fixer.opts.RecoveryParam.Source.Virt == fixer.opts.RecoveryParam.Target.Virt {
-		// TODO 虚拟化硬件平台相同时，忽略修复
-	} else {
-		var unconfigFun = fixer.unconfigBareMetal
-		switch fixer.opts.RecoveryParam.Source.Virt {
-		case define.HPVTXen:
-			unconfigFun = fixer.unconfigXen
-		case define.HPVTVmware:
-			unconfigFun = fixer.unconfigVmware
-		case define.HPVTKvm:
-			unconfigFun = fixer.unconfigKvm
-		case define.HPVTHyperV:
-			unconfigFun = fixer.unconfigHyperV
-		case define.HPVTParallels:
-			unconfigFun = fixer.unconfigParallel
-		}
-
-		var configFun = fixer.configBareMetal
-		switch fixer.opts.RecoveryParam.Target.Virt {
-		case define.HPVTXen:
-			configFun = fixer.configXen
-		case define.HPVTVmware:
-			configFun = fixer.configVmware
-		case define.HPVTKvm:
-			configFun = fixer.configKvm
-		case define.HPVTHyperV:
-			configFun = fixer.configHyperV
-		case define.HPVTParallels:
-			configFun = fixer.configParallel
-		}
-
-		if err := unconfigFun(); err != nil {
-			return errors.Wrapf(err, "unconfig %s", fixer.opts.RecoveryParam.Source.Virt)
-		}
-		if err := configFun(); err != nil {
-			return errors.Wrapf(err, "config %s", fixer.opts.RecoveryParam.Target.Virt)
-		}
+	// 4. 虚拟化平台驱动适配
+	if err = fixer.adaptVirtPlatform(); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+// repairBaseSystem 执行基础系统修复步骤
+func (fixer *windowsSystemFixer) repairBaseSystem() error {
+	steps := []struct {
+		name string
+		fn   func() error
+	}{
+		{"disable arp check", fixer.disableArpCheck},
+		{"disable auto reboot", fixer.disableAutoReboot},
+		{"enable ide", fixer.enableIDE},
+		{"enable sata", fixer.enableSATA},
+		{"fix uefi", fixer.fixUefi},
+		{"fix bcd", fixer.fixBCD},
+	}
+
+	for _, step := range steps {
+		if err := step.fn(); err != nil {
+			return errors.Wrap(err, step.name)
+		}
+	}
+	return nil
+}
+
+// adaptVirtPlatform 根据源/目标虚拟化平台执行驱动卸载与安装
+func (fixer *windowsSystemFixer) adaptVirtPlatform() error {
+	param := fixer.opts.RecoveryParam
+
+	// 同源同目标虚拟化平台且配置要求跳过时，无需适配
+	if param.SkipDriverRepairIfPlatformUnchanged &&
+		param.Source.Base == define.HPVirt &&
+		param.Target.Base == define.HPVirt &&
+		param.Source.Virt == param.Target.Virt {
+		// TODO: 虚拟化硬件平台相同时，忽略修复
+		return nil
+	}
+
+	unconfigFun := fixer.getUnconfigFunc(param.Source.Virt)
+	if err := unconfigFun(); err != nil {
+		return errors.Wrapf(err, "unconfig %s", param.Source.Virt)
+	}
+
+	configFun := fixer.getConfigFunc(param.Target.Virt)
+	if err := configFun(); err != nil {
+		return errors.Wrapf(err, "config %s", param.Target.Virt)
+	}
+
+	return nil
+}
+
+func (fixer *windowsSystemFixer) getUnconfigFunc(virt define.HPVirtType) func() error {
+	switch virt {
+	case define.HPVTXen:
+		return fixer.unconfigXen
+	case define.HPVTVmware:
+		return fixer.unconfigVmware
+	case define.HPVTKvm:
+		return fixer.unconfigKvm
+	case define.HPVTHyperV:
+		return fixer.unconfigHyperV
+	case define.HPVTParallels:
+		return fixer.unconfigParallel
+	default:
+		return fixer.unconfigBareMetal
+	}
+}
+
+func (fixer *windowsSystemFixer) getConfigFunc(virt define.HPVirtType) func() error {
+	switch virt {
+	case define.HPVTXen:
+		return fixer.configXen
+	case define.HPVTVmware:
+		return fixer.configVmware
+	case define.HPVTKvm:
+		return fixer.configKvm
+	case define.HPVTHyperV:
+		return fixer.configHyperV
+	case define.HPVTParallels:
+		return fixer.configParallel
+	default:
+		return fixer.configBareMetal
+	}
 }
 
 func (fixer *windowsSystemFixer) CustomProcess(f func() error) error {
@@ -235,12 +273,16 @@ func (fixer *windowsSystemFixer) importForeignDisk() error {
 	logger.Debugf("importForeignDisk: ++")
 	defer logger.Debugf("importForeignDisk: --")
 
+	fixer.infof(LogTplForOfflineSystemReadyWith0Args)
+
 	return ImportForeignDisk()
 }
 
 func (fixer *windowsSystemFixer) detectSysVolume() error {
 	logger.Debugf("detectSysVolume: ++")
 	defer logger.Debugf("detectSysVolume: --")
+
+	fixer.infof(LogTplForEnumFsWith0Args)
 
 	vs, e := ListLocalVolumes()
 	if e != nil {
@@ -263,6 +305,8 @@ func (fixer *windowsSystemFixer) detectSysVolume() error {
 	}
 	logger.Debugf("detectSysVolume: volumes:\n%s", extend.Pretty(fixer.offsys.volumeLtrList))
 
+	fixer.infof(LogTplForSpecifySystemBootDeviceWith0Args)
+
 	for _, v := range fixer.offsys.volumeLtrList {
 		if info.IsMemoryOS() && strings.ToLower(v) == "x" {
 			continue
@@ -274,12 +318,22 @@ func (fixer *windowsSystemFixer) detectSysVolume() error {
 		fixer.offsys.sysVolumeLtr = v
 		break
 	}
+
+	if fixer.offsys.sysVolumeLtr == "" {
+		return errors.Errorf("system volume letter is empty: offsys detection failed")
+	}
+
+	fixer.infof(LogTplForPrintSystemBootDeviceWith2Args,
+		fixer.offsys.sysVolumeLtr+":",
+		fixer.offsys.sysVolumeLtr+":\\")
+
 	logger.Debugf("detectSysVolume: system volume: %v", fixer.offsys.sysVolumeLtr)
 
 	return nil
 }
 
 func (fixer *windowsSystemFixer) chkVolume() error {
+	fixer.infof(LogTplForFsckFsWith0Args)
 	for _, v := range fixer.offsys.volumeLtrList {
 		_, _, _ = command.Execute(fmt.Sprintf("chkdsk.exe /f %s:", v), command.WithDebug())
 	}
@@ -289,6 +343,8 @@ func (fixer *windowsSystemFixer) chkVolume() error {
 func (fixer *windowsSystemFixer) loadSystemRegistry() error {
 	logger.Debugf("mountRegistry: ++")
 	defer logger.Debugf("mountRegistry: --")
+
+	fixer.infof(LogTplForLoadRegistryWith0Args)
 
 	if fixer.offsys.registryRootLoaded {
 		return nil
@@ -393,6 +449,13 @@ func (fixer *windowsSystemFixer) detectDriverDatabaseType() error {
 			_ = key.Close()
 			fixer.offsys.driverDatabaseType = item.typ
 			logger.Debugf("detectDriverDatabaseType: %v", item.typ)
+
+			if fixer.offsys.driverDatabaseType == drvDbLegacy {
+				fixer.infof(LogTplForPrintDriverDatabaseLegacyWith0Args)
+			} else if fixer.offsys.driverDatabaseType == drvDbDriverStore {
+				fixer.infof(LogTplForPrintDriverDatabasePnpWith0Args)
+			}
+
 			return nil
 		case errors.Is(err, registry.ErrNotExist):
 			continue
@@ -420,6 +483,7 @@ func (fixer *windowsSystemFixer) detectBootMode() error {
 
 	fixer.offsys.bootMode = define.BootModeBIOS
 	logger.Debugf("detectBootMode: bios")
+	fixer.infof(LogTplForPrintSystemBootTypeWith1Args, fixer.offsys.bootMode)
 	return nil
 }
 
@@ -503,6 +567,8 @@ func (fixer *windowsSystemFixer) detectWindowsVersion() error {
 	)
 
 	fixer.offsys.windowsVersion = winVer
+
+	fixer.infof(LogTplForPrintDistroWith1Args, fixer.offsys.windowsVersion)
 
 	return nil
 }
@@ -978,6 +1044,8 @@ func (fixer *windowsSystemFixer) fixUefi() error {
 		return nil
 	}
 
+	fixer.infof(LogTplForOptimizeUEFIWith0Args)
+
 	espRoot := fixer.offsys.efiVolumeLtr + ":\\"
 
 	bootmgfw := filepath.Join(
@@ -1031,6 +1099,8 @@ func (fixer *windowsSystemFixer) fixBCD() error {
 	if fixer.offsys.bootMode != define.BootModeUEFI {
 		return nil
 	}
+
+	fixer.infof(LogTplForOptimizeBCDWith0Args)
 
 	bcdPath := filepath.Join(
 		fixer.offsys.efiVolumeLtr+":\\",
@@ -1159,7 +1229,8 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 		return errors.New("not supported")
 	}
 
-	const serviceName = "drx2xcfg"
+	const serviceName = "drfirstboot"
+	fixer.infof(LogTplForInjectFirstBootServiceWith1Args, serviceName)
 
 	serviceTgtExePath := fmt.Sprintf("%s:\\Windows\\%s.exe", fixer.offsys.sysVolumeLtr, serviceName)
 
@@ -1233,7 +1304,7 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 	}
 	defer svcKey.Close()
 
-	// ImagePath 使用离线系统盘符对应的运行时路径（如 C:\Windows\drx2xcfg.exe）
+	// ImagePath 使用离线系统盘符对应的运行时路径（如 C:\Windows\drfirstboot.exe）
 	imagePath := fmt.Sprintf("C:\\Windows\\%s.exe", serviceName)
 	if err = svcKey.SetExpandStringValue("ImagePath", imagePath); err != nil {
 		return errors.Wrap(err, "set ImagePath")
@@ -1272,9 +1343,45 @@ func (fixer *windowsSystemFixer) injectNetworkConfig() error {
 		return nil
 	}
 
+	fixer.infof(LogTplForInjectNetworkConfigWith0Args)
+
 	netCfgPath := fmt.Sprintf("%s:\\Windows\\%s", fixer.offsys.sysVolumeLtr, FirstBootProcNetworkConfigFileName)
 	_ = os.RemoveAll(netCfgPath)
 	data, _ := json.Marshal(fixer.opts.RecoveryParam.Network)
 
 	return os.WriteFile(netCfgPath, data, 0644)
+}
+
+func (fixer *windowsSystemFixer) logf(level LogLevel, tpl LangTpl, v ...interface{}) {
+	le := LogEntry{
+		Level: level,
+		MsgEn: fmt.Sprintf(tpl.En, v...),
+		MsgZh: fmt.Sprintf(tpl.Zh, v...),
+	}
+
+	if fixer.opts.InRepairVM {
+		_ = WriteSerialMessageTypeRepairLog(fixer.reqPort, le)
+		return
+	}
+
+	switch level {
+	case LogWarn:
+		logger.Warn(le.String())
+	case LogError:
+		logger.Error(le.String())
+	default:
+		logger.Info(le.String())
+	}
+}
+
+func (fixer *windowsSystemFixer) infof(tpl LangTpl, v ...interface{}) {
+	fixer.logf(LogInfo, tpl, v...)
+}
+
+func (fixer *windowsSystemFixer) warnf(tpl LangTpl, v ...interface{}) {
+	fixer.logf(LogWarn, tpl, v...)
+}
+
+func (fixer *windowsSystemFixer) errorf(tpl LangTpl, v ...interface{}) {
+	fixer.logf(LogError, tpl, v...)
 }

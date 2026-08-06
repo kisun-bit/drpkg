@@ -1,5 +1,5 @@
 <#
-    drx2xcfg 编译脚本
+    drfirstboot 编译脚本
 
     支持:
       windows amd64
@@ -45,10 +45,10 @@ if ($OS -eq "windows") {
 }
 
 
-$output = "../../ps/recovery/x2xlib/library/extra/firstboot/drx2xcfg/$OS/$Arch/drx2xcfg$ext"
+$output = "../../ps/recovery/x2xlib/library/extra/firstboot/drfirstboot/$OS/$Arch/drfirstboot$ext"
 
 
-Write-Host "Building drx2xcfg..."
+Write-Host "Building drfirstboot..."
 Write-Host "GOOS=$env:GOOS"
 Write-Host "GOARCH=$env:GOARCH"
 Write-Host "OUTPUT=$output"
