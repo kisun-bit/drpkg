@@ -178,14 +178,18 @@ func (vm *Vm) buildCommand() error {
 
 		"-machine", "q35",
 
-		"-accel", "tcg,thread=multi",
-
 		"-uuid", vm.uuid_.String(),
 
 		"-m", "2G",
 
 		"-smp", "4",
 	)
+
+	if IsKVMAvailable() {
+		vm.cmdArgs = append(vm.cmdArgs, "-enable-kvm")
+	} else {
+		vm.cmdArgs = append(vm.cmdArgs, "-accel", "tcg,thread=multi")
+	}
 
 	if vm.opt.RecoveryParams.Source.Arch == "amd64" {
 		vm.cmdArgs = append(vm.cmdArgs, "-cpu", "qemu64")

@@ -330,3 +330,36 @@ func WaitSerialSocketReady(ctx context.Context, sockFile string, retryCount int,
 
 	return nil, errors.Errorf("failed to connect to serial socket %q after %d retries: %v", sockFile, retryCount, lastErr)
 }
+
+// IsKVMAvailable checks whether current Linux supports qemu -enable-kvm
+func IsKVMAvailable() bool {
+
+	// Linux only
+	if _, err := os.Stat("/dev/kvm"); err != nil {
+		return false
+	}
+
+	// Check CPU virtualization feature
+	cpuInfo, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return false
+	}
+
+	cpu := strings.ToLower(string(cpuInfo))
+
+	// Intel VT-x
+	if strings.Contains(cpu, "vmx") {
+		// kvm_intel loaded
+		modules, _ := os.ReadFile("/proc/modules")
+		return strings.Contains(string(modules), "kvm_intel")
+	}
+
+	// AMD-V
+	if strings.Contains(cpu, "svm") {
+		// kvm_amd loaded
+		modules, _ := os.ReadFile("/proc/modules")
+		return strings.Contains(string(modules), "kvm_amd")
+	}
+
+	return false
+}
