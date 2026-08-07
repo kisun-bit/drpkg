@@ -899,7 +899,8 @@ func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) 
 	logger.Debugf("injectDriversByDism: querying existing drivers")
 
 	listCmd := fmt.Sprintf(
-		`dism /Image:%s:\ /Get-Drivers`,
+		`%s /Image:%s:\ /Get-Drivers`,
+		fixer.getDismProgram(),
 		fixer.offsys.sysVolumeLtr,
 	)
 
@@ -976,7 +977,8 @@ func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) 
 	)
 
 	injectCmd := fmt.Sprintf(
-		`dism /Image:%s:\ /Add-Driver /Driver:%s /Recurse /ForceUnsigned`,
+		`%s /Image:%s:\ /Add-Driver /Driver:%s /Recurse /ForceUnsigned`,
+		fixer.getDismProgram(),
 		fixer.offsys.sysVolumeLtr,
 		ds.Dir,
 	)
@@ -1355,6 +1357,15 @@ func (fixer *windowsSystemFixer) injectNetworkConfig() error {
 	data, _ := json.Marshal(fixer.opts.RecoveryParam.Network)
 
 	return os.WriteFile(netCfgPath, data, 0644)
+}
+
+func (fixer *windowsSystemFixer) getDismProgram() string {
+	switch fixer.opts.RecoveryParam.Source.Arch {
+	//case "386":
+	//	return "dism_386.exe"
+	default:
+		return "dism.exe"
+	}
 }
 
 func (fixer *windowsSystemFixer) logf(level LogLevel, tpl LangTpl, v ...interface{}) {

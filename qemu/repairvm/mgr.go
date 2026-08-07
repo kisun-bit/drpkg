@@ -481,10 +481,12 @@ func (vm *Vm) Release() error {
 
 	// 清理临时目录
 	if vm.cacheDir != "" {
+		_ = os.RemoveAll(vm.cacheDir)
+	}
 
-		if err := os.RemoveAll(vm.cacheDir); err != nil {
-			return err
-		}
+	// 清理修复虚拟机系统的overlay
+	if vm.vmBootDisk != "" {
+		_ = os.RemoveAll(vm.vmBootDisk)
 	}
 
 	return nil
