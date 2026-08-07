@@ -14,14 +14,16 @@ import (
 func main() {
 	vm, err := repairvm.Create(context.Background(),
 		&repairvm.Option{
-			VmBootDiskFile: "/var/lib/libvirt/images/rs_winpe.x86_64.iso",
+			//VmBootDiskFile: "/var/lib/libvirt/images/rs_winpe.x86_64.iso",
+			VmBootDiskFile: "/var/lib/libvirt/images/repairvm.alpine3.17.9.amd64.qcow2",
 			OfflineSystemDisks: []repairvm.Disk{
 				{
 					Index: 0,
-					Path:  "/data/runstor/restore/sysbackup/kvm_restore_virt_6obC762Nkr1ASmam7z/31c9aac91c6b5c4eeeba8a0ffcfe130b.qcow2",
-					LBA:   512,
-					PBA:   512,
-					Size:  107374182400,
+					//Path:  "/data/runstor/restore/sysbackup/kvm_restore_virt_6obC762Nkr1ASmam7z/31c9aac91c6b5c4eeeba8a0ffcfe130b.qcow2",
+					Path: "/instance_ugeh/tenant_dfte/cdp_job_conf_fnxbvdsdye_42/Job_0DPB8hS2bY/qcow/restore/fdf9626717d54249807741aa85b459ae/pci-0000:00:0a.0",
+					LBA:  512,
+					PBA:  512,
+					Size: 107374182400,
 				},
 			},
 			RecoveryParams: x2xcore.RecoveryParameter{
@@ -37,8 +39,9 @@ func main() {
 					Base:      define.HPVirt,
 					Virt:      define.HPVTKvm,
 				},
-				TimeoutSeconds:                      0,
-				OSType:                              "windows",
+				TimeoutSeconds: 0,
+				//OSType:                              "windows",
+				OSType:                              "linux",
 				X2xLibrary:                          "",
 				FsckFs:                              true,
 				SkipDriverRepairIfPlatformUnchanged: false,

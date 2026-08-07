@@ -95,8 +95,13 @@ var (
 		En: "System boot device: %s (mount point: %s)",
 	}
 
+	LogTplForBootableKernelWith1Args = LangTpl{
+		Zh: "可启动内核版本：%s",
+		En: "Bootable kernel: %v",
+	}
+
 	LogTplForLoadRegistryWith0Args = LangTpl{
-		Zh: "导入注册表",
+		Zh: "加载注册表",
 		En: "Loading registry",
 	}
 
@@ -155,6 +160,11 @@ var (
 		En: "Disable SELinux",
 	}
 
+	LogTplForDisableAutoRebootWith0Args = LangTpl{
+		Zh: "禁用自动重启",
+		En: "Disable auto-reboot",
+	}
+
 	LogTplForRepairPAMWith0Args = LangTpl{
 		Zh: "修复 PAM 模块",
 		En: "Repair PAM module",
@@ -190,9 +200,19 @@ var (
 		En: "Injecting first-boot configuration service: %s",
 	}
 
+	LogTplForInjectNetworkToolFailedWith1Args = LangTpl{
+		Zh: "注入网络配置程序失败：%v",
+		En: "Injecting network tool failed: %v",
+	}
+
 	LogTplForInjectNetworkConfigWith0Args = LangTpl{
 		Zh: "写入系统网络配置",
 		En: "Writing system network configuration",
+	}
+
+	LogTplForInjectNetworkConfigFailedWith0Args = LangTpl{
+		Zh: "写入系统网络配置失败：%v",
+		En: "Failed to write system network configuration: %v",
 	}
 
 	LogTplForUnconfigHVWith0Args = LangTpl{

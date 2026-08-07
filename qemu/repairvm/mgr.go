@@ -187,6 +187,10 @@ func (vm *Vm) buildCommand() error {
 		"-smp", "4",
 	)
 
+	if vm.opt.RecoveryParams.Source.Arch == "amd64" {
+		vm.cmdArgs = append(vm.cmdArgs, "-cpu", "qemu64")
+	}
+
 	vm.addVirtioSerial()
 
 	vm.addStorage()

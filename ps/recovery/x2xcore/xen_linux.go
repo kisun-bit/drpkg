@@ -18,6 +18,8 @@ func (fixer *linuxSystemFixer) unconfigXen() error {
 	logger.Debugf("unconfigXen: ++")
 	defer logger.Debugf("unconfigXen: --")
 
+	fixer.infof(LogTplForUnconfigXenWith0Args)
+
 	if err := changeUVPTools(fixer.offsys.root, true); err != nil {
 		return err
 	}
@@ -33,6 +35,8 @@ func (fixer *linuxSystemFixer) unconfigXen() error {
 func (fixer *linuxSystemFixer) configXen() error {
 	logger.Debugf("configXen: ++")
 	defer logger.Debugf("configXen: --")
+
+	fixer.infof(LogTplForConfigXenWith0Args)
 
 	if err := changeUVPTools(fixer.offsys.root, false); err != nil {
 		return err

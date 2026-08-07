@@ -11,8 +11,6 @@ func (fixer *windowsSystemFixer) unconfigHyperV() error {
 	logger.Debugf("unconfigHyperV: ++")
 	defer logger.Debugf("unconfigHyperV: --")
 
-	logger.Debugf("unconfigHyperV: do nothing")
-
 	fixer.infof(LogTplForUnconfigHVWith0Args)
 
 	for _, service := range hyperVServices {

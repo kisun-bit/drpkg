@@ -697,7 +697,8 @@ func LVSegments(lvPath string) (segments []Segment, err error) {
 	newpath := lvPath
 
 	// 尝试获取其链接，若成功则直接使用，若失败则可能是快照lv、已是绝对路径的情况之一
-	newpath, err = filepath.EvalSymlinks(lvPath)
+	//newpath, err = filepath.EvalSymlinks(lvPath)
+	newpath, err = LVToDMDevice(lvPath)
 	if err == nil {
 		lvPath = newpath
 	}
@@ -1230,4 +1231,57 @@ func IsLVMDevice(dev string) (bool, error) {
 	uuid := strings.TrimSpace(string(data))
 
 	return strings.HasPrefix(uuid, "LVM-"), nil
+}
+
+func LVToDMDevice(lv string) (string, error) {
+
+	fi, err := os.Stat(lv)
+	if err != nil {
+		return "", err
+	}
+
+	stat, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf(
+			"invalid stat type: %T",
+			fi.Sys(),
+		)
+	}
+
+	major := unix.Major(uint64(stat.Rdev))
+	minor := unix.Minor(uint64(stat.Rdev))
+
+	sysDev := fmt.Sprintf(
+		"%d:%d",
+		major,
+		minor,
+	)
+
+	path := filepath.Join(
+		"/sys/dev/block",
+		sysDev,
+	)
+
+	target, err := filepath.EvalSymlinks(path)
+
+	if err != nil {
+		return "", fmt.Errorf(
+			"resolve %s failed: %w",
+			path,
+			err,
+		)
+	}
+
+	name := filepath.Base(target)
+
+	if len(name) < 3 ||
+		name[:3] != "dm-" {
+
+		return "", fmt.Errorf(
+			"%s is not dm device",
+			lv,
+		)
+	}
+
+	return "/dev/" + name, nil
 }

@@ -8,6 +8,8 @@ func (fixer *linuxSystemFixer) unconfigHyperV() error {
 
 	logger.Debugf("unconfigHyperV: do nothing")
 
+	fixer.infof(LogTplForUnconfigHVWith0Args)
+
 	return nil
 }
 
@@ -15,6 +17,7 @@ func (fixer *linuxSystemFixer) configHyperV() error {
 	logger.Debugf("configHyperV: ++")
 	defer logger.Debugf("configHyperV: --")
 
+	fixer.infof(LogTplForConfigHVWith0Args)
 	// TODO 对于低版本Linux抛出警告，让其目标平台使用兼容性硬件设备去启动系统（如ide、legacy nic等）
 
 	return nil

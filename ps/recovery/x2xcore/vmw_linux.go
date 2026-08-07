@@ -10,6 +10,7 @@ func (fixer *linuxSystemFixer) unconfigVmware() error {
 	defer logger.Debugf("unconfigVmware: --")
 
 	logger.Debugf("unconfigVmware: do nothing")
+	fixer.infof(LogTplForUnconfigVmwareWith0Args)
 
 	return nil
 }
@@ -18,6 +19,7 @@ func (fixer *linuxSystemFixer) configVmware() error {
 	logger.Debugf("configVmware: ++")
 	defer logger.Debugf("configVmware: --")
 
+	fixer.infof(LogTplForConfigVmwareWith0Args)
 	// TODO
 
 	return nil

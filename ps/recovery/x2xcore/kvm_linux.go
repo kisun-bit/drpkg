@@ -13,6 +13,7 @@ func (fixer *linuxSystemFixer) unconfigKvm() error {
 	defer logger.Debugf("unconfigKvm: --")
 
 	logger.Debugf("unconfigKvm: do nothing")
+	fixer.infof(LogTplForUnconfigKVMWith0Args)
 
 	return nil
 }
@@ -20,6 +21,8 @@ func (fixer *linuxSystemFixer) unconfigKvm() error {
 func (fixer *linuxSystemFixer) configKvm() error {
 	logger.Debugf("configKvm: ++")
 	defer logger.Debugf("configKvm: --")
+
+	fixer.infof(LogTplForConfigKVMWith0Args)
 
 	if err := fixer.patchVirtIO(); err != nil {
 		return nil

@@ -250,7 +250,7 @@ func (fixer *windowsSystemFixer) Cleanup() error {
 	logger.Debugf("Cleanup: ++")
 	defer logger.Debugf("Cleanup: --")
 
-	fixer.infof(LogTplForMountSystemWith0Args)
+	fixer.infof(LogTplForUnloadRegistryWith0Args)
 	if err := fixer.unloadSystemRegistry(); err != nil {
 		return errors.Wrap(err, "cleanup")
 	}
@@ -335,6 +335,9 @@ func (fixer *windowsSystemFixer) detectSysVolume() error {
 }
 
 func (fixer *windowsSystemFixer) chkVolume() error {
+	if !fixer.opts.RecoveryParam.FsckFs {
+		return nil
+	}
 	fixer.infof(LogTplForFsckFsWith0Args)
 	for _, v := range fixer.offsys.volumeLtrList {
 		_, _, _ = command.Execute(fmt.Sprintf("chkdsk.exe /f %s:", v), command.WithDebug())
@@ -681,6 +684,8 @@ func (fixer *windowsSystemFixer) disableArpCheck() error {
 func (fixer *windowsSystemFixer) disableAutoReboot() error {
 	logger.Debugf("disableAutoReboot: ++")
 	defer logger.Debugf("disableAutoReboot: --")
+
+	fixer.infof(LogTplForDisableAutoRebootWith0Args)
 
 	keyPath := fmt.Sprintf(
 		"%s\\ControlSet00%d\\Control\\CrashControl",

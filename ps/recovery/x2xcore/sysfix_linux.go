@@ -131,6 +131,10 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	logger.Debugf("Prepare: ++")
 	defer logger.Debugf("Prepare: --")
 
+	fixer.infof(LogTplForReadyWith0Args)
+
+	fixer.infof(LogTplForOfflineSystemReadyWith0Args)
+
 	if err := fixer.closeAllLuksDevices(); err != nil {
 		return errors.Wrap(err, "close crypto_LUKS")
 	}
@@ -139,6 +143,8 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		return errors.Wrap(err, "deactivate lvm")
 	}
 
+	fixer.infof(LogTplForResetWith0Args)
+
 	if err := fixer.activeLvm(); err != nil {
 		return errors.Wrap(err, "active lvm")
 	}
@@ -146,6 +152,8 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	if err := fixer.openCryptoLUKS(); err != nil {
 		return errors.Wrap(err, "open crypto_LUKS")
 	}
+
+	fixer.infof(LogTplForEnumFsWith0Args)
 
 	fsDevs, e := enumFilesystem(fixer.opts.OfflineSysDisks, fixer.offsys.luksDeviceList)
 	if e != nil {
@@ -201,7 +209,10 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	}
 
 	fixer.detectKvmCfg()
+
 	fixer.detectBootMode()
+	fixer.infof(LogTplForPrintSystemBootTypeWith1Args, fixer.offsys.bootMode)
+
 	fixer.detectUdevSupportUuid()
 
 	fixer.offsys.supportSystemd = DetectSystemd(fixer.offsys.root)
@@ -241,11 +252,11 @@ func (fixer *linuxSystemFixer) Repair() error {
 
 	netijt, err := NewNetworkInjector(fixer.offsys.root, &fixer.opts.RecoveryParam.Network)
 	if err != nil {
-		// TODO 抛出警告
+		fixer.warnf(LogTplForInjectNetworkToolFailedWith1Args, err)
 		logger.Warnf("NewNetworkInjector: %v", err)
 	} else {
 		if err = netijt.Inject(); err != nil {
-			// TODO 抛出警告
+			fixer.warnf(LogTplForInjectNetworkConfigFailedWith0Args, err)
 			logger.Warnf("Inject: %v", err)
 		}
 	}
@@ -365,6 +376,8 @@ func (fixer *linuxSystemFixer) mountSys() error {
 	if fixer.offsys.devRoot == "" {
 		return errors.New("root filesystem is empty")
 	}
+
+	fixer.infof(LogTplForMountSystemWith0Args)
 
 	// 固定离线系统的挂载点
 	if e := os.MkdirAll(rootDir, 0755); e != nil {
@@ -545,6 +558,8 @@ func (fixer *linuxSystemFixer) openCryptoLUKS() error {
 		return nil
 	}
 
+	fixer.infof(LogTplForOpenLUKSWith0Args)
+
 	rets, err := OpenAllLUKS(fixer.opts.RecoveryParam.LuksGlobalPassword)
 	if err != nil {
 		return err
@@ -575,6 +590,8 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 	logger.Debugf("detectSysDevice ++")
 	defer logger.Debugf("detectSysDevice --")
 
+	fixer.infof(LogTplForSpecifySystemBootDeviceWith0Args)
+
 	//if len(fixer.offsys.fsList) == 0 {
 	//	fsDevs, err := enumFilesystem(fixer.opts.OfflineSysDisks)
 	//	if err != nil {
@@ -589,14 +606,19 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 		}
 		switch {
 		case IsRootDevice(fixer.ctx, dev.Device):
+			fixer.infof(LogTplForPrintSystemBootDeviceWith2Args, dev.Device, "/")
 			fixer.offsys.devRoot = dev.Device
 		case IsBootDevice(fixer.ctx, dev.Device):
+			fixer.infof(LogTplForPrintSystemBootDeviceWith2Args, dev.Device, "/boot")
 			fixer.offsys.devBoot = dev.Device
 		case IsEfiDevice(fixer.ctx, dev.Device):
+			fixer.infof(LogTplForPrintSystemBootDeviceWith2Args, dev.Device, "/boot/efi")
 			fixer.offsys.devEfi = dev.Device
 		case IsVarDevice(fixer.ctx, dev.Device):
+			fixer.infof(LogTplForPrintSystemBootDeviceWith2Args, dev.Device, "/var")
 			fixer.offsys.devVar = dev.Device
 		case IsUsrDevice(fixer.ctx, dev.Device):
+			fixer.infof(LogTplForPrintSystemBootDeviceWith2Args, dev.Device, "/usr")
 			fixer.offsys.devUsr = dev.Device
 		}
 	}
@@ -673,6 +695,7 @@ func (fixer *linuxSystemFixer) detectInitrdTool() error {
 		// 4. 成功命中
 		logger.Debugf("detectInitrdTool: initrd tool detected: %s", tool.name)
 		fixer.offsys.initrdTl = tool.name
+		fixer.infof(LogTplForPrintInitrdMgrWith1Args, tool.name)
 
 		initrdTlVerCmdline := ""
 		switch tool.name {
@@ -1200,6 +1223,8 @@ func (fixer *linuxSystemFixer) detectKernels() error {
 			continue
 		}
 
+		fixer.infof(LogTplForBootableKernelWith1Args, k.Name)
+
 		k2 := kernel{}
 		k2.LinuxKernel = k
 		k2.KConfigs = make(map[string]string)
@@ -1239,6 +1264,8 @@ func (fixer *linuxSystemFixer) detectGrub() error {
 	fixer.offsys.grubVer, fixer.offsys.grubCfg = ver, cfg
 	logger.Debugf("detectGrub: version=%d config=%s", ver, cfg)
 
+	fixer.infof(LogTplForPrintSystemGrubWith2Args, "GRUB", ver)
+
 	return nil
 }
 
@@ -1258,6 +1285,8 @@ func (fixer *linuxSystemFixer) detectDistro() error {
 
 	fixer.offsys.distro = *distro
 	logger.Debugf("detectDistro: distro=\n%s", extend.Pretty(distro))
+
+	fixer.infof(LogTplForPrintDistroWith1Args, distro.Pretty)
 
 	return nil
 }
@@ -1294,6 +1323,8 @@ func (fixer *linuxSystemFixer) executeWithChroot(cmdline string) (exitcode int, 
 func (fixer *linuxSystemFixer) cleanDattoSnapshot() error {
 	logger.Debugf("cleanDattoSnapshot: ++")
 	defer logger.Debugf("cleanDattoSnapshot: --")
+
+	fixer.infof(LogTplForCleanElastioSnapWith0Args)
 
 	tmpMp, err := os.MkdirTemp("", "cleanDattoCow-*")
 	if err != nil {
@@ -1386,6 +1417,8 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 	if fixer.offsys.root == "" {
 		return ErrorRootEnvNotMounted
 	}
+
+	fixer.infof(LogTplForRepairFstabWith0Args)
 
 	fstabPath := filepath.Join(fixer.offsys.root, "etc/fstab")
 
@@ -1499,6 +1532,8 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 		logger.Debugf("fixEfiFirmware: Ignored when bootmode is `%s`", fixer.offsys.bootMode)
 		return nil
 	}
+
+	fixer.infof(LogTplForOptimizeUEFIWith0Args)
 
 	// 已知规则：
 	// 若 EFI/BOOT/BOOT{ARCH}.EFI 缺失，则进行补充：
@@ -1706,6 +1741,8 @@ func (fixer *linuxSystemFixer) fixPamLogin() error {
 		return ErrorRootEnvNotMounted
 	}
 
+	fixer.infof(LogTplForRepairPAMWith0Args)
+
 	pamDir := filepath.Join(fixer.offsys.root, "etc", "pam.d")
 
 	entries, err := os.ReadDir(pamDir)
@@ -1825,6 +1862,8 @@ func (fixer *linuxSystemFixer) disableSeLinux() error {
 	logger.Debugf("disableSeLinux: ++")
 	defer logger.Debugf("disableSeLinux: --")
 
+	fixer.infof(LogTplForDisableSELinuxWith0Args)
+
 	// 1. 修改 /etc/selinux/config
 	configPath := filepath.Join(rootDir, "etc", "selinux", "config")
 
@@ -1940,6 +1979,8 @@ func (fixer *linuxSystemFixer) disableMultipathModule() error {
 func (fixer *linuxSystemFixer) fixGrub() error {
 	logger.Debugf("fixGrub: ++")
 	defer logger.Debugf("fixGrub: --")
+
+	fixer.infof(LogTplForRepairGrubWith0Args)
 
 	// 修复原则：
 	// s1. root/resume设备名使用UUID形式
@@ -2860,4 +2901,31 @@ func (fixer *linuxSystemFixer) batchInjectPackage(
 	default:
 		return errors.Errorf("unsupported package manager type: %s", fixer.offsys.pkgMgrType)
 	}
+}
+
+func (fixer *linuxSystemFixer) logf(level LogLevel, tpl LangTpl, v ...interface{}) {
+	le := LogEntry{
+		Level: level,
+		MsgEn: fmt.Sprintf(tpl.En, v...),
+		MsgZh: fmt.Sprintf(tpl.Zh, v...),
+	}
+
+	if fixer.opts.InRepairVM {
+		_ = WriteSerialMessageTypeRepairLog(fixer.reqPort, le)
+		return
+	}
+
+	le.Println()
+}
+
+func (fixer *linuxSystemFixer) infof(tpl LangTpl, v ...interface{}) {
+	fixer.logf(LogInfo, tpl, v...)
+}
+
+func (fixer *linuxSystemFixer) warnf(tpl LangTpl, v ...interface{}) {
+	fixer.logf(LogWarn, tpl, v...)
+}
+
+func (fixer *linuxSystemFixer) errorf(tpl LangTpl, v ...interface{}) {
+	fixer.logf(LogError, tpl, v...)
 }
