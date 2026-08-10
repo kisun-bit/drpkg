@@ -9,10 +9,10 @@ import (
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
 )
 
-const usage = `drcli - 驱动库管理工具
+const usage = `drx2xlib - 驱动库管理工具
 
 用法:
-  drcli <command> [options]
+  drx2xlib <command> [options]
 
 命令:
   list                 列举驱动资源
@@ -30,7 +30,7 @@ const usage = `drcli - 驱动库管理工具
 通用选项:
   --lib <dir>          驱动库目录 (必须)
 
-使用 drcli <command> --help 查看具体命令的选项。
+使用 drx2xlib <command> --help 查看具体命令的选项。
 `
 
 func main() {
@@ -205,10 +205,10 @@ func parseSignature(args map[string]string) (x2xlib.Signature, error) {
 // 命令: list
 // ============================================================
 
-const helpList = `drcli list - 列举驱动资源
+const helpList = `drx2xlib list - 列举驱动资源
 
 用法:
-  drcli list --lib <dir> [--id <driver_id>]
+  drx2xlib list --lib <dir> [--id <driver_id>]
 
 选项:
   --lib <dir>          驱动库目录 (必须)
@@ -250,10 +250,10 @@ func cmdList(args map[string]string) error {
 // 命令: delete
 // ============================================================
 
-const helpDelete = `drcli delete - 删除指定驱动
+const helpDelete = `drx2xlib delete - 删除指定驱动
 
 用法:
-  drcli delete --lib <dir> --id <driver_id>
+  drx2xlib delete --lib <dir> --id <driver_id>
 
 选项:
   --lib <dir>          驱动库目录 (必须)
@@ -282,10 +282,10 @@ func cmdDelete(args map[string]string) error {
 // 命令: match-win-virt
 // ============================================================
 
-const helpMatchWinVirt = `drcli match-win-virt - 匹配 Windows 最优虚拟化驱动
+const helpMatchWinVirt = `drx2xlib match-win-virt - 匹配 Windows 最优虚拟化驱动
 
 用法:
-  drcli match-win-virt --lib <dir> --virt <type> --arch <arch> --win-ver <version> [--ignore-sig]
+  drx2xlib match-win-virt --lib <dir> --virt <type> --arch <arch> --win-ver <version> [--ignore-sig]
 
 选项:
   --lib <dir>          驱动库目录 (必须)
@@ -323,10 +323,10 @@ func cmdMatchWinVirt(args map[string]string) error {
 // 命令: match-win-normal
 // ============================================================
 
-const helpMatchWinNormal = `drcli match-win-normal - 匹配 Windows 最优普通硬件驱动
+const helpMatchWinNormal = `drx2xlib match-win-normal - 匹配 Windows 最优普通硬件驱动
 
 用法:
-  drcli match-win-normal --lib <dir> --arch <arch> --win-ver <version> --unipci <unipci> [--ignore-sig]
+  drx2xlib match-win-normal --lib <dir> --arch <arch> --win-ver <version> --unipci <unipci> [--ignore-sig]
 
 选项:
   --lib <dir>          驱动库目录 (必须)
@@ -364,10 +364,10 @@ func cmdMatchWinNormal(args map[string]string) error {
 // 命令: match-linux-virt
 // ============================================================
 
-const helpMatchLinuxVirt = `drcli match-linux-virt - 匹配 Linux 最优虚拟化驱动
+const helpMatchLinuxVirt = `drx2xlib match-linux-virt - 匹配 Linux 最优虚拟化驱动
 
 用法:
-  drcli match-linux-virt --lib <dir> --virt <type> --arch <arch> --family <family> --kernel <kernel> [--vendor <vendor>]
+  drx2xlib match-linux-virt --lib <dir> --virt <type> --arch <arch> --family <family> --kernel <kernel> [--vendor <vendor>]
 
 选项:
   --lib <dir>          驱动库目录 (必须)
@@ -407,10 +407,10 @@ func cmdMatchLinuxVirt(args map[string]string) error {
 // 命令: match-linux-normal
 // ============================================================
 
-const helpMatchLinuxNormal = `drcli match-linux-normal - 匹配 Linux 最优普通硬件驱动
+const helpMatchLinuxNormal = `drx2xlib match-linux-normal - 匹配 Linux 最优普通硬件驱动
 
 用法:
-  drcli match-linux-normal --lib <dir> --arch <arch> --family <family> --kernel <kernel> --unipci <unipci>
+  drx2xlib match-linux-normal --lib <dir> --arch <arch> --family <family> --kernel <kernel> --unipci <unipci>
 
 选项:
   --lib <dir>          驱动库目录 (必须)
@@ -448,10 +448,10 @@ func cmdMatchLinuxNormal(args map[string]string) error {
 // 命令: add-win-virt
 // ============================================================
 
-const helpAddWinVirt = `drcli add-win-virt - 添加 Windows 虚拟化驱动
+const helpAddWinVirt = `drx2xlib add-win-virt - 添加 Windows 虚拟化驱动
 
 用法:
-  drcli add-win-virt --lib <dir> --name <name> --version <ver> --virt <type> --arch <arch> \
+  drx2xlib add-win-virt --lib <dir> --name <name> --version <ver> --virt <type> --arch <arch> \
       --source <dir> --vendor <vendor> --remark <remark> \
       --modules <m1,m2,...> --win-vers <v1,v2,...> \
       [--signer <s1,s2,...> --hash <h1,h2,...>]
@@ -525,10 +525,10 @@ func cmdAddWinVirt(args map[string]string) error {
 // 命令: add-win-normal
 // ============================================================
 
-const helpAddWinNormal = `drcli add-win-normal - 添加 Windows 普通硬件驱动
+const helpAddWinNormal = `drx2xlib add-win-normal - 添加 Windows 普通硬件驱动
 
 用法:
-  drcli add-win-normal --lib <dir> --name <name> --version <ver> --arch <arch> \
+  drx2xlib add-win-normal --lib <dir> --name <name> --version <ver> --arch <arch> \
       --source <dir> --vendor <vendor> --remark <remark> \
       --module <module> --win-vers <v1,v2,...> --hw-ids <id1,id2,...> \
       [--signer <s1,s2,...> --hash <h1,h2,...>]
@@ -603,10 +603,10 @@ func cmdAddWinNormal(args map[string]string) error {
 // 命令: add-linux-virt
 // ============================================================
 
-const helpAddLinuxVirt = `drcli add-linux-virt - 添加 Linux 虚拟化驱动
+const helpAddLinuxVirt = `drx2xlib add-linux-virt - 添加 Linux 虚拟化驱动
 
 用法:
-  drcli add-linux-virt --lib <dir> --name <name> --version <ver> --virt <type> --arch <arch> \
+  drx2xlib add-linux-virt --lib <dir> --name <name> --version <ver> --virt <type> --arch <arch> \
       --source <dir> --vendor <vendor> --remark <remark> --family <family> \
       --modules <m1,m2,...> --kernels <k1,k2,...> \
       [--signer <s> --hash <h>]
@@ -678,10 +678,10 @@ func cmdAddLinuxVirt(args map[string]string) error {
 // 命令: add-linux-normal
 // ============================================================
 
-const helpAddLinuxNormal = `drcli add-linux-normal - 添加 Linux 普通硬件驱动
+const helpAddLinuxNormal = `drx2xlib add-linux-normal - 添加 Linux 普通硬件驱动
 
 用法:
-  drcli add-linux-normal --lib <dir> --name <name> --version <ver> --arch <arch> \
+  drx2xlib add-linux-normal --lib <dir> --name <name> --version <ver> --arch <arch> \
       --source <dir> --vendor <vendor> --remark <remark> --family <family> \
       --modules <m1,m2,...> --kernels <k1,k2,...> --aliases <a1,a2,...> \
       [--signer <s> --hash <h>]
