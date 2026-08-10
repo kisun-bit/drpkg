@@ -46,56 +46,60 @@ func (*Driver) TableName() string {
 }
 
 func (d *Driver) Pretty(db *gorm.DB) string {
-	// ① 核心标识：Name Version（永远在最左，最先被看到）
-	core := strings.TrimSpace(d.Name + " " + d.Version)
-	if core == "" {
-		return "<unknown>"
+	// ① 驱动标识符: name-version-arch(compat)
+	name := strings.TrimSpace(d.Name)
+	version := strings.TrimSpace(d.Version)
+	arch := strings.TrimSpace(d.Arch)
+
+	var ident string
+	switch {
+	case name != "" && version != "":
+		ident = fmt.Sprintf("%s-%s", name, version)
+	case name != "":
+		ident = name
+	default:
+		ident = "<unknown>"
+	}
+	if arch != "" {
+		ident += "-" + arch
 	}
 
-	// ② 兼容信息提前到第二位（这是运维最关心的）
-	var compat string
+	// 兼容版本嵌入标识符括号内
 	if db != nil {
+		var compat string
 		switch d.OS {
 		case "windows":
 			var vers []string
 			db.Select("windows_version").Where("driver_id = ?", d.ID).
 				Model(&NTCompat{}).Pluck("windows_version", &vers)
 			if len(vers) > 0 {
-				compat = "NT:" + strings.Join(vers, ",")
+				compat = strings.Join(vers, ",")
 			}
 		case "linux":
 			var kernels []string
 			db.Select("kernel").Where("driver_id = ?", d.ID).
 				Model(&KernelCompat{}).Pluck("kernel", &kernels)
 			if len(kernels) > 0 {
-				compat = "K:" + strings.Join(kernels, ",")
+				compat = strings.Join(kernels, ",")
 			}
+		}
+		if compat != "" {
+			ident += fmt.Sprintf("(%s)", compat)
 		}
 	}
 
-	// ③ 元数据标签：Family · Arch · Vendor（统一为小写tag风格）
-	var meta []string
+	// ② Family + Vendor 作为后缀标签
+	var suffix []string
 	if d.Family != "" {
-		meta = append(meta, strings.ToLower(d.Family))
-	}
-	if d.Arch != "" {
-		meta = append(meta, d.Arch)
+		suffix = append(suffix, strings.ToLower(d.Family))
 	}
 	if d.Vendor != "" {
-		meta = append(meta, d.Vendor) // 不截断！让终端/UI层自己处理溢出
+		suffix = append(suffix, fmt.Sprintf("(%s)", d.Vendor))
 	}
 
-	// ④ 组装：core [compat] meta...
-	var parts []string
-	parts = append(parts, core)
-	if compat != "" {
-		parts = append(parts, "["+compat+"]")
-	}
-	if len(meta) > 0 {
-		parts = append(parts, strings.Join(meta, " · "))
-	}
-
-	return strings.Join(parts, "  ")
+	parts := []string{ident}
+	parts = append(parts, suffix...)
+	return strings.Join(parts, " ")
 }
 
 func (d *Driver) Directory(baseDir string) string {
