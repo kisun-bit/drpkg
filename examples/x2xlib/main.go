@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/davecgh/go-spew/spew"
 	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xlib"
@@ -15,7 +16,10 @@ func main() {
 
 	_ = x
 
-	addVirtioForWin7(x)
+	dl, _ := x.ListDriver("")
+	spew.Dump(dl)
+
+	//addVirtioForWin7(x)
 	//addVirtioForWin8(x)
 	//addVirtioForWin81(x)
 	//addVirtioForWin10(x)
@@ -26,7 +30,6 @@ func main() {
 	//addVirtioForWin2k16(x)
 	//addVirtioForWin2k19(x)
 	//addVirtioForWin2k22(x)
-
 }
 
 func test(x *x2xlib.X2XLib) {

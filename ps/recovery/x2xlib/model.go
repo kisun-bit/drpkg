@@ -45,12 +45,57 @@ func (*Driver) TableName() string {
 	return "driver"
 }
 
-func (d *Driver) Pretty() string {
-	str := fmt.Sprintf("%s %s %s %s %s", d.Name, d.Version, d.Family, d.Arch, d.ID)
-	if d.Vendor != "" {
-		str += fmt.Sprintf(" (%s)", d.Vendor)
+func (d *Driver) Pretty(db *gorm.DB) string {
+	// ① 核心标识：Name Version（永远在最左，最先被看到）
+	core := strings.TrimSpace(d.Name + " " + d.Version)
+	if core == "" {
+		return "<unknown>"
 	}
-	return str
+
+	// ② 兼容信息提前到第二位（这是运维最关心的）
+	var compat string
+	if db != nil {
+		switch d.OS {
+		case "windows":
+			var vers []string
+			db.Select("windows_version").Where("driver_id = ?", d.ID).
+				Model(&NTCompat{}).Pluck("windows_version", &vers)
+			if len(vers) > 0 {
+				compat = "NT:" + strings.Join(vers, ",")
+			}
+		case "linux":
+			var kernels []string
+			db.Select("kernel").Where("driver_id = ?", d.ID).
+				Model(&KernelCompat{}).Pluck("kernel", &kernels)
+			if len(kernels) > 0 {
+				compat = "K:" + strings.Join(kernels, ",")
+			}
+		}
+	}
+
+	// ③ 元数据标签：Family · Arch · Vendor（统一为小写tag风格）
+	var meta []string
+	if d.Family != "" {
+		meta = append(meta, strings.ToLower(d.Family))
+	}
+	if d.Arch != "" {
+		meta = append(meta, d.Arch)
+	}
+	if d.Vendor != "" {
+		meta = append(meta, d.Vendor) // 不截断！让终端/UI层自己处理溢出
+	}
+
+	// ④ 组装：core [compat] meta...
+	var parts []string
+	parts = append(parts, core)
+	if compat != "" {
+		parts = append(parts, "["+compat+"]")
+	}
+	if len(meta) > 0 {
+		parts = append(parts, strings.Join(meta, " · "))
+	}
+
+	return strings.Join(parts, "  ")
 }
 
 func (d *Driver) Directory(baseDir string) string {

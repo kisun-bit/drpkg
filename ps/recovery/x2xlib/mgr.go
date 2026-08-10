@@ -592,6 +592,36 @@ func (x *X2XLib) SelectLinuxBestVirtualDriver(
 	return x.driverResult(driver)
 }
 
+// ListDriver 列出驱动资源。
+// 如果 driverID 为空，则返回所有驱动；否则仅返回指定 ID 的驱动。
+func (x *X2XLib) ListDriver(driverID string) (drivers []DriverResource, err error) {
+	var dbDrivers []Driver
+
+	query := x.db.Table("driver")
+	if driverID != "" {
+		query = query.Where("id = ?", driverID)
+	}
+
+	if err = query.Order("hw_type DESC").Find(&dbDrivers).Error; err != nil {
+		return nil, err
+	}
+
+	if len(dbDrivers) == 0 && driverID != "" {
+		return nil, errors.Wrap(os.ErrNotExist, "driver not found")
+	}
+
+	drivers = make([]DriverResource, 0, len(dbDrivers))
+	for i := range dbDrivers {
+		res, err := x.driverResult(&dbDrivers[i])
+		if err != nil {
+			return nil, err
+		}
+		drivers = append(drivers, *res)
+	}
+
+	return drivers, nil
+}
+
 // DeleteDriver 删除指定的驱动
 func (x *X2XLib) DeleteDriver(
 	driverID string,
@@ -794,7 +824,7 @@ func (x *X2XLib) driverResult(
 
 	dr := new(DriverResource)
 	dr.Id = d.ID
-	dr.FriendlyName = d.Name
+	dr.FriendlyName = d.Pretty(x.db)
 	dr.Modules = d.ModuleList()
 	dr.Dir = d.Directory(x.driverStoreDir)
 
