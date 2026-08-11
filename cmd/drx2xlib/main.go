@@ -461,9 +461,6 @@ const helpAddWinVirt = `drx2xlib add-win-virt - 添加 Windows 虚拟化驱动
   signer 可选值: sign-private, sign-vendor, sign-distro, sign-microsoft, sign-whql
   hash   可选值: sha1, sha224, sha256, sha384, sha512, unknown
 
-示例:
-  --signer vendor,microsoft --hash sha1,sha256
-
 其他选项:
   --lib <dir>              驱动库目录 (必须)
   --name <name>            驱动名称 (必须)
@@ -537,9 +534,6 @@ const helpAddWinNormal = `drx2xlib add-win-normal - 添加 Windows 普通硬件�
   --signer 和 --hash 按位置一一对应，数量必须相同。
   signer 可选值: sign-private, sign-vendor, sign-distro, sign-microsoft, sign-whql
   hash   可选值: sha1, sha224, sha256, sha384, sha512, unknown
-
-示例:
-  --signer vendor --hash sha1
 
 其他选项:
   --lib <dir>              驱动库目录 (必须)
@@ -616,9 +610,6 @@ const helpAddLinuxVirt = `drx2xlib add-linux-virt - 添加 Linux 虚拟化驱动
   signer 可选值: sign-private, sign-vendor, sign-distro, sign-microsoft, sign-whql
   hash   可选值: sha1, sha224, sha256, sha384, sha512, unknown
 
-示例:
-  --signer distro --hash unknown
-
 其他选项:
   --lib <dir>              驱动库目录 (必须)
   --name <name>            驱动名称 (必须)
@@ -690,9 +681,6 @@ const helpAddLinuxNormal = `drx2xlib add-linux-normal - 添加 Linux 普通硬�
   --signer 和 --hash 必须同时提供或同时省略。
   signer 可选值: sign-private, sign-vendor, sign-distro, sign-microsoft, sign-whql
   hash   可选值: sha1, sha224, sha256, sha384, sha512, unknown
-
-示例:
-  --signer distro --hash unknown
 
 其他选项:
   --lib <dir>              驱动库目录 (必须)
