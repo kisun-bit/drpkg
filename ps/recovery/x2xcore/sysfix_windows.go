@@ -977,11 +977,12 @@ func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) 
 	)
 
 	injectCmd := fmt.Sprintf(
-		`%s /Image:%s:\ /Add-Driver /Driver:%s /Recurse /ForceUnsigned`,
+		`%s /Image:%s:\ /Add-Driver /Driver:%s /Recurse`,
 		fixer.getDismProgram(),
 		fixer.offsys.sysVolumeLtr,
 		ds.Dir,
 	)
+	// injectCmd += " /ForceUnsigned"
 
 	_, output, err = command.Execute(injectCmd, command.WithDebug())
 	if err != nil {
@@ -1360,12 +1361,7 @@ func (fixer *windowsSystemFixer) injectNetworkConfig() error {
 }
 
 func (fixer *windowsSystemFixer) getDismProgram() string {
-	switch fixer.opts.RecoveryParam.Source.Arch {
-	//case "386":
-	//	return "dism_386.exe"
-	default:
-		return "dism.exe"
-	}
+	return "dism.exe"
 }
 
 func (fixer *windowsSystemFixer) logf(level LogLevel, tpl LangTpl, v ...interface{}) {
