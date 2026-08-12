@@ -168,7 +168,7 @@ func InitDB(dbFile string, readonly bool) (*gorm.DB, error) {
 
 	dsn := fmt.Sprintf("file:%s?%s", dbFile, strings.Join(dsnCfgs, "&"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(logger.Error),
 	})
 	if err != nil {
 		return nil, err
