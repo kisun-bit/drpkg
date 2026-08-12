@@ -303,6 +303,10 @@ func (fixer *linuxSystemFixer) Repair() error {
 		}
 	}
 
+	if extend.IsContextDone(fixer.ctx) {
+		return errors.Errorf("timeout (%ds)", fixer.opts.RecoveryParam.TimeoutSeconds)
+	}
+
 	return nil
 }
 
