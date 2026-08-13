@@ -949,3 +949,121 @@ func MsGuidFromBytes(arr []uint8) (g windows.GUID, err error) {
 	copy(g.Data4[:], arr[8:])
 	return g, nil
 }
+
+// DISK_EXTENT
+type diskExtent struct {
+	DiskNumber     uint32
+	_              uint32
+	StartingOffset int64
+	ExtentLength   int64
+}
+
+// VOLUME_DISK_EXTENTS
+type volumeDiskExtents struct {
+	NumberOfDiskExtents uint32
+	_                   uint32
+	Extents             [1]diskExtent
+}
+
+// 根据分区取第一个物理磁盘号
+func GetDiskNum(vol string) (uint32, error) {
+	root, _ := NormalizeDrive(vol, 0)
+	if root == "" {
+		return 0, fmt.Errorf("invalid volume: %q", vol)
+	}
+	// \\.\C:
+	volPath := `\\.\` + strings.TrimRight(root, `\`)
+	pVol, err := syscall.UTF16PtrFromString(volPath)
+	if err != nil {
+		return 0, err
+	}
+
+	hVol, err := syscall.CreateFile(
+		pVol,
+		0, // 只读
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
+		nil,
+		syscall.OPEN_EXISTING,
+		0,
+		0,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("CreateFile volume %s failed: %w", volPath, err)
+	}
+	defer syscall.CloseHandle(hVol)
+
+	out := make([]byte, 1024)
+	var bytesRet uint32
+	err = syscall.DeviceIoControl(
+		hVol,
+		0x00560000, // IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS
+		nil,
+		0,
+		&out[0],
+		uint32(len(out)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("DeviceIoControl IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS failed: %w", err)
+	}
+	if bytesRet < uint32(unsafe.Sizeof(volumeDiskExtents{})) {
+		return 0, fmt.Errorf("VOLUME_DISK_EXTENTS too small: %d", bytesRet)
+	}
+
+	vde := (*volumeDiskExtents)(unsafe.Pointer(&out[0]))
+	if vde.NumberOfDiskExtents == 0 {
+		return 0, fmt.Errorf("no disk extents for volume %s", volPath)
+	}
+	//第一个Extent的DiskNumber
+	//有个坑，32位偏移量是4开始，64是8开始
+	//直接用 Extents[0].DiskNumber，兼容32/64
+	diskNum := vde.Extents[0].DiskNumber
+	return diskNum, nil
+}
+
+// WindowsDir 返回 Windows 根目录（优先 SystemRoot，其次 WINDIR）。
+func WindowsDir() string {
+	if d := os.Getenv("SystemRoot"); d != "" {
+		return d
+	}
+	return os.Getenv("WINDIR")
+}
+
+// 判断当前是否为 32 位进程运行在 64 位 Windows 上。
+func IsWOW64() bool {
+	if runtime.GOARCH != "386" {
+		return false
+	}
+	// API
+	var wow64 bool
+	if err := windows.IsWow64Process(windows.CurrentProcess(), &wow64); err == nil {
+		return wow64
+	}
+	return os.Getenv("PROCESSOR_ARCHITEW6432") != ""
+}
+
+// 返回系统命令路径：优先 Sysnative(在 WOW64 下)，其次 System32，最后回退到 exeName（走 PATH）。
+func GetSystemExe(exeName string) string {
+	windir := WindowsDir()
+	if windir == "" {
+		return exeName
+	}
+
+	sysDir := "System32"
+	if IsWOW64() {
+		sysDir = "Sysnative"
+	}
+
+	preferred := filepath.Join(windir, sysDir, exeName)
+	if IsExisted(preferred) {
+		return preferred
+	}
+
+	alt := filepath.Join(windir, "System32", exeName)
+	if IsExisted(alt) {
+		return alt
+	}
+
+	return exeName
+}

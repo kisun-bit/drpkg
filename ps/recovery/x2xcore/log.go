@@ -264,4 +264,14 @@ var (
 		Zh: "检测到不兼容的非启动设备：%s（%s）",
 		En: "Detected incompatible non-boot device: %s (%s)",
 	}
+
+	LogTplForUnlockBitlockerWith1Args = LangTpl{
+		Zh: "正在解锁卷 %s 的 BitLocker",
+		En: "Unlocking BitLocker on volume %s",
+	}
+
+	LogTplForUnlockBitlockerFailedWith2Args = LangTpl{
+		Zh: "卷 %s 的 BitLocker 解锁失败：%v",
+		En: "Failed to unlock BitLocker on volume %s: %v",
+	}
 )

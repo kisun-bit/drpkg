@@ -52,7 +52,7 @@ func main() {
 				SkipDriverRepairIfPlatformUnchanged: false,
 				SourceDeviceMap:                     nil,
 				LuksGlobalPassword:                  "",
-				BitlockerGlobalPassword:             "",
+				BitlockerGlobalRecoveryKey:          "658394-314743-465025-566445-624525-500731-463716-439813",
 				Network:                             x2xcore.NetworkConfig{},
 				RaidNotExisted:                      false,
 				MultipathNotExisted:                 true,

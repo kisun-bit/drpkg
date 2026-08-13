@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/define"
@@ -316,14 +315,11 @@ func (fixer *windowsSystemFixer) detectSysVolume() error {
 		}
 		vp := v + ":\\"
 
-		_, err := os.ReadDir(vp)
-		if err != nil {
-			logger.Error(err)
-
-			var errno syscall.Errno
-			if errors.As(err, &errno) {
-				logger.Error("####################", errno)
-				logger.Error("errno =", uint32(errno))
+		if IsLockedByBitlocker(v) {
+			fixer.infof(LogTplForUnlockBitlockerWith1Args, v)
+			if eu := UnlockBitlockerWithRecoveryKey(v, fixer.opts.RecoveryParam.BitlockerGlobalRecoveryKey); eu != nil {
+				fixer.errorf(LogTplForUnlockBitlockerFailedWith2Args, v, eu)
+				continue
 			}
 		}
 

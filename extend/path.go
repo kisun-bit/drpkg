@@ -650,3 +650,90 @@ func IsUsrDir(dir string) bool {
 		return false
 	}
 }
+
+// NormalizeDrive 统一盘符/路径格式。
+// mode 说明：
+//
+//	0: 盘符根(C:\)，支持输入 C / C: / C:\ / C:\path
+//	1: 盘符字母(C)，支持输入 C / C: / C:\ / C:\path
+//	2: 从完整路径提取盘符根(C:\)，必须是 C:\path
+//	3: 盘符带冒号(C:)，支持输入 C / C: / C:\ / C:\path / \\.\C: / \\?\C:
+//	   若输入包含 Volume{GUID}（如 \\?\Volume{...}\），则原样返回
+func NormalizeDrive(input string, mode int) (string, error) {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return "", fmt.Errorf("empty drive")
+	}
+	s = strings.ReplaceAll(s, "/", `\`)
+
+	extractLetter := func(val string) (string, error) {
+		val = strings.TrimSpace(val)
+		if val == "" {
+			return "", fmt.Errorf("empty drive letter")
+		}
+		val = strings.ToUpper(val)
+		switch {
+		case len(val) >= 2 && val[1] == ':':
+			val = val[:1]
+		case len(val) >= 3 && val[1] == ':' && (val[2] == '\\' || val[2] == '/'):
+			val = val[:1]
+		case len(val) == 1:
+		default:
+			return "", fmt.Errorf("invalid drive letter: %q", input)
+		}
+		if val[0] < 'A' || val[0] > 'Z' {
+			return "", fmt.Errorf("invalid drive letter: %q", input)
+		}
+		return val, nil
+	}
+
+	switch mode {
+	case 0:
+		letter, err := extractLetter(s)
+		if err == nil {
+			return letter + `:\`, nil
+		}
+		if len(s) >= 3 && s[1] == ':' {
+			return strings.ToUpper(s[:1]) + `:\`, nil
+		}
+		return "", err
+
+	case 1:
+		return extractLetter(s)
+
+	case 2:
+		if len(s) >= 3 && s[1] == ':' && (s[2] == '\\' || s[2] == '/') {
+			return strings.ToUpper(s[:1]) + `:\`, nil
+		}
+		return "", fmt.Errorf("invalid path for drive root: %q", input)
+
+	case 3:
+		// Volume{GUID} 形式直接透传
+		if strings.Contains(strings.ToLower(s), "volume{") {
+			return s, nil
+		}
+
+		// 支持 \\.\C: 或 \\?\C: 形式
+		ss := s
+		if strings.HasPrefix(ss, `\\.\`) || strings.HasPrefix(ss, `\\?\`) {
+			if len(ss) > 4 {
+				ss = ss[4:]
+			}
+		}
+
+		letter, err := extractLetter(ss)
+		if err == nil {
+			return letter + `:`, nil
+		}
+
+		// 如果像 "C:\xxx" / "C:" 这种还能识别到冒号，直接取前两位
+		if len(ss) >= 2 && ss[1] == ':' && ((ss[0] >= 'a' && ss[0] <= 'z') || (ss[0] >= 'A' && ss[0] <= 'Z')) {
+			return strings.ToUpper(ss[:2]), nil
+		}
+
+		return "", err
+
+	default:
+		return "", fmt.Errorf("invalid normalize mode: %d", mode)
+	}
+}

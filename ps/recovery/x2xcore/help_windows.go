@@ -517,3 +517,23 @@ func value(line string) string {
 	}
 	return ""
 }
+
+func UnlockBitlockerWithRecoveryKey(driveLetter string, recoveryKey string) error {
+	cmdline := fmt.Sprintf("manage-bde.exe -Unlock %s -RecoveryPassword %s", driveLetter+":", recoveryKey)
+	_, _, e := command.Execute(cmdline)
+	if e == nil {
+		return nil
+	}
+	return e
+}
+
+func IsLockedByBitlocker(driveLetter string) bool {
+	cmdline := fmt.Sprintf("manage-bde.exe -Status %s", driveLetter+":")
+	_, o, e := command.Execute(cmdline)
+	if e == nil {
+		o = strings.ToLower(strings.TrimSpace(o))
+		return strings.Contains(o, "locked") &&
+			!strings.Contains(o, "unlocked")
+	}
+	return false
+}

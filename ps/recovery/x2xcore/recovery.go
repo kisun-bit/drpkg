@@ -184,10 +184,11 @@ type RecoveryParameter struct {
 	// LuksGlobalPassword 源系统加密卷的全局密钥（LUKS）
 	LuksGlobalPassword string `json:"luksGlobalPassword"`
 
-	// BitlockerGlobalPassword 源系统 BitLocker 加密卷的解锁密码
+	// BitlockerGlobalRecoveryKey 源系统 BitLocker 加密卷的解锁密钥
+	// 密码长度为55位，例如：658394-314743-465025-566445-624525-500731-463716-439813)
 	// 用于在修复阶段解锁源系统中的 BitLocker 加密卷。
 	// 注意：如果源系统使用智能卡等非密码方式解锁 BitLocker，则不支持在此阶段自动解锁。
-	BitlockerGlobalPassword string `json:"bitlockerGlobalPassword"`
+	BitlockerGlobalRecoveryKey string `json:"bitlockerGlobalRecoveryKey"`
 
 	//
 	// 目标系统配置
