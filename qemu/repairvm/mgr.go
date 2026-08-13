@@ -37,6 +37,10 @@ func Create(ctx context.Context, opt *Option) (*Vm, error) {
 		uuid_: uuid.New(),
 	}
 
+	if opt.RecoveryParams.TimeoutSeconds > 0 {
+		vm.ctx, vm.cancel = context.WithTimeout(ctx, time.Duration(opt.RecoveryParams.TimeoutSeconds)*time.Second)
+	}
+
 	vm.cacheDir = filepath.Join(
 		os.TempDir(),
 		vm.uuid_.String(),
@@ -365,7 +369,7 @@ func (vm *Vm) addCDROM() {
 }
 
 func (vm *Vm) Repair() (err error) {
-	vm.cmd = exec.Command(vm.cmdCaller, vm.cmdArgs...)
+	vm.cmd = exec.CommandContext(vm.ctx, vm.cmdCaller, vm.cmdArgs...)
 	vm.cmd.Stdin = os.Stdin
 	vm.cmd.Stdout = os.Stdout
 	vm.cmd.Stderr = os.Stderr
@@ -449,6 +453,12 @@ func (vm *Vm) Repair() (err error) {
 }
 
 func (vm *Vm) Release() error {
+
+	defer func() {
+		if !extend.IsNilType(vm.cancel) {
+			vm.cancel()
+		}
+	}()
 
 	if vm == nil {
 		return nil

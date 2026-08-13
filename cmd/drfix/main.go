@@ -67,7 +67,7 @@ func main() {
 	switch runtime.GOOS {
 	case "windows":
 		cfg.Option = map[string]interface{}{
-			"OnFailure": "restart",
+			"OnFailure": "noaction",
 		}
 
 	case "linux":

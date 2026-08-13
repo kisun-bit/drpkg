@@ -26,7 +26,6 @@ import (
 
 type linuxSystemFixer struct {
 	ctx          context.Context
-	cancel       context.CancelFunc
 	opts         *FixerCreateOptions // 恢复参数
 	logs         <-chan LogEntry     // 日志缓存通道
 	x2xLib       *x2xlib.X2XLib      // 驱动库
@@ -110,9 +109,6 @@ func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io
 		return nil, err
 	}
 	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
-	if opts.RecoveryParam.TimeoutSeconds > 0 {
-		lf.ctx, lf.cancel = context.WithTimeout(ctx, time.Duration(opts.RecoveryParam.TimeoutSeconds)*time.Second)
-	}
 	if opts.InRepairVM {
 		if serialReqPort == nil {
 			return nil, errors.New("serialReqPort is required")
@@ -303,10 +299,6 @@ func (fixer *linuxSystemFixer) Repair() error {
 		}
 	}
 
-	if extend.IsContextDone(fixer.ctx) {
-		return errors.Errorf("timeout (%ds)", fixer.opts.RecoveryParam.TimeoutSeconds)
-	}
-
 	return nil
 }
 
@@ -325,10 +317,6 @@ func (fixer *linuxSystemFixer) CustomProcess(fn func() error) error {
 func (fixer *linuxSystemFixer) Cleanup() error {
 	logger.Debugf("Cleanup: ++")
 	defer logger.Debugf("Cleanup: --")
-
-	if !extend.IsNilType(fixer.cancel) {
-		fixer.cancel()
-	}
 
 	fixer.syncFs()
 

@@ -60,7 +60,8 @@ type Option struct {
 }
 
 type Vm struct {
-	ctx context.Context
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	opt *Option
 

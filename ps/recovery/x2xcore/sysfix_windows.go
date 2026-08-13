@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
+	"syscall"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/define"
@@ -32,7 +32,6 @@ const (
 
 type windowsSystemFixer struct {
 	ctx     context.Context
-	cancel  context.CancelFunc
 	opts    *FixerCreateOptions // 恢复参数
 	logs    <-chan LogEntry     // 日志缓存通道
 	x2xLib  *x2xlib.X2XLib      // 驱动库
@@ -62,9 +61,6 @@ func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io
 	logger.Debugf("NewSysFixer: opts(repaired):\n%s", extend.Pretty(opts))
 	lf := &windowsSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
 
-	if opts.RecoveryParam.TimeoutSeconds > 0 {
-		lf.ctx, lf.cancel = context.WithTimeout(ctx, time.Duration(opts.RecoveryParam.TimeoutSeconds)*time.Second)
-	}
 	if opts.InRepairVM {
 		if serialReqPort == nil {
 			return nil, errors.New("serialReqPort is required")
@@ -157,10 +153,6 @@ func (fixer *windowsSystemFixer) Repair() (err error) {
 	// 4. 虚拟化平台驱动适配
 	if err = fixer.adaptVirtPlatform(); err != nil {
 		return err
-	}
-
-	if extend.IsContextDone(fixer.ctx) {
-		return errors.Errorf("timeout (%ds)", fixer.opts.RecoveryParam.TimeoutSeconds)
 	}
 
 	return nil
@@ -259,10 +251,6 @@ func (fixer *windowsSystemFixer) Cleanup() error {
 	logger.Debugf("Cleanup: ++")
 	defer logger.Debugf("Cleanup: --")
 
-	if !extend.IsNilType(fixer.cancel) {
-		fixer.cancel()
-	}
-
 	fixer.infof(LogTplForUnloadRegistryWith0Args)
 	if err := fixer.unloadSystemRegistry(); err != nil {
 		return errors.Wrap(err, "cleanup")
@@ -327,6 +315,18 @@ func (fixer *windowsSystemFixer) detectSysVolume() error {
 			continue
 		}
 		vp := v + ":\\"
+
+		_, err := os.ReadDir(vp)
+		if err != nil {
+			logger.Error(err)
+
+			var errno syscall.Errno
+			if errors.As(err, &errno) {
+				logger.Error("####################", errno)
+				logger.Error("errno =", uint32(errno))
+			}
+		}
+
 		if !extend.IsRootDir(vp) {
 			continue
 		}
