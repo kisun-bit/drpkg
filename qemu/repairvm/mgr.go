@@ -266,13 +266,13 @@ func (vm *Vm) addStorage() {
 	}
 
 	// ========== Offline Disks: virtio-scsi ==========
-	if len(vm.opt.OfflineSystemDisks) > 0 {
+	if len(vm.opt.RecoveryParams.OfflineSystemDisks) > 0 {
 		// Only add SCSI controller when there are SCSI disks
 		vm.cmdArgs = append(vm.cmdArgs,
 			"-device", "virtio-scsi-pci,id=scsi0",
 		)
 
-		for i, d := range vm.opt.OfflineSystemDisks {
+		for i, d := range vm.opt.RecoveryParams.OfflineSystemDisks {
 			format := "raw"
 			if ok, _ := isQCOW2(d.Path); ok {
 				format = "qcow2"

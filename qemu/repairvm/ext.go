@@ -37,36 +37,6 @@ func (o *Option) Validate() error {
 	//	return errors.New("boot file format is not qcow2")
 	//}
 
-	if len(o.OfflineSystemDisks) == 0 {
-		return errors.Errorf(
-			"offline system disks is empty",
-		)
-	}
-
-	seenIndex := make(map[int]struct{})
-
-	for i, disk := range o.OfflineSystemDisks {
-
-		if err := validateDisk(
-			disk,
-		); err != nil {
-			return errors.Errorf(
-				"offline system disk[%d]: %v",
-				i,
-				err,
-			)
-		}
-
-		if _, ok := seenIndex[disk.Index]; ok {
-			return errors.Errorf(
-				"duplicate disk index: %d",
-				disk.Index,
-			)
-		}
-
-		seenIndex[disk.Index] = struct{}{}
-	}
-
 	if err := x2xcore.CheckAndFillRecoveryParameter(&o.RecoveryParams); err != nil {
 		return err
 	}
@@ -79,62 +49,6 @@ func (o *Option) Validate() error {
 		); err != nil {
 			return err
 		}
-	}
-
-	return nil
-}
-
-func validateDisk(
-	d Disk,
-) error {
-
-	if d.Index < 0 {
-		return errors.Errorf(
-			"invalid index: %d",
-			d.Index,
-		)
-	}
-
-	if d.Path == "" {
-		return errors.Errorf(
-			"path is empty",
-		)
-	}
-
-	if err := validatePath(
-		d.Path,
-		"disk",
-	); err != nil {
-		return err
-	}
-
-	if d.Size < 0 {
-		return errors.Errorf(
-			"invalid size: %d",
-			d.Size,
-		)
-	}
-
-	if d.LBA < 0 {
-		return errors.Errorf(
-			"invalid LBA: %d",
-			d.LBA,
-		)
-	}
-
-	if d.PBA < 0 {
-		return errors.Errorf(
-			"invalid PBA: %d",
-			d.PBA,
-		)
-	}
-
-	if d.LBA >= d.Size/512 {
-		return errors.Errorf("invalid LBA: %d", d.LBA)
-	}
-
-	if d.PBA >= d.Size/512 {
-		return errors.Errorf("invalid PBA: %d", d.LBA)
 	}
 
 	return nil
