@@ -18,8 +18,9 @@ type Disk struct {
 }
 
 type RecoveryParameter struct {
-	// OfflineSystemDisks 离线系统磁盘列表。
-	// 用于描述待修复系统所在的磁盘，支持系统盘、数据盘等多个磁盘。
+	// OfflineSystemDisks 离线系统所在的磁盘列表。
+	// 支持 qcow2 等虚拟磁盘镜像文件及宿主机本地块设备。
+	// 修复过程中，这些磁盘将作为离线系统磁盘挂载至修复虚拟机，供修复程序访问和修改。
 	OfflineSystemDisks []Disk `json:"offlineSystemDisks"`
 
 	// Source 源主机的硬件平台配置。

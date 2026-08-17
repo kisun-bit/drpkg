@@ -98,7 +98,9 @@ func main() {
 					},
 				},
 			},
-		})
+			InRepairVM: false,
+		},
+		nil)
 
 	if err != nil {
 		logger.Fatalf("NewSysFixer: %v\n", err)

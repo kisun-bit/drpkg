@@ -31,13 +31,14 @@ type SysFixer interface {
 }
 
 type FixerCreateOptions struct {
-	// OfflineSysDisks 离线系统磁盘集合
+	// OfflineSysDisks 离线系统磁盘设备列表。
+	// 表示离线系统磁盘在修复虚拟机内部对应的设备路径，例如 /dev/sdb、/dev/sdc 等。
 	OfflineSysDisks []string `json:"offlineSysDisks"`
 
 	// RecoveryParam 恢复参数
 	RecoveryParam RecoveryParameter `json:"recoveryParam"`
 
-	// InRepairVM 标识当前是否运行在修复虚拟机环境中
+	// InRepairVM 标识当前程序是否运行在 QEMU 动态启动的修复虚拟机中。
 	InRepairVM bool `json:"inRepairVM"`
 }
 
