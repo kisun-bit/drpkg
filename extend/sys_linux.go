@@ -1266,7 +1266,7 @@ func LVToDMDevice(lv string) (string, error) {
 
 	if err != nil {
 		return "", fmt.Errorf(
-			"resolve %s failed: %w",
+			"resolve %s failed: %v",
 			path,
 			err,
 		)

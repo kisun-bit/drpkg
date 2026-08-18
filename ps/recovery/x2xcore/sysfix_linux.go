@@ -132,28 +132,28 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	fixer.infof(LogTplForOfflineSystemReadyWith0Args)
 
 	if err := fixer.closeAllLuksDevices(); err != nil {
-		return errors.Wrap(err, "close crypto_LUKS")
+		return errors.Wrap(err, "failed to close encrypted devices")
 	}
 
 	if err := fixer.deactiveLvm(); err != nil {
-		return errors.Wrap(err, "deactivate lvm")
+		return errors.Wrap(err, "failed to deactivate logical volumes")
 	}
 
 	fixer.infof(LogTplForResetWith0Args)
 
 	if err := fixer.activeLvm(); err != nil {
-		return errors.Wrap(err, "active lvm")
+		return errors.Wrap(err, "failed to activate logical volumes")
 	}
 
 	if err := fixer.openCryptoLUKS(); err != nil {
-		return errors.Wrap(err, "open crypto_LUKS")
+		return errors.Wrap(err, "failed to unlock encrypted devices")
 	}
 
 	fixer.infof(LogTplForEnumFsWith0Args)
 
-	fsDevs, e := enumFilesystem(fixer.opts.OfflineSysDisks, fixer.offsys.luksDeviceList)
-	if e != nil {
-		return errors.Wrap(e, "enum filesystem")
+	fsDevs, err := enumFilesystem(fixer.opts.OfflineSysDisks, fixer.offsys.luksDeviceList)
+	if err != nil {
+		return errors.Wrap(err, "failed to detect filesystems")
 	}
 
 	fixer.offsys.fsList = append(fixer.offsys.fsList, fsDevs...)
@@ -161,47 +161,47 @@ func (fixer *linuxSystemFixer) Prepare() error {
 		extend.Pretty(fixer.offsys.fsList))
 
 	if err := fixer.detectLastMount(); err != nil {
-		return errors.Wrap(err, "detect last mount")
+		return errors.Wrap(err, "failed to detect previous mount information")
 	}
 
 	if err := fixer.cleanDattoSnapshot(); err != nil {
-		return errors.Wrap(err, "cleaning datto snapshot")
+		return errors.Wrap(err, "failed to clean temporary snapshot data")
 	}
 
 	if err := fixer.detectSysDevice(); err != nil {
-		return errors.Wrap(err, "detect sys device")
+		return errors.Wrap(err, "failed to identify the system device")
 	}
 
 	if err := fixer.mountSys(); err != nil {
-		return errors.Wrap(err, "mounting offline system")
+		return errors.Wrap(err, "failed to mount the offline system")
 	}
 
 	if err := fixer.detectKernels(); err != nil {
-		return errors.Wrap(err, "detect kernels")
+		return errors.Wrap(err, "failed to detect installed kernels")
 	}
 
 	if err := fixer.detectGrub(); err != nil {
-		return errors.Wrap(err, "detect grub")
+		return errors.Wrap(err, "failed to detect the bootloader configuration")
 	}
 
 	if err := fixer.detectDistro(); err != nil {
-		return errors.Wrap(err, "detect distro")
+		return errors.Wrap(err, "failed to identify the operating system")
 	}
 
 	if err := fixer.deprecateSysMountPoint(); err != nil {
-		return errors.Wrap(err, "deprecate sys mountpoint")
+		return errors.Wrap(err, "failed to prepare the system mount point")
 	}
 
 	if err := fixer.detectPkgMgr(); err != nil {
-		return errors.Wrap(err, "detect package manager")
+		return errors.Wrap(err, "failed to detect the package manager")
 	}
 
 	if err := fixer.detectInitrdTool(); err != nil {
-		return errors.Wrap(err, "detect initrd tool")
+		return errors.Wrap(err, "failed to detect the system boot image tool")
 	}
 
 	if err := fixer.detectDeviceMaps(); err != nil {
-		return errors.Wrap(err, "detect device uuid")
+		return errors.Wrap(err, "failed to detect system device information")
 	}
 
 	fixer.detectKvmCfg()
@@ -452,7 +452,7 @@ func (fixer *linuxSystemFixer) umountSys() error {
 	logger.Debugf("umountSys: ++")
 	defer logger.Debugf("umountSys: --")
 
-	for _, mp := range funk.ReverseStrings(fixer.offsys.mounts) {
+	for _, mp := range funk.UniqString(funk.ReverseStrings(fixer.offsys.mounts)) {
 		if err := Umount(mp, false); err != nil {
 			logger.Warnf("umountSys: umount %s failed: %s", mp, err)
 			return err
@@ -628,7 +628,15 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 	logger.Debugf("detectSysDevice: swap=`%s`", strings.Join(fixer.offsys.devSwaps, ","))
 
 	if fixer.offsys.devRoot == "" {
-		return errors.Errorf("no root filesystem device detected from candidates: %v", fixer.offsys.fsList)
+		fsListStrItems := make([]string, 0)
+		for _, fd := range fixer.offsys.fsList {
+			fsListStrItems = append(fsListStrItems, fd.String())
+		}
+		return errors.Errorf(
+			"No root filesystem found on the affected devices: [%s]. "+
+				"The devices may not contain a root filesystem, or they may have unrecoverable filesystem errors.",
+			strings.Join(fsListStrItems, ","),
+		)
 	}
 
 	return nil
@@ -1352,7 +1360,7 @@ func (fixer *linuxSystemFixer) cleanDattoSnapshotOnDevice(
 		return fmt.Errorf("mount %s: %v", dev.Device, err)
 	}
 	defer func() {
-		if err := Umount(tmpMp, false); err != nil {
+		if err = Umount(tmpMp, false); err != nil {
 			logger.Warnf("cleanDattoSnapshot: umount %s failed: %v", tmpMp, err)
 		}
 	}()

@@ -231,6 +231,10 @@ type fsDevice struct {
 	FsType string
 }
 
+func (fd *fsDevice) String() string {
+	return fmt.Sprintf("%s(%s)", fd.Device, fd.FsType)
+}
+
 func enumFilesystem(offline []string, luksDeviceList []LuksOpenResult) ([]fsDevice, error) {
 	logger.Debugf("enumFilesystem: ++")
 	defer logger.Debugf("enumFilesystem: --")
@@ -472,57 +476,4 @@ func getUefiArch() string {
 	}
 
 	return tag
-}
-
-func validateDisk(
-	d Disk,
-) error {
-
-	if d.Index < 0 {
-		return errors.Errorf(
-			"invalid index: %d",
-			d.Index,
-		)
-	}
-
-	if d.Path == "" {
-		return errors.Errorf(
-			"path is empty",
-		)
-	}
-
-	if extend.IsExisted(d.Path) {
-		return errors.Wrapf(os.ErrNotExist, d.Path)
-	}
-
-	if d.Size < 0 {
-		return errors.Errorf(
-			"invalid size: %d",
-			d.Size,
-		)
-	}
-
-	if d.LBA < 0 {
-		return errors.Errorf(
-			"invalid LBA: %d",
-			d.LBA,
-		)
-	}
-
-	if d.PBA < 0 {
-		return errors.Errorf(
-			"invalid PBA: %d",
-			d.PBA,
-		)
-	}
-
-	if d.LBA >= d.Size/512 {
-		return errors.Errorf("invalid LBA: %d", d.LBA)
-	}
-
-	if d.PBA >= d.Size/512 {
-		return errors.Errorf("invalid PBA: %d", d.LBA)
-	}
-
-	return nil
 }

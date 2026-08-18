@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kisun-bit/drpkg/disk/image/qemublk"
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
 	"github.com/pkg/errors"
@@ -31,6 +32,36 @@ func (o *Option) Validate() error {
 		"vm boot disk",
 	); err != nil {
 		return err
+	}
+
+	if len(o.RecoveryParams.OfflineSystemDisks) == 0 {
+		return errors.Errorf(
+			"offline system disks is empty",
+		)
+	}
+
+	seenIndex := make(map[int]struct{})
+
+	for i, disk := range o.RecoveryParams.OfflineSystemDisks {
+
+		if err := validateDisk(
+			disk,
+		); err != nil {
+			return errors.Errorf(
+				"offline system disk[%d]: %v",
+				i,
+				err,
+			)
+		}
+
+		if _, ok := seenIndex[disk.Index]; ok {
+			return errors.Errorf(
+				"duplicate disk index: %d",
+				disk.Index,
+			)
+		}
+
+		seenIndex[disk.Index] = struct{}{}
 	}
 
 	//if isqcow2, _ := isQCOW2(o.VmBootDiskFile); !isqcow2 {
@@ -109,6 +140,59 @@ func validateFile(
 			name,
 			path,
 		)
+	}
+
+	return nil
+}
+
+func validateDisk(
+	d x2xcore.Disk,
+) error {
+
+	if d.Index < 0 {
+		return errors.Errorf(
+			"invalid index: %d",
+			d.Index,
+		)
+	}
+
+	if d.Path == "" {
+		return errors.Errorf(
+			"path is empty",
+		)
+	}
+
+	if !extend.IsExisted(d.Path) {
+		return errors.Wrapf(os.ErrNotExist, d.Path)
+	}
+
+	if d.Size < 0 {
+		return errors.Errorf(
+			"invalid size: %d",
+			d.Size,
+		)
+	}
+
+	if d.LBA < 0 {
+		return errors.Errorf(
+			"invalid LBA: %d",
+			d.LBA,
+		)
+	}
+
+	if d.PBA < 0 {
+		return errors.Errorf(
+			"invalid PBA: %d",
+			d.PBA,
+		)
+	}
+
+	if d.LBA >= d.Size/512 {
+		return errors.Errorf("invalid LBA: %d", d.LBA)
+	}
+
+	if d.PBA >= d.Size/512 {
+		return errors.Errorf("invalid PBA: %d", d.LBA)
 	}
 
 	return nil

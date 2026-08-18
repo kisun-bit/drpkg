@@ -37,6 +37,7 @@ func Create(ctx context.Context, opt *Option) (*Vm, error) {
 		uuid_: uuid.New(),
 	}
 
+	vm.cancel = func() {}
 	if opt.RecoveryParams.TimeoutSeconds > 0 {
 		vm.ctx, vm.cancel = context.WithTimeout(ctx, time.Duration(opt.RecoveryParams.TimeoutSeconds)*time.Second)
 	}
@@ -453,16 +454,11 @@ func (vm *Vm) Repair() (err error) {
 }
 
 func (vm *Vm) Release() error {
-
-	defer func() {
-		if !extend.IsNilType(vm.cancel) {
-			vm.cancel()
-		}
-	}()
-
 	if vm == nil {
 		return nil
 	}
+
+	vm.cancel()
 
 	if vm.reqSockConn != nil {
 		_ = (*vm.reqSockConn).Close()

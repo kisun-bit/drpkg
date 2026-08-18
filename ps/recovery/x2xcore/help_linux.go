@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/extend"
@@ -37,89 +36,109 @@ func getEfiImageName() (efiImageName, bool) {
 		true
 }
 
-// Mount 挂载设备到指定挂载点
+// Mount 挂载设备到指定挂载点。
+// 对普通文件系统执行常规挂载；对 Btrfs 文件系统额外处理 subvolume。
 func Mount(ctx context.Context, device string, mountpoint string, readonly bool) (supported bool, err error) {
 	logger.Debugf("Mount() device=%s mountpoint=%s readonly=%v", device, mountpoint, readonly)
 
-	// 确保 mountpoint 存在
+	// 确保 mountpoint 存在。
 	if err = os.MkdirAll(mountpoint, 0755); err != nil {
 		return false, fmt.Errorf("create mountpoint failed: %v", err)
 	}
 
-	// 检测设备是否支持挂载
+	// 检测设备是否支持挂载。
 	yes, fsType := SupportMount(device)
 	if !yes {
 		return false, nil
 	}
 
-	// 检查是否已经挂载（幂等）
+	// 检查是否已经挂载（幂等）。
 	if isMounted(mountpoint) {
 		logger.Debugf("Mount() already mounted: %s", mountpoint)
 		return true, nil
 	}
 
-	// 尝试基础 mount
+	// Btrfs 单独处理。
+	if strings.EqualFold(fsType, "btrfs") {
+		return MountBtrfsFull(ctx, device, mountpoint, readonly)
+	}
+
+	// 普通文件系统。
 	if ok := tryMount(ctx, device, mountpoint, "", readonly); ok {
 		return true, nil
 	}
 
-	// 带 fs-type 再试一次
+	// 指定文件系统类型再次尝试。
 	if ok := tryMount(ctx, device, mountpoint, fsType, readonly); ok {
 		return true, nil
 	}
 
-	// 尝试修复文件系统
+	// 尝试修复文件系统。
 	repairCmd, _ := DetectFSRepairCmdline(device)
 	if repairCmd != "" {
 		logger.Warnf("Mount() running fs repair: %s", repairCmd)
 
-		_, out, err := command.ExecuteWithContext(ctx, repairCmd)
-		if err != nil {
-			logger.Warnf("Mount() fs repair failed: %v output=%s", err, out)
+		_, out, repairErr := command.ExecuteWithContext(ctx, repairCmd)
+		if repairErr != nil {
+			logger.Warnf(
+				"Mount() fs repair failed: %v output=%s",
+				repairErr,
+				out,
+			)
 		}
 	}
 
-	// repair 后再次 mount（优先 fsType）
+	// repair 后再次 mount。
 	if ok := tryMount(ctx, device, mountpoint, fsType, readonly); ok {
 		return true, nil
 	}
 
-	// 最后 fallback mount
+	// 最后 fallback mount。
 	if ok := tryMount(ctx, device, mountpoint, "", readonly); ok {
 		return true, nil
 	}
 
-	return false, errors.Errorf("mount failed: device=%s mountpoint=%s", device, mountpoint)
+	return false, errors.Errorf(
+		"mount failed: device=%s mountpoint=%s",
+		device,
+		mountpoint,
+	)
 }
 
-// Mount 取消设备的挂载
-func Umount(deviceOrMountpoint string, recursive bool) error {
-	logger.Debugf("Umount() target=%s", deviceOrMountpoint)
-
-	// 1. 普通卸载
-	cmd := fmt.Sprintf("umount %s", deviceOrMountpoint)
-	if recursive {
-		cmd = fmt.Sprintf("umount -R %s", deviceOrMountpoint)
-	}
-	_, output, err := command.Execute(cmd)
-	if err != nil {
-		if strings.Contains(output, "not mounted") {
-			return nil
-		}
-		if strings.Contains(output, "busy") {
-			logger.Warnf("Umount() failed: busy=%s output=%s. retry after 3s...", deviceOrMountpoint, output)
-			// 避免挂载后立即卸载报错target is busy
-			time.Sleep(3 * time.Second)
-			_, _, e := command.Execute(cmd)
-			if e == nil {
-				return nil
-			}
-		}
-		return errors.Wrapf(err, "umount %s", deviceOrMountpoint)
-	}
-
-	return nil
-}
+//// Mount 取消设备的挂载
+//func Umount(deviceOrMountpoint string, recursive bool) error {
+//	logger.Debugf("Umount() target=%s", deviceOrMountpoint)
+//
+//	// 1. 普通卸载
+//	cmd := fmt.Sprintf("umount %s", deviceOrMountpoint)
+//	if recursive {
+//		cmd = fmt.Sprintf("umount -R %s", deviceOrMountpoint)
+//	}
+//
+//	if isBtrfs, _ := IsBtrfsMountpoint(deviceOrMountpoint); isBtrfs {
+//		logger.Warnf("################### %s is btrfs", deviceOrMountpoint)
+//		return UmountBtrfsFull(deviceOrMountpoint)
+//	}
+//
+//	_, output, err := command.Execute(cmd)
+//	if err != nil {
+//		if strings.Contains(output, "not mounted") {
+//			return nil
+//		}
+//		if strings.Contains(output, "busy") {
+//			logger.Warnf("Umount() failed: busy=%s output=%s. retry after 3s...", deviceOrMountpoint, output)
+//			// 避免挂载后立即卸载报错target is busy
+//			time.Sleep(3 * time.Second)
+//			_, _, e := command.Execute(cmd)
+//			if e == nil {
+//				return nil
+//			}
+//		}
+//		return errors.Wrapf(err, "umount %s", deviceOrMountpoint)
+//	}
+//
+//	return nil
+//}
 
 func DeactivateVgs() error {
 	logger.Debugf("DeactivateVgs() ++")
@@ -378,30 +397,92 @@ func IsMountPointByMountInfo(path string) (bool, error) {
 	return false, nil
 }
 
-func tryMount(ctx context.Context, device, mountpoint, fsType string, readonly bool) bool {
-	var cmd string
+func tryMount(
+	ctx context.Context,
+	device string,
+	mountpoint string,
+	fsType string,
+	readonly bool,
+) bool {
+	args := []string{"mount"}
 
+	// ------------------------------------------------------------------
+	// 文件系统类型
+	// ------------------------------------------------------------------
 	if fsType != "" {
-		cmd = fmt.Sprintf("mount -t %s %s %s", fsType, device, mountpoint)
-	} else {
-		cmd = fmt.Sprintf("mount %s %s", device, mountpoint)
+		args = append(args, "-t", fsType)
 	}
 
-	if readonly {
-		if fsType != "" {
-			cmd = fmt.Sprintf("mount -o ro -t %s %s %s", fsType, device, mountpoint)
-		} else {
-			cmd = fmt.Sprintf("mount -o ro %s %s", device, mountpoint)
-		}
+	// ------------------------------------------------------------------
+	// 挂载选项
+	// ------------------------------------------------------------------
+	var options []string
+
+	switch {
+	case strings.EqualFold(fsType, "btrfs"):
+		// Btrfs 修复/恢复场景：
+		// 优先使用 backup root。
+		options = append(options, "rescue=usebackuproot")
+
+	case strings.EqualFold(fsType, "xfs"):
+		// 离线恢复/迁移场景下允许 UUID 重复。
+		options = append(options, "nouuid")
 	}
+
+	// 只读必须追加，而不是覆盖前面的文件系统专用选项。
+	if readonly {
+		options = append(options, "ro")
+	}
+
+	if len(options) > 0 {
+		args = append(
+			args,
+			"-o",
+			strings.Join(options, ","),
+		)
+	}
+
+	// ------------------------------------------------------------------
+	// device + mountpoint
+	// ------------------------------------------------------------------
+	args = append(args, device, mountpoint)
+
+	// ------------------------------------------------------------------
+	// 执行
+	// ------------------------------------------------------------------
+	cmd := strings.Join(args, " ")
+
+	logger.Debugf(
+		"tryMount() device=%s mountpoint=%s fsType=%s readonly=%v cmd=%s",
+		device,
+		mountpoint,
+		fsType,
+		readonly,
+		cmd,
+	)
 
 	_, out, err := command.ExecuteWithContext(ctx, cmd)
 	if err != nil {
-		logger.Warnf("Mount failed cmd=%s err=%v out=%s", cmd, err, out)
+		logger.Warnf(
+			"Mount failed: device=%s mountpoint=%s fsType=%s readonly=%v err=%v output=%s",
+			device,
+			mountpoint,
+			fsType,
+			readonly,
+			err,
+			strings.TrimSpace(out),
+		)
 		return false
 	}
 
-	logger.Infof("Mount success: %s -> %s (fs=%s)", device, mountpoint, fsType)
+	logger.Infof(
+		"Mount success: %s -> %s (fs=%s readonly=%v)",
+		device,
+		mountpoint,
+		fsType,
+		readonly,
+	)
+
 	return true
 }
 

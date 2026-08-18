@@ -78,36 +78,6 @@ func CheckAndFillRecoveryParameter(rp *RecoveryParameter) error {
 		return errors.Errorf("unsupported os: %s", rp.OSType)
 	}
 
-	if len(rp.OfflineSystemDisks) == 0 {
-		return errors.Errorf(
-			"offline system disks is empty",
-		)
-	}
-
-	seenIndex := make(map[int]struct{})
-
-	for i, disk := range rp.OfflineSystemDisks {
-
-		if err := validateDisk(
-			disk,
-		); err != nil {
-			return errors.Errorf(
-				"offline system disk[%d]: %v",
-				i,
-				err,
-			)
-		}
-
-		if _, ok := seenIndex[disk.Index]; ok {
-			return errors.Errorf(
-				"duplicate disk index: %d",
-				disk.Index,
-			)
-		}
-
-		seenIndex[disk.Index] = struct{}{}
-	}
-
 	for _, platform := range []Platform{rp.Source, rp.Target} {
 		//if platform.Arch != runtime.GOARCH {
 		//	return errors.New("FixerCreateOptions Arch is invalid")

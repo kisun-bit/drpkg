@@ -14,8 +14,8 @@ import (
 func main() {
 	vm, err := repairvm.Create(context.Background(),
 		&repairvm.Option{
-			VmBootDiskFile: "/var/lib/libvirt/images/repairvm.win10.amd64.iso",
-			//VmBootDiskFile: "/var/lib/libvirt/images/repairvm.alpine3.17.9.amd64.qcow2",
+			//VmBootDiskFile: "/var/lib/libvirt/images/repairvm.win10.amd64.iso",
+			VmBootDiskFile: "/var/lib/libvirt/images/repairvm.alpine3.17.9.amd64.qcow2",
 			RecoveryParams: x2xcore.RecoveryParameter{
 				OfflineSystemDisks: []x2xcore.Disk{
 					{
@@ -25,7 +25,9 @@ func main() {
 						//Path: "/instance_ugeh/tenant_dfte/job_conf_jwcjoqjjne_39/Job_gHUhGaBKQD/vm-66212/13261108198209746070.qcow2",
 						//Path: "/instance_ugeh/tenant_dfte/job_conf_7o0507vl47_40/Job_Q4Qq7FMC22/vm-67101/4143985988262948118.qcow2",
 						//Path: "/instance_ugeh/tenant_dfte/job_conf_y49ew5uq13_41/Job_UYtiwsLLrz/vm-81115/1653524774799371602.qcow2.overlay",
-						Path: "/instance_ugeh/tenant_dfte/job_conf_y49ew5uq13_41/Job_AnAamq3OyN/vm-74628/13905887725040284033.qcow2.overlay",
+						//Path: "/instance_ugeh/tenant_dfte/job_conf_y49ew5uq13_41/Job_AnAamq3OyN/vm-74628/13905887725040284033.qcow2.overlay",
+						//Path: "/instance_ugeh/tenant_dfte/job_conf_ucatcf0f5t_42/Job_GOyn2QEOBR/vm-73362/12896675651414882390.qcow2.overlay",
+						Path: "/instance_ugeh/tenant_dfte/job_conf_ucatcf0f5t_42/Job_GOyn2QEOBR/vm-73372/10087003536009437921.qcow2.overlay",
 						LBA:  512,
 						PBA:  512,
 						Size: 42949672960,
@@ -44,17 +46,17 @@ func main() {
 					Virt:      define.HPVTKvm,
 				},
 				TimeoutSeconds: 0,
-				OSType:         "windows",
-				//OSType:                              "linux",
+				//OSType:         "windows",
+				OSType:                              "linux",
 				X2xLibrary:                          "",
 				FsckFs:                              false,
 				SkipDriverRepairIfPlatformUnchanged: false,
 				SourceDeviceMap:                     nil,
 				LuksGlobalPassword:                  "",
-				BitlockerGlobalRecoveryKey:          "658394-314743-465025-566445-624525-500731-463716-439813",
-				Network:                             x2xcore.NetworkConfig{},
-				RaidNotExisted:                      false,
-				MultipathNotExisted:                 true,
+				//BitlockerGlobalRecoveryKey:          "658394-314743-465025-566445-624525-500731-463716-439813",
+				Network:             x2xcore.NetworkConfig{},
+				RaidNotExisted:      false,
+				MultipathNotExisted: true,
 			},
 			SimulatorConfigFile: "/var/lib/libvirt/images/s.json",
 			DriverDBImageFile:   "/var/lib/libvirt/images/library.iso",
@@ -62,6 +64,7 @@ func main() {
 
 	if err != nil {
 		logger.Error("Create: ", err)
+		return
 	}
 
 	defer vm.Release()

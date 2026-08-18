@@ -37,7 +37,7 @@ func markRepairDone() error {
 	markerPath := getMarkerPath()
 
 	if err := os.MkdirAll(filepath.Dir(markerPath), 0755); err != nil {
-		return fmt.Errorf("create marker directory failed: %w", err)
+		return fmt.Errorf("create marker directory failed: %v", err)
 	}
 
 	tmpPath := markerPath + ".tmp"
@@ -47,11 +47,11 @@ func markRepairDone() error {
 		[]byte(version),
 		0644,
 	); err != nil {
-		return fmt.Errorf("write marker temp file failed: %w", err)
+		return fmt.Errorf("write marker temp file failed: %v", err)
 	}
 
 	if err := os.Rename(tmpPath, markerPath); err != nil {
-		return fmt.Errorf("rename marker file failed: %w", err)
+		return fmt.Errorf("rename marker file failed: %v", err)
 	}
 
 	return nil
@@ -240,7 +240,7 @@ func openVirtioPort(path string) (*os.File, error) {
 
 	if err != nil {
 		return nil, fmt.Errorf(
-			"open virtio port %s failed: %w",
+			"open virtio port %s failed: %v",
 			path,
 			err,
 		)
@@ -249,39 +249,23 @@ func openVirtioPort(path string) (*os.File, error) {
 	return file, nil
 }
 
-// runRepair executes repair workflow.
+// runRepair executes the repair workflow.
 func runRepair(
 	ctx context.Context,
 	reqPort *os.File,
 ) (err error) {
 
 	if err := x2xcore.WriteSerialMessageTypeGuestReady(reqPort); err != nil {
-
-		return fmt.Errorf(
-			"send guest ready failed: %w",
-			err,
-		)
+		return fmt.Errorf("send guest ready message: %v", err)
 	}
 
-	repairParam, err := x2xcore.ReadReceivedSerialMessageTypeStartRepair(
-		reqPort,
-	)
-
+	repairParam, err := x2xcore.ReadReceivedSerialMessageTypeStartRepair(reqPort)
 	if err != nil {
-
-		return fmt.Errorf(
-			"receive repair request failed: %w",
-			err,
-		)
+		return fmt.Errorf("receive start repair request: %v", err)
 	}
 
 	defer func() {
-
-		reportRepairResult(
-			reqPort,
-			err,
-		)
-
+		reportRepairResult(reqPort, err)
 	}()
 
 	fixer, err := x2xcore.NewSysFixer(
@@ -289,31 +273,18 @@ func runRepair(
 		&repairParam,
 		reqPort,
 	)
-
 	if err != nil {
-
-		return fmt.Errorf(
-			"create fixer failed: %w",
-			err,
-		)
+		return fmt.Errorf("create system fixer: %v", err)
 	}
 
 	defer fixer.Cleanup()
 
 	if err := fixer.Prepare(); err != nil {
-
-		return fmt.Errorf(
-			"prepare fixer failed: %w",
-			err,
-		)
+		return fmt.Errorf("prepare repair environment: %v", err)
 	}
 
 	if err := fixer.Repair(); err != nil {
-
-		return fmt.Errorf(
-			"repair failed: %w",
-			err,
-		)
+		return fmt.Errorf("execute system repair: %v", err)
 	}
 
 	return nil

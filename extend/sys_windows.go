@@ -988,7 +988,7 @@ func GetDiskNum(vol string) (uint32, error) {
 		0,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("CreateFile volume %s failed: %w", volPath, err)
+		return 0, fmt.Errorf("CreateFile volume %s failed: %v", volPath, err)
 	}
 	defer syscall.CloseHandle(hVol)
 
@@ -1005,7 +1005,7 @@ func GetDiskNum(vol string) (uint32, error) {
 		nil,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("DeviceIoControl IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS failed: %w", err)
+		return 0, fmt.Errorf("DeviceIoControl IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS failed: %v", err)
 	}
 	if bytesRet < uint32(unsafe.Sizeof(volumeDiskExtents{})) {
 		return 0, fmt.Errorf("VOLUME_DISK_EXTENTS too small: %d", bytesRet)
