@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kisun-bit/drpkg/filter"
+	"github.com/kisun-bit/drpkg/extend/filter"
 )
 
 var matchTests = []struct {
