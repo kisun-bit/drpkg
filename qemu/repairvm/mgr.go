@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -171,6 +172,24 @@ func (vm *Vm) prepareSimulator() error {
 
 func (vm *Vm) buildCommand() error {
 
+	// 根据架构选择机型
+	vm.machine = "q35"
+	if vm.arch == "arm64" {
+		vm.machine = "virt"
+	}
+
+	// 解析 UEFI 固件（arm64 强制 UEFI）
+	firmware, err := resolveFirmware(
+		vm.arch,
+		vm.opt.BootMode,
+		vm.opt.Firmware,
+		vm.cacheDir,
+	)
+	if err != nil {
+		return err
+	}
+	vm.firmware = firmware
+
 	vm.cmdArgs = append(
 		vm.cmdArgs,
 
@@ -181,7 +200,7 @@ func (vm *Vm) buildCommand() error {
 			vm.uuid_.String(),
 		),
 
-		"-machine", "q35",
+		"-machine", vm.machine,
 
 		"-uuid", vm.uuid_.String(),
 
@@ -190,13 +209,18 @@ func (vm *Vm) buildCommand() error {
 		"-smp", "4",
 	)
 
-	if IsKVMAvailable() {
+	// UEFI 固件（pflash），仅 UEFI 启动时追加
+	vm.cmdArgs = vm.firmware.addArgs(vm.cmdArgs)
+
+	// KVM 仅在修复虚拟机架构与宿主机架构一致时可用；
+	// 跨架构（如 amd64 主机运行 arm64 修复虚拟机）只能使用 TCG。
+	if vm.arch == runtime.GOARCH && IsKVMAvailable() {
 		vm.cmdArgs = append(vm.cmdArgs, "-enable-kvm")
 	} else {
 		vm.cmdArgs = append(vm.cmdArgs, "-accel", "tcg,thread=multi")
 	}
 
-	if vm.opt.RecoveryParams.Source.Arch == "amd64" {
+	if vm.arch == "amd64" {
 		vm.cmdArgs = append(vm.cmdArgs, "-cpu", "qemu64")
 	}
 
@@ -305,11 +329,19 @@ func (vm *Vm) addStorage() {
 
 func (vm *Vm) addCDROM() {
 
-	vm.cmdArgs = append(
-		vm.cmdArgs,
+	// arm64 的 virt 机型没有 IDE/AHCI 控制器，光驱必须走 virtio-scsi；
+	// amd64 的 q35 机型沿用原有的 SATA(ich9-ahci) + ide-cd 方式。
+	isArm64 := vm.machine == "virt"
 
-		"-device", "ich9-ahci,id=sata",
-	)
+	if isArm64 {
+		vm.cmdArgs = append(vm.cmdArgs,
+			"-device", "virtio-scsi-pci,id=cd-scsi",
+		)
+	} else {
+		vm.cmdArgs = append(vm.cmdArgs,
+			"-device", "ich9-ahci,id=sata",
+		)
+	}
 
 	// pe
 
@@ -324,11 +356,15 @@ func (vm *Vm) addCDROM() {
 			),
 		)
 
-		vm.cmdArgs = append(
-			vm.cmdArgs,
-
-			"-device", "ide-cd,drive=tmpos,bus=sata.2",
-		)
+		if isArm64 {
+			vm.cmdArgs = append(vm.cmdArgs,
+				"-device", "scsi-cd,drive=tmpos,bus=cd-scsi.0",
+			)
+		} else {
+			vm.cmdArgs = append(vm.cmdArgs,
+				"-device", "ide-cd,drive=tmpos,bus=sata.2",
+			)
+		}
 
 	}
 
@@ -345,11 +381,15 @@ func (vm *Vm) addCDROM() {
 			),
 		)
 
-		vm.cmdArgs = append(
-			vm.cmdArgs,
-
-			"-device", "ide-cd,drive=driver,bus=sata.3",
-		)
+		if isArm64 {
+			vm.cmdArgs = append(vm.cmdArgs,
+				"-device", "scsi-cd,drive=driver,bus=cd-scsi.0",
+			)
+		} else {
+			vm.cmdArgs = append(vm.cmdArgs,
+				"-device", "ide-cd,drive=driver,bus=sata.3",
+			)
+		}
 
 	}
 
