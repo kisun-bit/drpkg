@@ -98,7 +98,7 @@ type RecoveryParameter struct {
 }
 
 type DeviceMap struct {
-	Origin     string // 原机的设备名，如：/dev/sda1、/dev/nvme0n1等
-	Mountpoint string // 原机的挂载点，如：/、/boot等
-	UUID       string // 设备UUID
+	Origin     string `json:"origin"`     // 原机的设备名，如：/dev/sda1、/dev/nvme0n1等
+	Mountpoint string `json:"mountpoint"` // 原机的挂载点，如：/、/boot等
+	UUID       string `json:"uuid"`       // 设备UUID
 }
