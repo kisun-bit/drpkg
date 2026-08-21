@@ -94,29 +94,15 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 		)
 	}
 
-	// 按位解析每个簇的占用状态
-	var used int64
-	for blockNo := int64(0); blockNo < totalClusters; blockNo++ {
-		byteIdx := blockNo / 8
-		bitIdx := uint(blockNo % 8)
-		bit := (bitmapBytes[byteIdx] >> bitIdx) & 1
-		if bit == 1 {
-			used++
-		}
-	}
+	// 按位解析每个簇的占用状态（每字节 8 个 bit，字节内低位在前）
+	fb := bitmap.NewFsBitmapFromBytes(define.FsTypeNTFS, bitmap.BitmapFromFS, bitmapBytes, totalClusters, int(clusterSize))
 
-	//usedBytes := used * clusterSize
+	//usedBytes := fb.UsedSize()
 	//totalBytes := totalClusters * clusterSize
 	//logger.Debugf("%s.Dump() blocks=%d, bs=%d, used=%dB ( %s / %s )",
 	//	p, totalClusters, clusterSize, usedBytes, humanize.IBytes(uint64(usedBytes)), humanize.IBytes(uint64(totalBytes)))
 
-	return &bitmap.FsBitmap{
-		Type:       define.FsTypeNTFS,
-		BitmapKind: bitmap.BitmapFromFS,
-		Bitmap:     bitmapBytes,
-		Bits:       totalClusters,
-		BlockSize:  int(clusterSize),
-	}, nil
+	return fb, nil
 }
 
 func (p *BitmapParser) parseBoot() error {

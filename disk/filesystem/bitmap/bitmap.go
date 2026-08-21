@@ -1,13 +1,31 @@
+// Package bitmap 提供文件系统"已使用块"位图。
+//
+// 位图内部使用 RoaringBitmap（github.com/RoaringBitmap/roaring/v2）存储置位的块号，
+// 内存占用随"已使用块的分布"而不是"磁盘总容量"增长：
+//
+//   - 稀疏位图（只有少量已使用块）：只存储已置位的区间，内存占用极小；
+//   - 密集位图（大部分块已使用）：连续区间以 Run-Length 方式压缩存储；
+//   - 对比传统 []byte 位图（恒定占用 Bits/8 字节），例如 16 TiB 磁盘按 4 KiB
+//     粒度需要 2^32 个 bit，传统方式固定占用 512 MiB，而 RoaringBitmap 通常
+//     只需要几 MiB ~ 几十 MiB。
+//
+// roaring.Bitmap 只能存储 32 位值，因此 FsBitmap 按位索引的高 32 位分段，
+// 每段一个 roaring.Bitmap（覆盖 2^32 个 bit），可以表示任意大小的位图。
 package bitmap
 
 import (
 	"fmt"
 	"io"
 	"math/bits"
+	"sort"
 
+	roaring "github.com/RoaringBitmap/roaring/v2"
 	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 )
+
+// segmentShift 是位索引分段使用的位数：低 32 位为段内偏移，高 32 位为段号。
+const segmentShift = 32
 
 // BitmapKind 表示位图的数据来源类型
 type BitmapKind int
@@ -27,14 +45,15 @@ type FsBitmap struct {
 	// BitmapKind: 位图来源类型
 	BitmapKind BitmapKind
 
-	// Bitmap 位图数据
-	Bitmap []byte
-
 	// Bits 位图中的位个数
 	Bits int64
 
 	// BlockSize 数据块大小
 	BlockSize int
+
+	// segments 存储已置位的块号（已使用块），key 为位索引的高 32 位。
+	// 全 0 的段不占用内存（不存在对应的 key）。
+	segments map[uint32]*roaring.Bitmap
 }
 
 // FsBitmapParser 表示文件系统位图解析接口
@@ -49,15 +68,55 @@ type FsBitmapParser interface {
 // bits: 位图总位数（通常等于文件系统的总块数，如 sb_dblocks）
 // blockSize: 每个 bit 对应的数据块大小（字节）
 func NewFsBitmap(fsType string, kind BitmapKind, bits int64, blockSize int) *FsBitmap {
-	// 位图按字节存储，每字节 8 位，向上取整
-	byteLen := (bits + 7) / 8
 	return &FsBitmap{
 		Type:       fsType,
 		BitmapKind: kind,
-		Bitmap:     make([]byte, byteLen),
 		Bits:       bits,
 		BlockSize:  blockSize,
+		segments:   make(map[uint32]*roaring.Bitmap),
 	}
+}
+
+// NewFsBitmapFromBytes 从原始位图字节创建位图。
+// 原始字节按字节存储、每字节 8 个 bit，字节内低位在前（bit i 对应 raw[i/8] 的第 i%8 位），
+// 与 NTFS $Bitmap 等 on-disk 格式的布局一致。
+// 超出 numBits 的尾部 padding bit 会被忽略。
+func NewFsBitmapFromBytes(fsType string, kind BitmapKind, raw []byte, numBits int64, blockSize int) *FsBitmap {
+	b := NewFsBitmap(fsType, kind, numBits, blockSize)
+	if numBits <= 0 || len(raw) == 0 {
+		return b
+	}
+
+	// 按升序遍历所有置位的 bit，并把连续的 bit 合并成区间后批量置位，
+	// 让 RoaringBitmap 尽可能以 Run-Length 方式压缩。
+	runStart := int64(-1) // 当前连续置位区间的起点，-1 表示没有
+	lastSet := int64(-1)  // 上一个置位的 bit 索引
+	for byteIdx, by := range raw {
+		v := by
+		base := int64(byteIdx) * 8
+		for v != 0 {
+			j := bits.TrailingZeros8(v)
+			v &^= 1 << uint(j)
+
+			bit := base + int64(j)
+			if bit >= numBits {
+				continue // 忽略超出 numBits 的 padding bit
+			}
+
+			if runStart >= 0 && bit == lastSet+1 {
+				lastSet = bit // 并入当前区间
+				continue
+			}
+			if runStart >= 0 {
+				b.addRange(uint64(runStart), uint64(lastSet)+1)
+			}
+			runStart, lastSet = bit, bit
+		}
+	}
+	if runStart >= 0 {
+		b.addRange(uint64(runStart), uint64(lastSet)+1)
+	}
+	return b
 }
 
 func (b *FsBitmap) Size() int64 {
@@ -66,77 +125,77 @@ func (b *FsBitmap) Size() int64 {
 
 // Set 把指定块号对应的 bit 置为 1
 func (b *FsBitmap) Set(blockNum uint64) {
-	if int64(blockNum) < 0 || int64(blockNum) >= b.Bits {
+	if b.Bits <= 0 || blockNum >= uint64(b.Bits) {
 		return // 越界直接忽略，避免panic；如需严格模式可以改成返回error
 	}
-	byteIdx := blockNum / 8
-	bitOff := blockNum % 8
-	b.Bitmap[byteIdx] |= 1 << bitOff
+	b.segment(segmentIndex(blockNum), true).Add(uint32(blockNum))
 }
 
-// SetRange 把 [start, start+length) 范围内的块都置为 1
+// SetRange 把 [start, start+length) 范围内的块都置为 1，超出 Bits 的部分被截断
 func (b *FsBitmap) SetRange(start uint64, length uint32) {
-	for i := uint32(0); i < length; i++ {
-		b.Set(start + uint64(i))
+	if length == 0 || b.Bits <= 0 || start >= uint64(b.Bits) {
+		return
 	}
+	end := start + uint64(length)
+	if end > uint64(b.Bits) {
+		end = uint64(b.Bits)
+	}
+	b.addRange(start, end)
 }
 
 // IsSet 查询指定块号是否被置位（可选，便于测试和调试）
 func (b *FsBitmap) IsSet(blockNum uint64) bool {
-	if int64(blockNum) < 0 || int64(blockNum) >= b.Bits {
+	if b.Bits <= 0 || blockNum >= uint64(b.Bits) {
 		return false
 	}
-	byteIdx := blockNum / 8
-	bitOff := blockNum % 8
-	return b.Bitmap[byteIdx]&(1<<bitOff) != 0
+	seg, ok := b.segments[segmentIndex(blockNum)]
+	return ok && seg.Contains(uint32(blockNum))
 }
 
 // SetAll 把位图所有有效 bit 全部置 1（初始化为"全部已使用"状态）
 func (b *FsBitmap) SetAll() {
-	for i := range b.Bitmap {
-		b.Bitmap[i] = 0xFF
+	if b.Bits <= 0 {
+		return
 	}
-	// 注意：如果 Bits 不是 8 的整数倍，最后一字节里超出 Bits 范围的多余 bit
-	// 也会被置 1，但只要后续查询/统计都严格按 Bits 数量截止，不会被误读，无需特殊处理。
+	b.addRange(0, uint64(b.Bits))
 }
 
 // Clear 把指定块号对应的 bit 清 0
 func (b *FsBitmap) Clear(blockNum uint64) {
-	if int64(blockNum) < 0 || int64(blockNum) >= b.Bits {
+	if b.Bits <= 0 || blockNum >= uint64(b.Bits) {
 		return
 	}
-	byteIdx := blockNum / 8
-	bitOff := blockNum % 8
-	b.Bitmap[byteIdx] &^= 1 << bitOff // AND NOT，清除该位
+	idx := segmentIndex(blockNum)
+	seg, ok := b.segments[idx]
+	if !ok {
+		return
+	}
+	seg.Remove(uint32(blockNum))
+	if seg.IsEmpty() {
+		// 段被清空后直接删除，保持稀疏位图的内存占用最小
+		delete(b.segments, idx)
+	}
 }
 
-// ClearRange 把 [start, start+length) 范围内的块都清 0
+// ClearRange 把 [start, start+length) 范围内的块都清 0，超出 Bits 的部分被截断
 func (b *FsBitmap) ClearRange(start uint64, length uint32) {
-	for i := uint32(0); i < length; i++ {
-		b.Clear(start + uint64(i))
+	if length == 0 || b.Bits <= 0 || start >= uint64(b.Bits) {
+		return
 	}
+	end := start + uint64(length)
+	if end > uint64(b.Bits) {
+		end = uint64(b.Bits)
+	}
+	b.removeRange(start, end)
 }
 
-// CountSet 统计位图中值为 1 的有效 bit 数量（即已使用的 block 数）。
-// 只统计 [0, Bits) 范围内的位，最后一个字节里超出 Bits 的 padding bit 会被自动排除。
+// CountSet 统计位图中值为 1 的 bit 数量（即已使用的 block 数）。
+// 所有置位操作都被限制在 [0, Bits) 内，因此不存在需要排除的 padding bit。
 func (b *FsBitmap) CountSet() int64 {
-	if b.Bits <= 0 {
-		return 0
-	}
-
 	var count int64
-	fullBytes := int(b.Bits / 8) // 完整的字节数（不含最后一个不完整字节）
-
-	for i := 0; i < fullBytes && i < len(b.Bitmap); i++ {
-		count += int64(bits.OnesCount8(b.Bitmap[i]))
+	for _, seg := range b.segments {
+		count += int64(seg.GetCardinality())
 	}
-
-	// 处理最后一个不完整字节：只有低 rem 位是有效数据，高位是 padding，需要屏蔽
-	if rem := b.Bits % 8; rem > 0 && fullBytes < len(b.Bitmap) {
-		mask := byte(1<<uint(rem) - 1) // 低 rem 位为 1，其余位为 0
-		count += int64(bits.OnesCount8(b.Bitmap[fullBytes] & mask))
-	}
-
 	return count
 }
 
@@ -147,6 +206,16 @@ func (b *FsBitmap) UsedSize() int64 {
 
 func (b *FsBitmap) UsedSizeHuman() string {
 	return humanize.IBytes(uint64(b.UsedSize()))
+}
+
+// MemorySize 返回位图当前占用的内存字节数（RoaringBitmap 压缩后的大小）。
+// 传统 []byte 位图恒定为 Bits/8，该值可用于观察压缩效果。
+func (b *FsBitmap) MemorySize() uint64 {
+	var size uint64
+	for _, seg := range b.segments {
+		size += seg.GetSizeInBytes()
+	}
+	return size
 }
 
 // ChangeBlockSize 重新以新的块大小生成位图
@@ -169,40 +238,41 @@ func (b *FsBitmap) ChangeBlockSize(blocksize int) error {
 	if blocksize%b.BlockSize != 0 {
 		return errors.Errorf("new blocksize(%d) must be a multiple of current blocksize(%d)", blocksize, b.BlockSize)
 	}
+	if b.Bits <= 0 {
+		b.BlockSize = blocksize
+		return nil
+	}
 
-	ratio := int64(blocksize / b.BlockSize)
+	ratio := uint64(blocksize / b.BlockSize)
+	newBits := (b.Bits + int64(ratio) - 1) / int64(ratio)
 
-	// 新位图的总位数：向上取整，确保能覆盖原来所有数据（哪怕最后一组不足 ratio 个旧 bit）
-	newBits := (b.Bits + ratio - 1) / ratio
-	newByteLen := (newBits + 7) / 8
-	newBitmap := make([]byte, newByteLen)
+	// 只有置位的旧 bit 会影响结果：新 bit = 旧 bit / ratio。
+	// 按段号升序遍历可以保证新 bit 按升序插入，有利于 RoaringBitmap 的区间压缩。
+	keys := make([]uint32, 0, len(b.segments))
+	for idx := range b.segments {
+		keys = append(keys, idx)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 
-	for newIdx := int64(0); newIdx < newBits; newIdx++ {
-		oldStart := newIdx * ratio
-		oldEnd := oldStart + ratio
-		if oldEnd > b.Bits {
-			oldEnd = b.Bits
-		}
-
-		used := false
-		for oldIdx := oldStart; oldIdx < oldEnd; oldIdx++ {
-			if b.IsSet(uint64(oldIdx)) {
-				used = true
-				break
+	segments := make(map[uint32]*roaring.Bitmap, len(b.segments))
+	for _, idx := range keys {
+		base := uint64(idx) << segmentShift
+		it := b.segments[idx].Iterator()
+		for it.HasNext() {
+			newBit := (base | uint64(it.Next())) / ratio
+			newIdx := segmentIndex(newBit)
+			seg, ok := segments[newIdx]
+			if !ok {
+				seg = roaring.New()
+				segments[newIdx] = seg
 			}
-		}
-
-		if used {
-			byteIdx := newIdx / 8
-			bitOff := uint(newIdx % 8)
-			newBitmap[byteIdx] |= 1 << bitOff
+			seg.Add(uint32(newBit))
 		}
 	}
 
-	b.Bitmap = newBitmap
+	b.segments = segments
 	b.Bits = newBits
 	b.BlockSize = blocksize
-
 	return nil
 }
 
@@ -269,28 +339,77 @@ func (b *FsBitmap) MirrorFs(origin io.ReaderAt, target io.WriterAt) (int64, erro
 	return totalCopied, nil
 }
 
+// segmentIndex 返回位索引对应的段索引（高 32 位）
+func segmentIndex(bit uint64) uint32 {
+	return uint32(bit >> segmentShift)
+}
+
+// segment 返回指定段的 RoaringBitmap；create 为 true 时不存在则创建。
+func (b *FsBitmap) segment(idx uint32, create bool) *roaring.Bitmap {
+	seg, ok := b.segments[idx]
+	if !ok && create {
+		seg = roaring.New()
+		b.segments[idx] = seg
+	}
+	return seg
+}
+
+// addRange 把 [start, end) 置位。调用方需保证 0 <= start < end <= Bits。
+func (b *FsBitmap) addRange(start, end uint64) {
+	for start < end {
+		idx := segmentIndex(start)
+		segStart := uint64(idx) << segmentShift
+		segEnd := segStart + uint64(1)<<segmentShift
+		hi := end
+		if hi > segEnd {
+			hi = segEnd
+		}
+		b.segment(idx, true).AddRange(start-segStart, hi-segStart)
+		start = hi
+	}
+}
+
+// removeRange 把 [start, end) 清零。调用方需保证 0 <= start < end <= Bits。
+func (b *FsBitmap) removeRange(start, end uint64) {
+	for start < end {
+		idx := segmentIndex(start)
+		segStart := uint64(idx) << segmentShift
+		segEnd := segStart + uint64(1)<<segmentShift
+		hi := end
+		if hi > segEnd {
+			hi = segEnd
+		}
+		if seg, ok := b.segments[idx]; ok {
+			seg.RemoveRange(start-segStart, hi-segStart)
+			if seg.IsEmpty() {
+				delete(b.segments, idx)
+			}
+		}
+		start = hi
+	}
+}
+
 // nextSetBit 从 from（含）开始，找到下一个被置位（1）的 bit 索引；
 // 若一直到 b.Bits 都没有，返回 b.Bits
 func (b *FsBitmap) nextSetBit(from int64) int64 {
 	if from < 0 {
 		from = 0
 	}
-	i := from
-	for i < b.Bits {
-		byteIdx := i / 8
-		byteVal := b.Bitmap[byteIdx]
+	if b.Bits <= 0 || from >= b.Bits {
+		return b.Bits
+	}
 
-		// 整字节都是 0（全空闲），直接跳过这 8 位，加速大段空闲区间的扫描
-		if byteVal == 0x00 {
-			i += 8 - (i % 8) // 跳到下一个字节边界
-			continue
+	total := uint64(b.Bits)
+	lastIdx := segmentIndex(total - 1)
+	lo := uint32(from) // 仅在第一个段内有效（from 位于该段内），之后的段从 0 开始查
+	for idx := segmentIndex(uint64(from)); idx <= lastIdx; idx++ {
+		if seg, ok := b.segments[idx]; ok {
+			if v := seg.NextValue(lo); v >= 0 {
+				// 置位操作都被限制在 [0, Bits) 内，结果无需再截断
+				return int64((uint64(idx) << segmentShift) | uint64(uint32(v)))
+			}
 		}
-
-		bitOff := uint(i % 8)
-		if byteVal&(1<<bitOff) != 0 {
-			return i
-		}
-		i++
+		lo = 0
 	}
 	return b.Bits
 }
@@ -301,22 +420,57 @@ func (b *FsBitmap) nextClearBit(from int64) int64 {
 	if from < 0 {
 		from = 0
 	}
-	i := from
-	for i < b.Bits {
-		byteIdx := i / 8
-		byteVal := b.Bitmap[byteIdx]
+	if b.Bits <= 0 || from >= b.Bits {
+		return b.Bits
+	}
 
-		// 整字节都是 0xFF（全部已使用），直接跳过这 8 位
-		if byteVal == 0xFF {
-			i += 8 - (i % 8)
-			continue
+	total := uint64(b.Bits)
+	lastIdx := segmentIndex(total - 1)
+	lo := uint32(from) // 仅在第一个段内有效，之后的段从 0 开始查
+	for idx := segmentIndex(uint64(from)); idx <= lastIdx; idx++ {
+		segStart := uint64(idx) << segmentShift
+
+		seg, ok := b.segments[idx]
+		if !ok {
+			// 段不存在，段内所有 bit 都是 0
+			res := segStart
+			if uint64(from) > res {
+				res = uint64(from)
+			}
+			return int64(res)
 		}
 
-		bitOff := uint(i % 8)
-		if byteVal&(1<<bitOff) == 0 {
-			return i
+		v := seg.NextAbsentValue(lo)
+		if v >= int64(lo) && v < int64(1)<<segmentShift {
+			// 正常路径：v 是段内第一个空闲位
+			res := (uint64(idx) << segmentShift) | uint64(uint32(v))
+			if res >= total {
+				return b.Bits
+			}
+			return int64(res)
 		}
-		i++
+		if v >= 0 && v < int64(lo) {
+			// roaring v2.10.0 bug：arrayContainer.nextAbsentValue 在最后一个
+			// 元素为 0xFFFF 时 uint16 溢出，再被 combineLoHi32 的高位移位
+			// 叠加后返回了 < lo 的错误值。回退到迭代器逐值扫描找第一个空洞。
+			expected := uint64(lo)
+			it := seg.Iterator()
+			it.AdvanceIfNeeded(lo)
+			for it.HasNext() && uint64(it.PeekNext()) == expected {
+				expected++
+				it.Next()
+			}
+			if expected < uint64(1)<<segmentShift {
+				res := (uint64(idx) << segmentShift) | expected
+				if res >= total {
+					return b.Bits
+				}
+				return int64(res)
+			}
+			// expected 溢出到下一个段，继续找下一段
+		}
+		// v < 0 或 v >= 2^32：本段 [lo, 2^32) 全部置位，继续找下一段
+		lo = 0
 	}
 	return b.Bits
 }

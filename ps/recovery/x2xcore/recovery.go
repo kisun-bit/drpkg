@@ -54,6 +54,10 @@ type RecoveryParameter struct {
 	// 源系统配置
 	//
 
+	// KernelVersion 源系统内核版本。
+	// 修复过程中会根据该版本匹配修复虚拟机资源，优先选择内核版本最接近的修复环境。
+	KernelVersion string `json:"kernelVersion"`
+
 	// SourceDeviceMap 源系统设备映射关系。
 	// 描述源系统设备与目标系统设备的对应关系，仅 Linux 系统使用。
 	SourceDeviceMap []DeviceMap `json:"sourceDeviceMap"`

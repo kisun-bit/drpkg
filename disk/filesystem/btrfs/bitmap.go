@@ -554,12 +554,5 @@ func (p *BitmapParser) Dump() (*bitmap.FsBitmap, error) {
 }
 
 func popcount(bm *bitmap.FsBitmap) int64 {
-	var n int64
-	for _, b := range bm.Bitmap {
-		for b != 0 {
-			n += int64(b & 1)
-			b >>= 1
-		}
-	}
-	return n
+	return bm.CountSet()
 }

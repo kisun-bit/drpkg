@@ -3,6 +3,7 @@ module github.com/kisun-bit/drpkg
 go 1.20
 
 require (
+	github.com/RoaringBitmap/roaring/v2 v2.10.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dustin/go-humanize v1.0.1
 	github.com/glebarez/sqlite v1.10.0
@@ -27,7 +28,6 @@ require (
 )
 
 require (
-	github.com/RoaringBitmap/roaring/v2 v2.10.0 // indirect
 	github.com/bits-and-blooms/bitset v1.12.0 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
