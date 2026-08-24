@@ -522,6 +522,14 @@ func (vm *Vm) Repair() (err error) {
 	}
 }
 
+// Logs 返回修复虚拟机的日志通道（只读）。
+//
+// 调用方必须持续消费该通道：通道缓冲容量有限，写满后修复过程中
+// 产生的新日志会阻塞修复流程。
+func (vm *Vm) Logs() <-chan x2xcore.LogEntry {
+	return vm.logs
+}
+
 func (vm *Vm) Release() error {
 	vm.infof(LogTplReleaseRepairVM)
 
