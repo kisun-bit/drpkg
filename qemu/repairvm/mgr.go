@@ -431,7 +431,7 @@ func (vm *Vm) addCDROM() {
 
 }
 
-func (vm *Vm) Repair() (err error) {
+func (vm *Vm) Repair() (extra map[string]string, err error) {
 	vm.cmd = exec.CommandContext(vm.ctx, vm.cmdCaller, vm.cmdArgs...)
 	vm.cmd.Stdin = os.Stdin
 	vm.cmd.Stdout = os.Stdout
@@ -441,7 +441,7 @@ func (vm *Vm) Repair() (err error) {
 
 	// 启动 guest
 	if err = vm.cmd.Start(); err != nil {
-		return errors.Wrapf(err, "start guest")
+		return nil, errors.Wrapf(err, "start guest")
 	}
 
 	vm.infof(LogTplCreateCommunicationChannel)
@@ -449,19 +449,19 @@ func (vm *Vm) Repair() (err error) {
 	// 等待serial就绪
 	vm.reqSockConn, err = WaitSerialSocketReady(vm.ctx, vm.reqSockFile, 60, 10*time.Second)
 	if err != nil {
-		return errors.Wrapf(err, "WaitSerialSocketReady(ReqSock)")
+		return nil, errors.Wrapf(err, "WaitSerialSocketReady(ReqSock)")
 	}
 
 	vm.logSockConn, err = WaitSerialSocketReady(vm.ctx, vm.logSockFile, 60, 10*time.Second)
 	if err != nil {
-		return errors.Wrapf(err, "WaitSerialSocketReady(LogSock)")
+		return nil, errors.Wrapf(err, "WaitSerialSocketReady(LogSock)")
 	}
 
 	vm.infof(LogTplWaitRepairVMReady)
 
 	// 等待 guest 系统启动完成
 	if err = x2xcore.ReadReceivedSerialMessageTypeGuestReady(*vm.reqSockConn); err != nil {
-		return errors.Wrapf(err, "ReadReceivedSerialMessageTypeGuestReady")
+		return nil, errors.Wrapf(err, "ReadReceivedSerialMessageTypeGuestReady")
 	}
 
 	vm.infof(LogTplSendRepairRequest)
@@ -474,7 +474,7 @@ func (vm *Vm) Repair() (err error) {
 	}
 	logger.Debugf("fixParam: %s", extend.Pretty(fixParam))
 	if err = x2xcore.WriteSerialMessageTypeStartRepair(*vm.reqSockConn, *fixParam); err != nil {
-		return errors.Wrapf(err, "WriteSerialMessageTypeStartRepair")
+		return nil, errors.Wrapf(err, "WriteSerialMessageTypeStartRepair")
 	}
 
 	// 收集程序日志
@@ -494,29 +494,29 @@ func (vm *Vm) Repair() (err error) {
 
 		sm := &x2xcore.SerialMessage{}
 		if err = struc.Unpack(*vm.reqSockConn, sm); err != nil {
-			return errors.Wrapf(err, "Unpack SerialMessage")
+			return nil, errors.Wrapf(err, "Unpack SerialMessage")
 		}
 
 		switch sm.Type {
 		case x2xcore.SerialMessageTypeRepairLog:
 			logE := x2xcore.LogEntry{}
 			if err = json.Unmarshal(sm.Body, &logE); err != nil {
-				return err
+				return nil, err
 			}
 			vm.cacheLog(logE)
 
 		case x2xcore.SerialMessageTypeRepairResult:
 			repairResult := x2xcore.RepairResult{}
 			if err = json.Unmarshal(sm.Body, &repairResult); err != nil {
-				return err
+				return nil, err
 			}
 			if repairResult.Success {
-				return nil
+				return repairResult.Extra, nil
 			}
-			return errors.New(repairResult.ErrorMsg)
+			return nil, errors.New(repairResult.ErrorMsg)
 
 		default:
-			return errors.Errorf("unknown serial message (type: %v)", sm.Type)
+			return nil, errors.Errorf("unknown serial message (type: %v)", sm.Type)
 		}
 
 	}
