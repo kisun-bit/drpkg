@@ -169,6 +169,7 @@ const (
 const (
 	ChipsetQ35    = "q35"
 	ChipsetI440fx = "i440fx"
+	ChipsetVirt   = "virt"
 )
 
 // 显卡类型

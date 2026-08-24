@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/disk/image/qemublk"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
@@ -360,4 +361,11 @@ func IsKVMAvailable() bool {
 	}
 
 	return false
+}
+
+func hardwarePlatform(base define.HardwarePlatform, virt define.HPVirtType) string {
+	if base == define.HPVirt {
+		return string(virt)
+	}
+	return string(define.HPBareMetal)
 }

@@ -32,7 +32,7 @@ const (
 type windowsSystemFixer struct {
 	ctx     context.Context
 	opts    *FixerCreateOptions // 恢复参数
-	logs    <-chan LogEntry     // 日志缓存通道
+	logs    chan LogEntry       // 日志缓存通道
 	x2xLib  *x2xlib.X2XLib      // 驱动库
 	reqPort io.Writer           // 修复虚拟机与宿主机的通信信道
 	offsys  offlineSystem       // 离线系统的私有信息
@@ -58,7 +58,7 @@ func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io
 		return nil, err
 	}
 	logger.Debugf("NewSysFixer: opts(repaired):\n%s", extend.Pretty(opts))
-	lf := &windowsSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
+	lf := &windowsSystemFixer{ctx: ctx, opts: opts, logs: make(chan LogEntry, 1000)}
 
 	if opts.InRepairVM {
 		if serialReqPort == nil {
@@ -267,8 +267,28 @@ func (fixer *windowsSystemFixer) GetLog() (LogEntry, bool) {
 	}
 }
 
-func (fixer *windowsSystemFixer) GetPreferHostConfig(define.HPVirtType) (PreferConfig, error) {
-	return PreferConfig{}, errors.New("not implemented")
+func (fixer *windowsSystemFixer) GetPreferHostConfig(virtual define.HPVirtType) (cfg PreferConfig, err error) {
+	switch virtual {
+	case define.HPVTKvm:
+		cfg.Chipset = define.ChipsetI440fx
+		cfg.Video = define.VideoVGA
+		cfg.DiskBus = define.DiskBusIde
+		cfg.NetworkType = define.NetworkTypeRTL8192
+
+		if yes_, _ := fixer.largerThanNT61(); yes_ {
+			cfg.Chipset = define.ChipsetQ35
+			cfg.DiskBus = define.DiskBusVirtio
+			cfg.NetworkType = define.NetworkTypeVIRTIO
+		}
+
+		if fixer.opts.RecoveryParam.Source.Arch == "arm64" {
+			cfg.Chipset = define.ChipsetVirt
+		}
+
+		return cfg, nil
+	default:
+		return cfg, errors.New("GetPreferHostConfig: unsupported virtual type")
+	}
 }
 
 func (fixer *windowsSystemFixer) importForeignDisk() error {
@@ -1384,6 +1404,8 @@ func (fixer *windowsSystemFixer) logf(level LogLevel, tpl LangTpl, v ...interfac
 		_ = WriteSerialMessageTypeRepairLog(fixer.reqPort, le)
 		return
 	}
+
+	fixer.logs <- le
 
 	le.Println()
 }

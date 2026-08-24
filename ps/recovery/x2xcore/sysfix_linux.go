@@ -27,7 +27,7 @@ import (
 type linuxSystemFixer struct {
 	ctx          context.Context
 	opts         *FixerCreateOptions // 恢复参数
-	logs         <-chan LogEntry     // 日志缓存通道
+	logs         chan LogEntry       // 日志缓存通道
 	x2xLib       *x2xlib.X2XLib      // 驱动库
 	reqPort      io.Writer           // 修复虚拟机的通信信道
 	offsys       offlineSystem       // 离线系统的私有信息
@@ -108,7 +108,7 @@ func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io
 	if err = CheckAndFillFixerCreateOptions(opts); err != nil {
 		return nil, err
 	}
-	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(<-chan LogEntry, 1000)}
+	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(chan LogEntry, 1000)}
 	if opts.InRepairVM {
 		if serialReqPort == nil {
 			return nil, errors.New("serialReqPort is required")
@@ -2914,6 +2914,8 @@ func (fixer *linuxSystemFixer) logf(level LogLevel, tpl LangTpl, v ...interface{
 		_ = WriteSerialMessageTypeRepairLog(fixer.reqPort, le)
 		return
 	}
+
+	fixer.logs <- le
 
 	le.Println()
 }

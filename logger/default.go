@@ -10,6 +10,10 @@ func SetupDefaultLogger(l *zap.SugaredLogger) {
 	defaultLogger = l
 }
 
+func GetDefaultLogger() *zap.SugaredLogger {
+	return defaultLogger
+}
+
 func Debug(args ...interface{}) {
 	defaultLogger.Debug(args...)
 }

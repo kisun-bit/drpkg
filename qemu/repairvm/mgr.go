@@ -35,8 +35,30 @@ func Create(ctx context.Context, opt *Option) (*Vm, error) {
 	vm := &Vm{
 		ctx:   ctx,
 		opt:   opt,
+		logs:  make(chan x2xcore.LogEntry, 1000),
 		uuid_: uuid.New(),
 	}
+
+	vm.infof(LogTplReceiveRepairRequest)
+
+	sourceHP := hardwarePlatform(
+		opt.RecoveryParams.Source.Base,
+		opt.RecoveryParams.Source.Virt,
+	)
+	targetHP := hardwarePlatform(
+		opt.RecoveryParams.Target.Base,
+		opt.RecoveryParams.Target.Virt,
+	)
+
+	vm.infof(
+		LogTplRepairRequestDetails,
+		len(opt.RecoveryParams.OfflineSystemDisks),
+		opt.RecoveryParams.Source.Arch,
+		opt.RecoveryParams.OSType,
+		opt.RecoveryParams.FsckFs,
+		sourceHP,
+		targetHP,
+	)
 
 	vm.cancel = func() {}
 	if opt.RecoveryParams.TimeoutSeconds > 0 {
@@ -415,10 +437,14 @@ func (vm *Vm) Repair() (err error) {
 	vm.cmd.Stdout = os.Stdout
 	vm.cmd.Stderr = os.Stderr
 
+	vm.infof(LogTplCreateRepairVM)
+
 	// 启动 guest
 	if err = vm.cmd.Start(); err != nil {
 		return errors.Wrapf(err, "start guest")
 	}
+
+	vm.infof(LogTplCreateCommunicationChannel)
 
 	// 等待serial就绪
 	vm.reqSockConn, err = WaitSerialSocketReady(vm.ctx, vm.reqSockFile, 60, 10*time.Second)
@@ -431,10 +457,14 @@ func (vm *Vm) Repair() (err error) {
 		return errors.Wrapf(err, "WaitSerialSocketReady(LogSock)")
 	}
 
+	vm.infof(LogTplWaitRepairVMReady)
+
 	// 等待 guest 系统启动完成
 	if err = x2xcore.ReadReceivedSerialMessageTypeGuestReady(*vm.reqSockConn); err != nil {
 		return errors.Wrapf(err, "ReadReceivedSerialMessageTypeGuestReady")
 	}
+
+	vm.infof(LogTplSendRepairRequest)
 
 	// 通知 guest 执行修复操作
 	fixParam := &x2xcore.FixerCreateOptions{
@@ -473,8 +503,7 @@ func (vm *Vm) Repair() (err error) {
 			if err = json.Unmarshal(sm.Body, &logE); err != nil {
 				return err
 			}
-			logE.Println()
-			// TODO 缓存日志
+			vm.cacheLog(logE)
 
 		case x2xcore.SerialMessageTypeRepairResult:
 			repairResult := x2xcore.RepairResult{}
@@ -494,6 +523,8 @@ func (vm *Vm) Repair() (err error) {
 }
 
 func (vm *Vm) Release() error {
+	vm.infof(LogTplReleaseRepairVM)
+
 	if vm == nil {
 		return nil
 	}
@@ -536,4 +567,30 @@ func (vm *Vm) Release() error {
 	}
 
 	return nil
+}
+
+func (vm *Vm) logf(level x2xcore.LogLevel, tpl x2xcore.LangTpl, v ...interface{}) {
+	le := x2xcore.LogEntry{
+		Level: level,
+		MsgEn: fmt.Sprintf(tpl.En, v...),
+		MsgZh: fmt.Sprintf(tpl.Zh, v...),
+	}
+	vm.cacheLog(le)
+}
+
+func (vm *Vm) cacheLog(le x2xcore.LogEntry) {
+	vm.logs <- le
+	le.Println()
+}
+
+func (vm *Vm) infof(tpl x2xcore.LangTpl, v ...interface{}) {
+	vm.logf(x2xcore.LogInfo, tpl, v...)
+}
+
+func (vm *Vm) warnf(tpl x2xcore.LangTpl, v ...interface{}) {
+	vm.logf(x2xcore.LogWarn, tpl, v...)
+}
+
+func (vm *Vm) errorf(tpl x2xcore.LangTpl, v ...interface{}) {
+	vm.logf(x2xcore.LogError, tpl, v...)
 }

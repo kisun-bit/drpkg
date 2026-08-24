@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 
 	"github.com/kardianos/service"
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/minisvc"
@@ -264,8 +266,10 @@ func runRepair(
 		return fmt.Errorf("receive start repair request: %v", err)
 	}
 
+	kvmPreferConfig := x2xcore.PreferConfig{}
+
 	defer func() {
-		reportRepairResult(reqPort, err)
+		reportRepairResult(reqPort, kvmPreferConfig, err)
 	}()
 
 	fixer, err := x2xcore.NewSysFixer(
@@ -279,12 +283,17 @@ func runRepair(
 
 	defer fixer.Cleanup()
 
-	if err := fixer.Prepare(); err != nil {
+	if err = fixer.Prepare(); err != nil {
 		return fmt.Errorf("prepare repair environment: %v", err)
 	}
 
-	if err := fixer.Repair(); err != nil {
+	if err = fixer.Repair(); err != nil {
 		return fmt.Errorf("execute system repair: %v", err)
+	}
+
+	kvmPreferConfig, err = fixer.GetPreferHostConfig(define.HPVTKvm)
+	if err != nil {
+		logger.Warnf("get prefer host config failed: %v", err)
 	}
 
 	return nil
@@ -293,15 +302,22 @@ func runRepair(
 // reportRepairResult reports repair result to host.
 func reportRepairResult(
 	reqPort *os.File,
+	kvmPreferCfg x2xcore.PreferConfig,
 	err error,
 ) {
 
 	result := x2xcore.RepairResult{
 		Success: err == nil,
+		Extra:   make(map[string]string),
 	}
 
 	if err != nil {
 		result.ErrorMsg = err.Error()
+	} else {
+		if kvmPreferCfg.Chipset != "" {
+			kvmPreferCfgData, _ := json.Marshal(kvmPreferCfg)
+			result.Extra["kvmPreferConfig"] = string(kvmPreferCfgData)
+		}
 	}
 
 	if sendErr := x2xcore.WriteSerialMessageTypeRepairResult(

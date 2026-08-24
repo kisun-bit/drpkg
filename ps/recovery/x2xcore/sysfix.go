@@ -43,10 +43,10 @@ type FixerCreateOptions struct {
 }
 
 type PreferConfig struct {
-	Chipset     string // 芯片组
-	Video       string // 显卡类型
-	DiskBus     string // 磁盘总线
-	NetworkType string // 网卡类型
+	Chipset     string `json:"chipset"`     // 芯片组
+	Video       string `json:"video"`       // 显卡类型
+	DiskBus     string `json:"diskBus"`     // 磁盘总线
+	NetworkType string `json:"networkType"` // 网卡类型
 
 	// TODO 更多
 }

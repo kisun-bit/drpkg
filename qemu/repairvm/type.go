@@ -74,6 +74,8 @@ type Vm struct {
 	machine     string          // 修复虚拟机：机型（q35 / virt）
 	firmware    *firmwareConfig // 修复虚拟机：UEFI 固件（nil 表示 BIOS 启动）
 
+	logs chan x2xcore.LogEntry // 修复日志
+
 	uuid_        uuid.UUID
 	reqSockName  string
 	logSockName  string
