@@ -44,7 +44,7 @@ func checkFamily(family string) error {
 		return errors.New("family is required")
 	}
 	if !funk.InStrings(SupportedFamilyTypes, family) {
-		return errors.Errorf("unsupported family(`%s`)", family)
+		return errors.Errorf("unsupported family(`%s`), expect: [%s]", family, strings.Join(SupportedFamilyTypes, ","))
 	}
 	return nil
 }
