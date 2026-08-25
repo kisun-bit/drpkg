@@ -245,11 +245,11 @@ func MountpointUsage(path string) (int64, int64, int64, int64, int64, int64, err
 		return 0, 0, 0, 0, 0, 0, err
 	}
 
-	available := int64(statfs.Bavail) * statfs.Bsize
+	available := int64(statfs.Bavail) * int64(statfs.Bsize)
 
-	capacity := int64(statfs.Blocks) * statfs.Bsize
+	capacity := int64(statfs.Blocks) * int64(statfs.Bsize)
 
-	usage := (int64(statfs.Blocks) - int64(statfs.Bfree)) * statfs.Bsize
+	usage := (int64(statfs.Blocks) - int64(statfs.Bfree)) * int64(statfs.Bsize)
 
 	inodes := int64(statfs.Files)
 	inodesFree := int64(statfs.Ffree)
