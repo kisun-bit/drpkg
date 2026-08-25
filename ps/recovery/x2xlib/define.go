@@ -63,8 +63,9 @@ var SupportedArchTypes = []string{
 
 var SupportedFamilyTypes = []string{
 	define.LinuxFamilyRHEL,
-	define.LinuxFamilyRHEL,
+	define.LinuxFamilyALT,
 	define.LinuxFamilySUSE,
+	define.LinuxFamilyDebian,
 	define.WindowsFamily,
 }
 
