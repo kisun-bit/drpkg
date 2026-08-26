@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -167,7 +168,7 @@ func validateDisk(
 		return errors.Wrapf(os.ErrNotExist, d.Path)
 	}
 
-	if d.Size < 0 {
+	if d.Size <= 0 {
 		return errors.Errorf(
 			"invalid size: %d",
 			d.Size,
@@ -186,14 +187,6 @@ func validateDisk(
 			"invalid PBA: %d",
 			d.PBA,
 		)
-	}
-
-	if d.LBA >= d.Size/512 {
-		return errors.Errorf("invalid LBA: %d", d.LBA)
-	}
-
-	if d.PBA >= d.Size/512 {
-		return errors.Errorf("invalid PBA: %d", d.LBA)
 	}
 
 	return nil
@@ -336,6 +329,12 @@ func IsKVMAvailable() bool {
 	// Linux only
 	if _, err := os.Stat("/dev/kvm"); err != nil {
 		return false
+	}
+
+	// aarch64 的虚拟化能力由 ARMv8 架构内建提供，
+	// /dev/kvm 存在即表示可用；vmx/svm 是 x86 专属标志，不适用。
+	if runtime.GOARCH == "arm64" {
+		return true
 	}
 
 	// Check CPU virtualization feature

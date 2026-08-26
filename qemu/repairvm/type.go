@@ -57,6 +57,9 @@ type Option struct {
 	// 使用 UEFI）。显式指定 UEFI 但未配置 Firmware 的 amd64 场景，
 	// 同样走固件探测。
 	BootMode define.BootMode `json:"bootMode"`
+
+	// ForceUseTcg 是否强制启用TCG
+	ForceUseTcg bool `json:"forceUseTcg"`
 }
 
 type Vm struct {

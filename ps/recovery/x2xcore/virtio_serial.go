@@ -179,22 +179,76 @@ func FindVirtioPort(name string) string {
 	return findVirtioPortLinux(name)
 }
 
+//func findVirtioPortLinux(name string) string {
+//	const portsDir = "/sys/class/virtio-ports/"
+//	entries, err := os.ReadDir(portsDir)
+//	if err != nil {
+//		return ""
+//	}
+//	for _, entry := range entries {
+//		nameFile := filepath.Join(portsDir, entry.Name(), "name")
+//		data, err := os.ReadFile(nameFile)
+//		if err != nil {
+//			continue
+//		}
+//		if strings.TrimSpace(string(data)) == name {
+//			return "/dev/" + entry.Name()
+//		}
+//	}
+//	return ""
+//}
+
 func findVirtioPortLinux(name string) string {
 	const portsDir = "/sys/class/virtio-ports/"
+
+	logger.Debugf("FindVirtioPort: target name=%q", name)
+
 	entries, err := os.ReadDir(portsDir)
 	if err != nil {
+		logger.Debugf("ReadDir %s failed: %v", portsDir, err)
 		return ""
 	}
+
 	for _, entry := range entries {
-		nameFile := filepath.Join(portsDir, entry.Name(), "name")
+		logger.Debugf("checking virtio port entry=%q", entry.Name())
+
+		nameFile := filepath.Join(
+			portsDir,
+			entry.Name(),
+			"name",
+		)
+
 		data, err := os.ReadFile(nameFile)
 		if err != nil {
+			logger.Debugf("ReadFile %s failed: %v", nameFile, err)
 			continue
 		}
-		if strings.TrimSpace(string(data)) == name {
-			return "/dev/" + entry.Name()
+
+		portName := strings.TrimSpace(string(data))
+
+		logger.Debugf(
+			"virtio port: entry=%q, portName=%q, target=%q, equal=%v",
+			entry.Name(),
+			portName,
+			name,
+			portName == name,
+		)
+
+		if portName == name {
+			devPath := "/dev/" + entry.Name()
+
+			logger.Debugf(
+				"virtio port found: name=%q dev=%q",
+				name,
+				devPath,
+			)
+
+			return devPath
 		}
 	}
+
+	logger.Debugf("virtio port not found: target=%q", name)
+
 	return ""
 }
 

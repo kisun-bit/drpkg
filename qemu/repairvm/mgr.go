@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
@@ -158,10 +159,6 @@ func (vm *Vm) prepareSimulator() error {
 
 	arch := vm.opt.RecoveryParams.Source.Arch
 
-	if vm.opt.RecoveryParams.OSType == "windows" {
-		arch = "amd64"
-	}
-
 	if arch == "" {
 		return errors.New(
 			"unsupported architecture",
@@ -226,24 +223,53 @@ func (vm *Vm) buildCommand() error {
 
 		"-uuid", vm.uuid_.String(),
 
-		"-m", "2G",
-
 		"-smp", "4",
+
+		"--display", "none",
 	)
+
+	if vm.opt.RecoveryParams.OSType == "windows" {
+		vm.cmdArgs = append(vm.cmdArgs, "-m", "2G")
+	} else {
+		vm.cmdArgs = append(vm.cmdArgs, "-m", "1G")
+	}
 
 	// UEFI 固件（pflash），仅 UEFI 启动时追加
 	vm.cmdArgs = vm.firmware.addArgs(vm.cmdArgs)
 
 	// KVM 仅在修复虚拟机架构与宿主机架构一致时可用；
 	// 跨架构（如 amd64 主机运行 arm64 修复虚拟机）只能使用 TCG。
-	if vm.arch == runtime.GOARCH && IsKVMAvailable() {
+	useKvm := vm.arch == runtime.GOARCH &&
+		IsKVMAvailable() &&
+		!vm.opt.ForceUseTcg &&
+		vm.opt.RecoveryParams.OSType == define.OsLinux
+	if useKvm {
 		vm.cmdArgs = append(vm.cmdArgs, "-enable-kvm")
 	} else {
 		vm.cmdArgs = append(vm.cmdArgs, "-accel", "tcg,thread=multi")
 	}
 
-	if vm.arch == "amd64" {
-		vm.cmdArgs = append(vm.cmdArgs, "-cpu", "qemu64")
+	switch vm.arch {
+	case "amd64":
+		if useKvm {
+			vm.cmdArgs = append(vm.cmdArgs, "-cpu", "host")
+		} else {
+			vm.cmdArgs = append(vm.cmdArgs, "-cpu", "qemu64")
+		}
+
+	case "386":
+		// 使用 x86_64 QEMU 模拟 32 位 x86 CPU
+		vm.cmdArgs = append(vm.cmdArgs, "-cpu", "qemu32")
+
+	case "arm64":
+		if useKvm {
+			vm.cmdArgs = append(vm.cmdArgs, "-cpu", "host")
+		} else {
+			vm.cmdArgs = append(vm.cmdArgs, "-cpu", "cortex-a72")
+		}
+
+	default:
+		return errors.Errorf("unsupported architecture: %s", vm.arch)
 	}
 
 	vm.addVirtioSerial()

@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/kisun-bit/drpkg/define"
+	"github.com/kisun-bit/drpkg/extend"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
 	"github.com/kisun-bit/drpkg/qemu/repairvm"
@@ -14,8 +15,9 @@ import (
 func main() {
 	vm, err := repairvm.Create(context.Background(),
 		&repairvm.Option{
-			//VmBootDiskFile: "/var/lib/libvirt/images/repairvm.win10.amd64.iso",
-			VmBootDiskFile: "/var/lib/libvirt/images/repairvm.alpine3.17.9.amd64.qcow2",
+			//VmBootDiskFile: "/home/zk/runstor/plugin/imgfixer/resource/repairvm/image/windows/amd64/universal/re.windows.amd64.iso",
+			//VmBootDiskFile: "/var/lib/libvirt/images/repairvm.alpine3.17.9.amd64.qcow2",
+			VmBootDiskFile: "/home/zk/runstor/plugin/imgfixer/resource/repairvm/image/linux/arm64/uefi/re.linux.arm64.k4.qcow2",
 			RecoveryParams: x2xcore.RecoveryParameter{
 				OfflineSystemDisks: []x2xcore.Disk{
 					{
@@ -27,20 +29,21 @@ func main() {
 						//Path: "/instance_ugeh/tenant_dfte/job_conf_y49ew5uq13_41/Job_UYtiwsLLrz/vm-81115/1653524774799371602.qcow2.overlay",
 						//Path: "/instance_ugeh/tenant_dfte/job_conf_y49ew5uq13_41/Job_AnAamq3OyN/vm-74628/13905887725040284033.qcow2.overlay",
 						//Path: "/instance_ugeh/tenant_dfte/job_conf_ucatcf0f5t_42/Job_GOyn2QEOBR/vm-73362/12896675651414882390.qcow2.overlay",
-						Path: "/instance_ugeh/tenant_dfte/job_conf_ucatcf0f5t_42/Job_GOyn2QEOBR/vm-73372/10087003536009437921.qcow2.overlay",
+						//Path: "/instance_ugeh/tenant_dfte/job_conf_ucatcf0f5t_42/Job_GOyn2QEOBR/vm-73372/10087003536009437921.qcow2.overlay",
+						Path: "/home/zk/runstor/plugin/imgfixer/test.qcow2",
 						LBA:  512,
 						PBA:  512,
 						Size: 42949672960,
 					},
 				},
 				Source: x2xcore.Platform{
-					Arch:      "amd64",
+					Arch:      "arm64",
 					CpuVendor: "",
 					Base:      define.HPVirt,
 					Virt:      define.HPVTKvm,
 				},
 				Target: x2xcore.Platform{
-					Arch:      "amd64",
+					Arch:      "arm64",
 					CpuVendor: "",
 					Base:      define.HPVirt,
 					Virt:      define.HPVTKvm,
@@ -60,6 +63,7 @@ func main() {
 			},
 			SimulatorConfigFile: "/var/lib/libvirt/images/s.json",
 			DriverDBImageFile:   "/var/lib/libvirt/images/library.iso",
+			ForceUseTcg:         false,
 		})
 
 	if err != nil {
@@ -69,7 +73,10 @@ func main() {
 
 	defer vm.Release()
 
-	if err = vm.Repair(); err != nil {
+	extra, err := vm.Repair()
+	if err != nil {
 		logger.Error("Repair: ", err)
 	}
+
+	logger.Debugf("result: %s", extend.Pretty(extra))
 }
