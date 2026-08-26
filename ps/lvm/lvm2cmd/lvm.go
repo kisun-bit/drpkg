@@ -279,45 +279,51 @@ func LvThinCreate(name, vg, pool string, size int64) error {
 
 func Lvs(filter ...string) ([]*LogicalVolume, error) {
 	usePoolLV := true
+
 	r, o, eo := command.Execute(CommandStringForLvs(filter...))
 	if r != 0 {
 		oldErr := errors.Errorf(
 			"failed to list logic volume with pvPaths-rule(`%v`). o=`%s`, error_output=`%s`",
-			filter, o, eo)
+			filter, o, eo,
+		)
+
 		r, o, eo = command.Execute(CommandStringForLvsWithoutPoolLV(filter...))
 		if r != 0 {
 			return nil, oldErr
 		}
+
 		usePoolLV = false
 	}
 
 	lvList := make([]*LogicalVolume, 0)
-	for _, lv := range strings.Split(o, "\n") {
-		lv = strings.TrimSpace(lv)
-		if lv == "" {
+
+	for _, line := range strings.Split(o, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-		vals := strings.Split(lv, ",")
-		/*
-			vals的索引与值类型的对应关系：
-			lv_name,vg_name,lv_uuid,lv_attr,lv_size,[pool_lv]
-			0       1       2       3       4       [5      ]
-			**/
+
+		vals := strings.Split(line, ",")
+
+		// 至少需要：lv_name,vg_name,lv_uuid,lv_attr,lv_size
+		if len(vals) < 5 {
+			return nil, fmt.Errorf("invalid lvs output: %q", line)
+		}
+
 		attrs, err := ParseLvAttrs(vals[3])
 		if err != nil {
-			return nil, fmt.Errorf("lvs parse attrs: %v", err)
+			return nil, fmt.Errorf("lvs parse attrs: %w", err)
 		}
 
 		size, err := strconv.ParseInt(vals[4], 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("lvs: could not convert %s to int64", vals[5])
+			return nil, fmt.Errorf("lvs: could not convert %q to int64", vals[4])
 		}
 
-		lv_ := &LogicalVolume{
+		lv := &LogicalVolume{
 			Name:            vals[0],
 			VgName:          vals[1],
 			UUID:            vals[2],
-			Origin:          vals[6],
 			AttrVolType:     attrs[0],
 			AttrPermissions: attrs[1],
 			AttrAllocPolicy: attrs[2],
@@ -331,11 +337,18 @@ func Lvs(filter ...string) ([]*LogicalVolume, error) {
 			AttrStr:         vals[3],
 			Size:            size,
 		}
+
+		// LVM2 可选字段：pool_lv
 		if usePoolLV && len(vals) > 5 {
-			lv_.Pool = vals[5]
+			lv.Pool = vals[5]
 		}
 
-		lvList = append(lvList, lv_)
+		// 可选字段：origin（如果命令输出了）
+		if len(vals) > 6 {
+			lv.Origin = vals[6]
+		}
+
+		lvList = append(lvList, lv)
 	}
 
 	return lvList, nil
