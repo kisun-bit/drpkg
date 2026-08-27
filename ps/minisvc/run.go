@@ -20,7 +20,7 @@ func Run(opts Options) error {
 
 	case "version":
 
-		_, _ = fmt.Fprint(
+		_, _ = fmt.Fprintln(
 			os.Stdout,
 			opts.Version,
 		)
