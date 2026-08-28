@@ -50,6 +50,8 @@ type offlineSystem struct {
 	currentControlSet  int
 	windowsVersion     define.WindowsVersion
 	halType            define.HALType
+	legacyBlockDriver  string // 传统方式注入的 virtio 块驱动服务名（viostor/vioscsi），空表示未注入
+	legacyNetDriver    bool   // 是否以传统方式注入了 netkvm 网络驱动
 }
 
 func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io.Writer) (fixer SysFixer, err error) {
@@ -131,22 +133,24 @@ func (fixer *windowsSystemFixer) Repair() (err error) {
 		return err
 	}
 
-	// 2. 低版本 Windows 不支持 DISM，跳过后续硬件兼容性修复
+	// 2. 低版本 Windows（< Win7/2008R2）不支持 DISM 与 firstboot
+	//    配置服务，跳过服务/网络注入，但仍执行虚拟化平台驱动适配
+	//    （通过 CriticalDeviceDatabase 等传统方式注入）。
 	dismSupported, e := fixer.largerThanNT61()
 	if e != nil {
 		return e
 	}
-	if !dismSupported {
-		fixer.warnf(LogTplForIgnoreRepairWith1Args, fixer.offsys.windowsVersion)
-		return nil
-	}
 
-	// 3. 注入配置与网络服务
-	if err = fixer.injectConfigService(); err != nil {
-		return errors.Wrap(err, "inject config service")
-	}
-	if err = fixer.injectNetworkConfig(); err != nil {
-		return errors.Wrap(err, "inject network config")
+	if dismSupported {
+		// 3. 注入配置与网络服务（仅支持 Win7/2008R2 及以上）
+		if err = fixer.injectConfigService(); err != nil {
+			return errors.Wrap(err, "inject config service")
+		}
+		if err = fixer.injectNetworkConfig(); err != nil {
+			return errors.Wrap(err, "inject network config")
+		}
+	} else {
+		fixer.warnf(LogTplForSkipFirstBootServiceWith1Args, fixer.offsys.windowsVersion)
 	}
 
 	// 4. 虚拟化平台驱动适配
@@ -279,6 +283,18 @@ func (fixer *windowsSystemFixer) GetPreferHostConfig(virtual define.HPVirtType) 
 			cfg.Chipset = define.ChipsetQ35
 			cfg.DiskBus = define.DiskBusVirtio
 			cfg.NetworkType = define.NetworkTypeVIRTIO
+		} else {
+			// 旧系统（< Win7/2008R2）若已成功注入（或已具备可用的）
+			// legacy virtio 驱动，宿主机即可使用 virtio 磁盘/网卡；
+			// 保持 i440fx 与 legacy PCI 设备 ID
+			// （见 viostorCompatIds/vioscsiCompatIds）。
+			blockDrv, netDrv := fixer.probeLegacyKvmDrivers()
+			if blockDrv != "" {
+				cfg.DiskBus = define.DiskBusVirtio
+			}
+			if netDrv {
+				cfg.NetworkType = define.NetworkTypeVIRTIO
+			}
 		}
 
 		if fixer.opts.RecoveryParam.Source.Arch == "arm64" {
@@ -1035,6 +1051,357 @@ func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) 
 	return nil
 }
 
+// viostorCompatIds / vioscsiCompatIds 是 virtio 块设备的 PCI 兼容硬件 ID
+// （参见 virt-v2v windows_virtio.ml）。legacy 系统与 modern 设备的
+// Device ID 不同，需分别注册：
+//
+//   - viostor:  legacy  1001 / 1100
+//   - viostor:  modern  1041 (transitional) / 1042
+//   - vioscsi:  legacy  1004
+//   - vioscsi:  modern  1048
+var (
+	viostorCompatIds = []string{
+		`PCI\VEN_1AF4&DEV_1001&SUBSYS_00021AF4&REV_00`,
+		//`PCI\VEN_1AF4&DEV_1100&SUBSYS_00021AF4&REV_01`,
+		//`PCI\VEN_1AF4&DEV_1041&SUBSYS_11001AF4&REV_01`,
+		`PCI\VEN_1AF4&DEV_1042&SUBSYS_11001AF4&REV_01`,
+		//`PCI\VEN_1AF4&DEV_1001&SUBSYS_00021AF4`,
+		//`PCI\VEN_1AF4&DEV_1100&SUBSYS_00021AF4`,
+		//`PCI\VEN_1AF4&DEV_1041&SUBSYS_11001AF4`,
+		//`PCI\VEN_1AF4&DEV_1042&SUBSYS_11001AF4`,
+		//`PCI\VEN_1AF4&DEV_1001`,
+		//`PCI\VEN_1AF4&DEV_1100`,
+		//`PCI\VEN_1AF4&DEV_1041`,
+		//`PCI\VEN_1AF4&DEV_1042`,
+	}
+
+	vioscsiCompatIds = []string{
+		`PCI\VEN_1AF4&DEV_1004&SUBSYS_00081AF4&REV_00`,
+		`PCI\VEN_1AF4&DEV_1048&SUBSYS_11001AF4&REV_01`,
+		//`PCI\VEN_1AF4&DEV_1004`,
+		//`PCI\VEN_1AF4&DEV_1048`,
+	}
+)
+
+const scsiMiniportGroup = "SCSI miniport"
+
+// injectDriversLegacy 为旧版 Windows（win2k/winxp/win2k3/winvista/win2k8，
+// 即 < Win7/2008R2）注入驱动库中的虚拟化驱动。
+//
+// 旧系统不支持 DISM /Add-Driver，也不存在 DriverStore（DriverDatabase
+// 从 Win8 起使用，Vista 的 CDB 仍有效）。实现参考 virt-v2v 对
+// XP/2003/Vista 的处理：
+//
+//  1. 将驱动模块（.sys 及同目录的 .inf/.cat 配套文件）复制到离线系统的
+//     System32\Drivers 与 Inf 目录；
+//  2. 在 SYSTEM hive 的 CriticalDeviceDatabase 中登记启动关键设备的
+//     PCI 兼容 ID 与对应驱动服务；
+//  3. 创建/更新驱动服务项：Type=1（内核驱动）、Start=0（boot start）、
+//     ErrorControl=1、ImagePath=system32\drivers\<drv>.sys，块驱动另
+//     设置 Group="SCSI miniport" 以保证在磁盘子系统初始化前加载。
+//
+// 块驱动（viostor/vioscsi）必须做 boot start 注册才能引导；
+// 其余驱动（如 netkvm）随系统启动后由 PnP 管理器安装。
+//
+// 返回值（blockDrv, netDrv）表示实际完成注册的块驱动服务名与网络驱动，
+// 供调用方决定宿主机磁盘总线与网卡类型；块驱动为空表示无可用驱动，
+// 恢复后应使用 IDE 等模拟磁盘启动。
+func (fixer *windowsSystemFixer) injectDriversLegacy(ds *x2xlib.DriverResource) (blockDrv, netDrv string, err error) {
+	logger.Debugf("injectDriversLegacy: begin, dir=%s modules=%v", ds.Dir, ds.Modules)
+	defer logger.Debugf("injectDriversLegacy: end")
+
+	fixer.infof(LogTplForInjectLegacyDriversWith0Args)
+
+	const (
+		moduleViostor = "viostor"
+		moduleVioscsi = "vioscsi"
+		moduleNetkvm  = "netkvm"
+		scsiClassGuid = "{4D36E97B-E325-11CE-BFC1-08002BE10318}" // SCSI adapter 类 GUID
+	)
+
+	// ------------------------------------------------------------------
+	// 1. 拷贝驱动文件
+	// ------------------------------------------------------------------
+
+	sysRoot := fixer.offsys.sysVolumeLtr + `:\`
+	driversDir := filepath.Join(sysRoot, "Windows", "System32", "drivers")
+	infDir := filepath.Join(sysRoot, "Windows", "inf")
+
+	files, e := os.ReadDir(ds.Dir)
+	if e != nil {
+		return "", "", errors.Wrapf(e, "read driver dir %s", ds.Dir)
+	}
+
+	// legacySysFiles 记录每个模块实际复制成功的 .sys 文件名，
+	// 供后续注册表写入使用。
+	legacySysFiles := make(map[string]string)
+
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+
+		name := f.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		module := strings.TrimSuffix(strings.ToLower(name), ext)
+
+		// 仅拷贝驱动库中与本驱动集模块相关的文件
+		matched := false
+		for _, m := range ds.Modules {
+			if strings.EqualFold(m, module) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+
+		src := filepath.Join(ds.Dir, name)
+
+		var dst string
+		switch ext {
+		case ".sys":
+			dst = filepath.Join(driversDir, name)
+			legacySysFiles[module] = name
+		case ".inf", ".cat", ".pnf":
+			dst = filepath.Join(infDir, name)
+		default:
+			// .pdb 等调试文件无需注入
+			logger.Debugf("injectDriversLegacy: skip %s", name)
+			continue
+		}
+
+		if e = extend.CopyFile(src, dst, 0o666); e != nil {
+			return "", "", errors.Wrapf(e, "copy %s -> %s", src, dst)
+		}
+		equal, e := extend.FileEqual(src, dst)
+		if e != nil {
+			return "", "", errors.Wrapf(e, "same md5sum %s -> %s", src, dst)
+		}
+		if !equal {
+			return "", "", errors.Errorf("md5 mismatch, src:%s, dst:%s", src, dst)
+		}
+		logger.Debugf("injectDriversLegacy: copied %s", dst)
+	}
+
+	// ------------------------------------------------------------------
+	// 2. 注册表注入
+	// ------------------------------------------------------------------
+
+	isBlockModule := map[string]bool{
+		moduleViostor: true,
+		moduleVioscsi: true,
+	}
+
+	for _, module := range ds.Modules {
+		sysFile, ok := legacySysFiles[module]
+		if !ok {
+			// 模块没有对应的 .sys（例如纯 INF 驱动），跳过服务注册
+			logger.Debugf("injectDriversLegacy: module %s has no sys file, skip", module)
+			continue
+		}
+
+		// 块驱动必须为 boot start（Start=0）；网络等非引导驱动
+		// 注册为按需启动（Start=3），由 PnP 管理器在首次启动时安装。
+		if e := fixer.installLegacyService(module, sysFile, isBlockModule[module]); e != nil {
+			return "", "", e
+		}
+	}
+
+	// 块驱动：在 CDB 中登记 PCI 兼容 ID，保证引导阶段可加载
+	for _, module := range []string{moduleViostor, moduleVioscsi} {
+		if _, ok := legacySysFiles[module]; !ok {
+			continue
+		}
+
+		compatIds := viostorCompatIds
+		if module == moduleVioscsi {
+			compatIds = vioscsiCompatIds
+		}
+
+		if e := fixer.registerCriticalDeviceDatabase(module, scsiClassGuid, compatIds); e != nil {
+			return "", "", e
+		}
+		blockDrv = module
+	}
+
+	// 网络驱动
+	if _, ok := legacySysFiles[moduleNetkvm]; ok {
+		netDrv = moduleNetkvm
+	}
+
+	fixer.offsys.legacyBlockDriver = blockDrv
+	fixer.offsys.legacyNetDriver = netDrv != ""
+
+	logger.Infof(
+		"injectDriversLegacy: done, block=%q net=%q",
+		blockDrv,
+		netDrv,
+	)
+
+	return blockDrv, netDrv, nil
+}
+
+// installLegacyService 在离线 SYSTEM hive 中创建/更新内核驱动服务项。
+//
+// bootCritical 为 true（块存储驱动）时：
+//
+//	Type         = SERVICE_KERNEL_DRIVER (1)
+//	Start        = SERVICE_BOOT_START   (0)
+//	ErrorControl = SERVICE_ERROR_NORMAL (1)
+//	Group        = SCSI miniport
+//
+// 同时写入对应 INF 中的 Parameters 配置：
+//
+//	Parameters\BusType
+//	Parameters\PnpInterface\5
+//
+// bootCritical 为 false 时：
+//
+//	Start = SERVICE_DEMAND_START (3)
+//	不设置启动加载组及 boot-critical 参数。
+func (fixer *windowsSystemFixer) installLegacyService(
+	serviceName, sysFileName string,
+	bootCritical bool,
+) error {
+	servicesRegPath := fmt.Sprintf(
+		"%s\\ControlSet%03d\\Services",
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet,
+	)
+
+	svcKey, _, err := registry.CreateKey(
+		registry.LOCAL_MACHINE,
+		servicesRegPath+"\\"+serviceName,
+		registry.ALL_ACCESS,
+	)
+	if err != nil {
+		return errors.Wrapf(err, "create service key %s", serviceName)
+	}
+	defer svcKey.Close()
+
+	// Type: SERVICE_KERNEL_DRIVER = 1
+	if err := svcKey.SetDWordValue("Type", 1); err != nil {
+		return errors.Wrap(err, "set Type")
+	}
+
+	// Start:
+	//   SERVICE_BOOT_START   = 0
+	//   SERVICE_DEMAND_START = 3
+	start := uint32(3)
+	if bootCritical {
+		start = 0
+	}
+	if err := svcKey.SetDWordValue("Start", start); err != nil {
+		return errors.Wrap(err, "set Start")
+	}
+
+	// ErrorControl: SERVICE_ERROR_NORMAL = 1
+	if err := svcKey.SetDWordValue("ErrorControl", 1); err != nil {
+		return errors.Wrap(err, "set ErrorControl")
+	}
+
+	// ServiceBinary = %12%\viostor.sys
+	//
+	// %12% 对应 %SystemRoot%\System32\drivers。
+	// 使用 REG_EXPAND_SZ，与 INF 中的 ServiceBinary 保持一致。
+	imagePath := fmt.Sprintf(`system32\drivers\%s`, sysFileName)
+	if err := svcKey.SetExpandStringValue("ImagePath", imagePath); err != nil {
+		return errors.Wrap(err, "set ImagePath")
+	}
+
+	if bootCritical {
+		// LoadOrderGroup = SCSI miniport
+		if err := svcKey.SetStringValue("Group", "SCSI miniport"); err != nil {
+			return errors.Wrap(err, "set Group")
+		}
+
+		busType := uint32(1)
+		if serviceName == "vioscsi" {
+			busType = 0xA
+		}
+
+		// Services\<service>\Parameters
+		paramKey, _, err := registry.CreateKey(svcKey, "Parameters", registry.ALL_ACCESS)
+		if err != nil {
+			return errors.Wrap(err, "create Parameters key")
+		}
+		defer paramKey.Close()
+
+		if err := paramKey.SetDWordValue("BusType", busType); err != nil {
+			return errors.Wrap(err, "set Parameters\\BusType")
+		}
+
+		// Services\<service>\Parameters\PnpInterface
+		pnpKey, _, err := registry.CreateKey(paramKey, "PnpInterface", registry.ALL_ACCESS)
+		if err != nil {
+			return errors.Wrap(err, "create PnpInterface key")
+		}
+		defer pnpKey.Close()
+
+		if err := pnpKey.SetDWordValue("5", 1); err != nil {
+			return errors.Wrap(err, "set Parameters\\PnpInterface\\5")
+		}
+	}
+
+	logger.Debugf(
+		"installLegacyService: service %s registered "+
+			"(ImagePath=%s, Start=%d, bootCritical=%v)",
+		serviceName,
+		imagePath,
+		start,
+		bootCritical,
+	)
+
+	return nil
+}
+
+// registerCriticalDeviceDatabase 在 CriticalDeviceDatabase 中为每个
+// PCI 兼容 ID 创建条目（HKLM\SYSTEM\<CCS>\Control\CriticalDeviceDatabase\PCI#...），
+// 值为 Service（驱动服务名）与 ClassGUID。这是旧版 Windows 引导阶段
+// 识别启动关键设备并加载对应驱动的机制。
+func (fixer *windowsSystemFixer) registerCriticalDeviceDatabase(serviceName, classGuid string, compatIds []string) error {
+	cdbRoot := fmt.Sprintf(
+		"%s\\ControlSet00%d\\Control\\CriticalDeviceDatabase",
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet,
+	)
+
+	for _, compatID := range compatIds {
+		// CDB 键名使用 "#" 替代 "\"
+		keyName := strings.ToLower(strings.ReplaceAll(compatID, `\`, `#`))
+		keyPath := cdbRoot + `\` + keyName
+
+		key, _, err := registry.CreateKey(
+			registry.LOCAL_MACHINE,
+			keyPath,
+			registry.ALL_ACCESS,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "create CDB key %s", keyName)
+		}
+
+		if err = key.SetStringValue("Service", serviceName); err != nil {
+			key.Close()
+			return errors.Wrap(err, "set Service")
+		}
+		if err = key.SetStringValue("ClassGUID", classGuid); err != nil {
+			key.Close()
+			return errors.Wrap(err, "set ClassGUID")
+		}
+		key.Close()
+
+		logger.Debugf(
+			"registerCriticalDeviceDatabase: %s -> %s",
+			keyName,
+			serviceName,
+		)
+	}
+
+	return nil
+}
+
 func (fixer *windowsSystemFixer) enableIDE() error {
 	drivers := []string{
 		"atapi",
@@ -1120,7 +1487,7 @@ func (fixer *windowsSystemFixer) fixUefi() error {
 		return errors.Wrap(err, "create EFI\\Boot")
 	}
 
-	if _, err := extend.CopyFile(bootmgfw, fallback); err != nil {
+	if err := extend.CopyFile(bootmgfw, fallback, 0755); err != nil {
 		return errors.Wrap(err, "copy bootmgfw.efi")
 	}
 
@@ -1244,6 +1611,31 @@ func (fixer *windowsSystemFixer) largerThanNT61() (bool, error) {
 	return false, nil
 }
 
+// probeLegacyKvmDrivers 探测旧系统当前可用的 KVM virtio 驱动，
+// 返回可用的块驱动服务名（viostor/vioscsi，空表示不可用）
+// 与网络驱动是否可用。
+//
+// 优先使用本次修复注入的结果；当修复流程被跳过时（如源/目标
+// 虚拟化平台相同），退化为检查离线系统中已注册的驱动服务。
+func (fixer *windowsSystemFixer) probeLegacyKvmDrivers() (blockDrv string, netDrv bool) {
+	blockDrv = fixer.offsys.legacyBlockDriver
+	if blockDrv == "" {
+		for _, m := range []string{"viostor", "vioscsi"} {
+			if fixer.existedService(m) {
+				blockDrv = m
+				break
+			}
+		}
+	}
+
+	netDrv = fixer.offsys.legacyNetDriver
+	if !netDrv {
+		netDrv = fixer.existedService("netkvm")
+	}
+
+	return blockDrv, netDrv
+}
+
 func (fixer *windowsSystemFixer) fixNtfsHeads() error {
 	logger.Debugf("fixNtfsHeads: ++")
 	defer logger.Debugf("fixNtfsHeads: --")
@@ -1253,7 +1645,11 @@ func (fixer *windowsSystemFixer) fixNtfsHeads() error {
 	return nil
 }
 
-// injectConfigService 向离线系统注入配置程序
+// injectConfigService 向离线系统注入配置程序。
+//
+// drfirstboot.exe 仅面向 Win7/2008R2（NT61）及以上系统；
+// 更老的系统（winxp/win2k3/winvista/win2k8）不支持该服务，
+// 仅写入网络配置文件无意义，因此直接跳过。
 func (fixer *windowsSystemFixer) injectConfigService() error {
 	logger.Debugf("injectConfigService: ++")
 	defer logger.Debugf("injectConfigService: --")
@@ -1263,7 +1659,8 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 		return errors.Wrap(err, "check nt version")
 	}
 	if !yes {
-		return errors.New("not supported")
+		fixer.warnf(LogTplForSkipFirstBootServiceWith1Args, fixer.offsys.windowsVersion)
+		return nil
 	}
 
 	const serviceName = "drfirstboot"
@@ -1325,7 +1722,7 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 	}
 
 	// 1. 拷贝可执行文件到目标系统（无论是否已安装服务，都刷新一遍文件，保证版本一致）
-	if _, err = extend.CopyFile(serviceSrcExePath, serviceTgtExePath); err != nil {
+	if err = extend.CopyFile(serviceSrcExePath, serviceTgtExePath, 0o666); err != nil {
 		return errors.Wrapf(err, "copy service exe to %s", serviceTgtExePath)
 	}
 
@@ -1377,6 +1774,17 @@ func (fixer *windowsSystemFixer) injectNetworkConfig() error {
 
 	if !fixer.opts.RecoveryParam.Network.Enable {
 		logger.Debugf("injectNetworkConfig: network config disabled")
+		return nil
+	}
+
+	// 网络配置由 drfirstboot 服务在首次启动时应用，
+	// 该服务不支持低于 NT61 的旧系统，因此旧系统无需写入配置文件。
+	yes, err := fixer.largerThanNT61()
+	if err != nil {
+		return errors.Wrap(err, "check nt version")
+	}
+	if !yes {
+		logger.Debugf("injectNetworkConfig: skip for old system %s", fixer.offsys.windowsVersion)
 		return nil
 	}
 

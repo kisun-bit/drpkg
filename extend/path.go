@@ -153,11 +153,11 @@ func CopyDir(src, dst string) error {
 			return os.MkdirAll(dstPath, info.Mode())
 		}
 
-		return CopyFileV2(path, dstPath, info.Mode())
+		return CopyFile(path, dstPath, info.Mode())
 	})
 }
 
-func CopyFileV2(src, dst string, mode os.FileMode) error {
+func CopyFile(src, dst string, mode os.FileMode) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -178,35 +178,35 @@ func CopyFileV2(src, dst string, mode os.FileMode) error {
 	return err
 }
 
-// CopyFile 拷贝文件
-func CopyFile(src, dst string) (int64, error) {
-	stat, err := os.Stat(src)
-	if err != nil {
-		return 0, err
-	}
-
-	if !stat.Mode().IsRegular() {
-		return 0, fmt.Errorf("%s is not a regular file", src)
-	}
-
-	source, err := os.Open(src)
-	if err != nil {
-		return 0, err
-	}
-	defer func() {
-		_ = source.Close()
-	}()
-
-	destination, err := os.Create(dst)
-	if err != nil {
-		return 0, err
-	}
-	defer func() {
-		_ = destination.Close()
-	}()
-
-	return io.Copy(destination, source)
-}
+//// CopyFile 拷贝文件
+//func CopyFile(src, dst string) (int64, error) {
+//	stat, err := os.Stat(src)
+//	if err != nil {
+//		return 0, err
+//	}
+//
+//	if !stat.Mode().IsRegular() {
+//		return 0, fmt.Errorf("%s is not a regular file", src)
+//	}
+//
+//	source, err := os.Open(src)
+//	if err != nil {
+//		return 0, err
+//	}
+//	defer func() {
+//		_ = source.Close()
+//	}()
+//
+//	destination, err := os.Create(dst)
+//	if err != nil {
+//		return 0, err
+//	}
+//	defer func() {
+//		_ = destination.Close()
+//	}()
+//
+//	return io.Copy(destination, source)
+//}
 
 func FileEqual(a, b string) (bool, error) {
 	infoA, err := os.Stat(a)

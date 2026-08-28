@@ -185,6 +185,26 @@ var (
 		En: "System version (%s) is too old. Skipping hardware repair/network injection. Boot with legacy hardware (e.g., IDE) after recovery.",
 	}
 
+	LogTplForInjectLegacyDriversWith0Args = LangTpl{
+		Zh: "以传统方式（CriticalDeviceDatabase）注入虚拟化平台驱动",
+		En: "Injecting virtualization platform drivers using legacy method (CriticalDeviceDatabase)",
+	}
+
+	LogTplForSkipFirstBootServiceWith1Args = LangTpl{
+		Zh: "系统版本（%s）过旧，跳过首次启动配置服务与网络配置注入。",
+		En: "System version (%s) is old. Skipping first-boot config service and network config injection.",
+	}
+
+	LogTplForNoLegacyBlockDriverWith1Args = LangTpl{
+		Zh: "未找到适用于系统版本（%s）的 virtio 块设备启动驱动，恢复后请使用 IDE 等模拟磁盘启动。",
+		En: "No virtio block boot driver found for system version (%s). Boot with an emulated disk (e.g., IDE) after recovery.",
+	}
+
+	LogTplForNoLegacyVirtualDriverWith2Args = LangTpl{
+		Zh: "驱动库中没有适用于系统版本（%s）的 KVM 虚拟化驱动（%v），恢复后请使用 IDE 等模拟设备启动。",
+		En: "The driver library has no KVM virtualization drivers for system version (%s) (%v). Boot with emulated devices (e.g., IDE) after recovery.",
+	}
+
 	LogTplForOptimizeUEFIWith0Args = LangTpl{
 		Zh: "优化 UEFI 启动配置",
 		En: "Optimizing UEFI boot configuration",

@@ -258,8 +258,13 @@ func (vm *Vm) buildCommand() error {
 		}
 
 	case "386":
-		// 使用 x86_64 QEMU 模拟 32 位 x86 CPU
-		vm.cmdArgs = append(vm.cmdArgs, "-cpu", "qemu32")
+		// 实际测试发现386的winpe，只有qemu64才能启动成功
+		if vm.opt.RecoveryParams.OSType == "windows" {
+			vm.cmdArgs = append(vm.cmdArgs, "-cpu", "qemu64")
+		} else {
+			// 使用 x86_64 QEMU 模拟 32 位 x86 CPU
+			vm.cmdArgs = append(vm.cmdArgs, "-cpu", "qemu32")
+		}
 
 	case "arm64":
 		if useKvm {

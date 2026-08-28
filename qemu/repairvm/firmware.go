@@ -101,7 +101,7 @@ func buildFirmwareConfig(code, varsTemplate, cacheDir string) (*firmwareConfig, 
 	}
 
 	vars := filepath.Join(cacheDir, filepath.Base(varsTemplate))
-	if _, err := extend.CopyFile(varsTemplate, vars); err != nil {
+	if err := extend.CopyFile(varsTemplate, vars, 0666); err != nil {
 		return nil, errors.Wrapf(err, "copy firmware vars template %s", varsTemplate)
 	}
 
