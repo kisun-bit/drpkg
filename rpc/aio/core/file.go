@@ -16,7 +16,7 @@ type OpenMode int32
 
 // File open modes.
 const (
-	OpenModeReadOnly OpenMode = 0
+	OpenModeReadOnly  OpenMode = 0
 	OpenModeWriteOnly OpenMode = 1
 	OpenModeReadWrite OpenMode = 2
 )

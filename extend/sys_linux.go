@@ -737,7 +737,7 @@ func LVSegments(lvPath string) (segments []Segment, err error) {
 			return nil, err
 		}
 		slaveDeviceMajor := DevMajor("")
-		for major, _ := range slaveDeviceMajorTable {
+		for major := range slaveDeviceMajorTable {
 			slaveDeviceMajor = major
 			break
 		}
