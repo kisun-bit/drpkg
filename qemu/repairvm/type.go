@@ -3,6 +3,7 @@
 package repairvm
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"os/exec"
@@ -89,4 +90,5 @@ type Vm struct {
 	cmdArgs      []string
 	offlineDisks []string
 	cmd          *exec.Cmd
+	cmdStdout    bytes.Buffer
 }

@@ -283,7 +283,7 @@ func createBootOverlay(
 
 // WaitSerialSocketReady 等待 virtio-serial socket 就绪并返回可用连接。
 // 调用方负责关闭返回的 net.Conn。
-func WaitSerialSocketReady(ctx context.Context, sockFile string, retryCount int, retryInterval time.Duration) (*net.Conn, error) {
+func WaitSerialSocketReady(ctx context.Context, qemuExitChanel chan error, sockFile string, retryCount int, retryInterval time.Duration) (*net.Conn, error) {
 	if retryCount <= 0 {
 		retryCount = 1
 	}
@@ -296,6 +296,10 @@ func WaitSerialSocketReady(ctx context.Context, sockFile string, retryCount int,
 		select {
 		case <-ctx.Done():
 			return nil, errors.Errorf("waiting for serial socket %q cancelled: %v", sockFile, ctx.Err())
+		case exitError := <-qemuExitChanel:
+			if exitError != nil {
+				return nil, exitError
+			}
 		default:
 		}
 

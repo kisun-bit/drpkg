@@ -359,7 +359,7 @@ func (vm *Vm) addStorage() {
 			driveID := fmt.Sprintf("scsi-disk%d", scsiIndex)
 
 			vm.cmdArgs = append(vm.cmdArgs,
-				"-drive", fmt.Sprintf("id=%s,if=none,file=%s,format=%s",
+				"-drive", fmt.Sprintf("id=%s,if=none,file=%s,format=%s,file.locking=on",
 					driveID, d.Path, format),
 				"-device", fmt.Sprintf("scsi-hd,drive=%s,bus=scsi0.0",
 					driveID),
@@ -464,9 +464,9 @@ func (vm *Vm) addCDROM() {
 
 func (vm *Vm) Repair() (extra map[string]string, err error) {
 	vm.cmd = exec.CommandContext(vm.ctx, vm.cmdCaller, vm.cmdArgs...)
-	vm.cmd.Stdin = os.Stdin
-	vm.cmd.Stdout = os.Stdout
-	vm.cmd.Stderr = os.Stderr
+	vm.cmd.Stdin = nil
+	vm.cmd.Stdout = nil
+	vm.cmd.Stderr = &vm.cmdStdout
 
 	vm.infof(LogTplCreateRepairVM)
 
@@ -475,15 +475,25 @@ func (vm *Vm) Repair() (extra map[string]string, err error) {
 		return nil, errors.Wrapf(err, "start guest")
 	}
 
+	// 检查 guest 是否已经立即退出
+	guestExitCh := make(chan error, 1)
+	go func() {
+		exitErr := vm.cmd.Wait()
+		if exitErr != nil {
+			exitErr = errors.Wrapf(exitErr, "qemu exited: %s", vm.cmdStdout.String())
+		}
+		guestExitCh <- exitErr
+	}()
+
 	vm.infof(LogTplCreateCommunicationChannel)
 
 	// 等待serial就绪
-	vm.reqSockConn, err = WaitSerialSocketReady(vm.ctx, vm.reqSockFile, 60, 10*time.Second)
+	vm.reqSockConn, err = WaitSerialSocketReady(vm.ctx, guestExitCh, vm.reqSockFile, 60, 10*time.Second)
 	if err != nil {
 		return nil, errors.Wrapf(err, "WaitSerialSocketReady(ReqSock)")
 	}
 
-	vm.logSockConn, err = WaitSerialSocketReady(vm.ctx, vm.logSockFile, 60, 10*time.Second)
+	vm.logSockConn, err = WaitSerialSocketReady(vm.ctx, guestExitCh, vm.logSockFile, 60, 10*time.Second)
 	if err != nil {
 		return nil, errors.Wrapf(err, "WaitSerialSocketReady(LogSock)")
 	}
