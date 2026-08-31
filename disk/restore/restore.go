@@ -14,7 +14,6 @@ package restore
 
 import (
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -65,7 +64,7 @@ type Target struct {
 	capacity    uint64
 	syncOnClose bool
 
-	w io.WriteCloser
+	f *os.File
 
 	bm *bitmap
 
@@ -117,7 +116,7 @@ func OpenPath(target string, opt *Option) (*Target, error) {
 		granularity: o.Granularity,
 		capacity:    o.Capacity,
 		syncOnClose: !o.NoSyncOnClose,
-		w:           f,
+		f:           f,
 		bm:          newBitmap(bitCount),
 	}
 
@@ -219,7 +218,7 @@ func (t *Target) Restore(ctx context.Context, blk *Block) (written uint64, err e
 		if writeEnd > writeStart {
 			dataStart := writeStart - blk.Offset
 			dataEnd := writeEnd - blk.Offset
-			if _, err := t.w.Write(blk.Data[dataStart:dataEnd]); err != nil {
+			if _, err := t.f.WriteAt(blk.Data[dataStart:dataEnd], int64(writeStart)); err != nil {
 				return written, errors.Wrapf(err, "restore: write %s at %d", t.path, writeStart)
 			}
 			written += writeEnd - writeStart
@@ -249,14 +248,12 @@ func (t *Target) Close() error {
 	t.closed = true
 
 	if t.syncOnClose {
-		if f, ok := t.w.(*os.File); ok {
-			if err := f.Sync(); err != nil {
-				logger.Warnf("restore: sync %s on close: %v", t.path, err)
-			}
+		if err := t.f.Sync(); err != nil {
+			logger.Warnf("restore: sync %s on close: %v", t.path, err)
 		}
 	}
 
-	if err := t.w.Close(); err != nil {
+	if err := t.f.Close(); err != nil {
 		return errors.Wrapf(err, "restore: close %s", t.path)
 	}
 
