@@ -32,6 +32,10 @@ type DriverResource struct {
 
 // NewX2XLib 创建驱动库实例。
 func NewX2XLib(libraryDir string, readonly bool) (*X2XLib, error) {
+	if libraryDir == "" {
+		return nil, errors.New("libraryDir is empty")
+	}
+
 	drvStoreDir := filepath.Join(libraryDir, DriverStoreDirName)
 	if err := ensureDir(drvStoreDir); err != nil {
 		return nil, err
@@ -437,7 +441,6 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 			windowsVersion,
 		).
 		Group("driver.id").
-		Order("MAX(hardware_compat.compat_weight) DESC").
 		Order("driver.version_weight DESC").
 		Order("driver.sign_weight DESC").
 		Find(&drivers).

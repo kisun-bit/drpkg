@@ -78,6 +78,13 @@ func CheckAndFillRecoveryParameter(rp *RecoveryParameter) error {
 		return errors.Errorf("unsupported os: %s", rp.OSType)
 	}
 
+	if rp.Source.Virt == "" {
+		rp.Source.Virt = define.HPVTNone
+	}
+	if rp.Target.Virt == "" {
+		rp.Target.Virt = define.HPVTNone
+	}
+
 	for _, platform := range []Platform{rp.Source, rp.Target} {
 		//if platform.Arch != runtime.GOARCH {
 		//	return errors.New("FixerCreateOptions Arch is invalid")

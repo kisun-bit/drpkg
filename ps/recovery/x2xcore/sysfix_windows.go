@@ -38,6 +38,14 @@ type windowsSystemFixer struct {
 	offsys  offlineSystem       // 离线系统的私有信息
 }
 
+type infMap struct {
+	serviceName string   // inf中安装的服务名
+	classGuid   string   // inf中声明的设备类GUID（ClassGUID）
+	infName     string   // inf文件名（Windows\Inf目录下）
+	pciList     []string // inf中声明的pci硬件/兼容ID集合（小写归一化）
+	sysFiles    []string // inf声明的.sys驱动文件列表
+}
+
 type offlineSystem struct {
 	volumeLtrList      []string
 	sysVolumeLtr       string // 系统卷
@@ -50,8 +58,9 @@ type offlineSystem struct {
 	currentControlSet  int
 	windowsVersion     define.WindowsVersion
 	halType            define.HALType
-	legacyBlockDriver  string // 传统方式注入的 virtio 块驱动服务名（viostor/vioscsi），空表示未注入
-	legacyNetDriver    bool   // 是否以传统方式注入了 netkvm 网络驱动
+	legacyBlockDriver  string   // 传统方式注入的 virtio 块驱动服务名（viostor/vioscsi），空表示未注入
+	legacyNetDriver    bool     // 是否以传统方式注入了 netkvm 网络驱动
+	infMaps            []infMap // 驱动名至pci硬件集的映射表，key是
 }
 
 func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io.Writer) (fixer SysFixer, err error) {
@@ -128,6 +137,8 @@ func (fixer *windowsSystemFixer) Repair() (err error) {
 	logger.Debugf("Repair: ++")
 	defer logger.Debugf("Repair: --")
 
+	defer fixer.sync()
+
 	// 1. 基础系统修复
 	if err = fixer.repairBaseSystem(); err != nil {
 		return err
@@ -136,7 +147,7 @@ func (fixer *windowsSystemFixer) Repair() (err error) {
 	// 2. 低版本 Windows（< Win7/2008R2）不支持 DISM 与 firstboot
 	//    配置服务，跳过服务/网络注入，但仍执行虚拟化平台驱动适配
 	//    （通过 CriticalDeviceDatabase 等传统方式注入）。
-	dismSupported, e := fixer.largerThanNT61()
+	dismSupported, e := fixer.isModernWindows()
 	if e != nil {
 		return e
 	}
@@ -279,7 +290,7 @@ func (fixer *windowsSystemFixer) GetPreferHostConfig(virtual define.HPVirtType) 
 		cfg.DiskBus = define.DiskBusIde
 		cfg.NetworkType = define.NetworkTypeRTL8192
 
-		if yes_, _ := fixer.largerThanNT61(); yes_ {
+		if modern, _ := fixer.isModernWindows(); modern {
 			cfg.Chipset = define.ChipsetQ35
 			cfg.DiskBus = define.DiskBusVirtio
 			cfg.NetworkType = define.NetworkTypeVIRTIO
@@ -1085,6 +1096,15 @@ var (
 
 const scsiMiniportGroup = "SCSI miniport"
 
+const (
+	// classGuidSCSIAdapter SCSI 适配器设备类 GUID（存储类驱动）
+	classGuidSCSIAdapter = "{4D36E97B-E325-11CE-BFC1-08002BE10318}"
+	// classGuidNet 网络设备类 GUID
+	classGuidNet = "{4D36E972-E325-11CE-BFC1-08002BE10318}"
+	// classGuidHDC IDE/ATA 控制器设备类 GUID（intelide 等）
+	classGuidHDC = "{4D36E96A-E325-11CE-BFC1-08002BE10318}"
+)
+
 // injectDriversLegacy 为旧版 Windows（win2k/winxp/win2k3/winvista/win2k8，
 // 即 < Win7/2008R2）注入驱动库中的虚拟化驱动。
 //
@@ -1092,7 +1112,7 @@ const scsiMiniportGroup = "SCSI miniport"
 // 从 Win8 起使用，Vista 的 CDB 仍有效）。实现参考 virt-v2v 对
 // XP/2003/Vista 的处理：
 //
-//  1. 将驱动模块（.sys 及同目录的 .inf/.cat 配套文件）复制到离线系统的
+//  1. 将驱动模块（.sys 及同目录的 .inf/.cat/.pnf 配套文件）复制到离线系统的
 //     System32\Drivers 与 Inf 目录；
 //  2. 在 SYSTEM hive 的 CriticalDeviceDatabase 中登记启动关键设备的
 //     PCI 兼容 ID 与对应驱动服务；
@@ -1357,11 +1377,123 @@ func (fixer *windowsSystemFixer) installLegacyService(
 	return nil
 }
 
+// ensureLegacyBootDriver 使指定服务名的引导关键驱动在离线系统中可用，
+// 并为设备登记 CriticalDeviceDatabase 记录：
+//
+//  1. 驱动服务已存在时，仅将其设置为 Start=0（boot start）；
+//  2. 服务不存在时，校验 sysFileName 位于 system32\drivers 后
+//     创建服务键：Type=1、Start=0、ErrorControl=1、
+//     ImagePath=system32\drivers\<sysFileName>，loadOrderGroup
+//     非空时另设置加载组；
+//  3. 在 CriticalDeviceDatabase 中为设备的每个兼容/硬件 ID
+//     创建 Service 与 ClassGUID 记录，保证引导阶段可识别设备
+//     并加载驱动。
+//
+// 适用于系统自带的引导驱动（如 intelide.sys）离线修复场景。
+func (fixer *windowsSystemFixer) ensureLegacyBootDriver(
+	serviceName, sysFileName, loadOrderGroup, classGuid string,
+	deviceIds []string,
+) error {
+	// 1)/2) 服务注册
+	if fixer.existedService(serviceName) {
+		if err := fixer.enableService(serviceName); err != nil {
+			return errors.Wrapf(err, "enable service %s", serviceName)
+		}
+	} else {
+		sysPath := filepath.Join(
+			fixer.offsys.sysVolumeLtr+":\\",
+			"Windows", "System32", "drivers", sysFileName)
+		if !extend.IsExisted(sysPath) {
+			return errors.Errorf("driver file not found: %s", sysPath)
+		}
+
+		servicesRegPath := fmt.Sprintf(
+			"%s\\ControlSet%03d\\Services",
+			fixer.offsys.registryRootKey,
+			fixer.offsys.currentControlSet,
+		)
+
+		svcKey, _, err := registry.CreateKey(
+			registry.LOCAL_MACHINE,
+			servicesRegPath+"\\"+serviceName,
+			registry.ALL_ACCESS,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "create service key %s", serviceName)
+		}
+
+		// Type: SERVICE_KERNEL_DRIVER = 1
+		if err = svcKey.SetDWordValue("Type", 1); err != nil {
+			svcKey.Close()
+			return errors.Wrap(err, "set Type")
+		}
+		// Start: SERVICE_BOOT_START = 0
+		if err = svcKey.SetDWordValue("Start", 0); err != nil {
+			svcKey.Close()
+			return errors.Wrap(err, "set Start")
+		}
+		// ErrorControl: SERVICE_ERROR_NORMAL = 1
+		if err = svcKey.SetDWordValue("ErrorControl", 1); err != nil {
+			svcKey.Close()
+			return errors.Wrap(err, "set ErrorControl")
+		}
+
+		imagePath := fmt.Sprintf(`system32\drivers\%s`, sysFileName)
+		if err = svcKey.SetExpandStringValue("ImagePath", imagePath); err != nil {
+			svcKey.Close()
+			return errors.Wrap(err, "set ImagePath")
+		}
+
+		if loadOrderGroup != "" {
+			if err = svcKey.SetStringValue("Group", loadOrderGroup); err != nil {
+				svcKey.Close()
+				return errors.Wrap(err, "set Group")
+			}
+		}
+		svcKey.Close()
+
+		logger.Debugf(
+			"ensureLegacyBootDriver: service %s created (ImagePath=%s, Group=%s)",
+			serviceName, imagePath, loadOrderGroup)
+	}
+
+	// 3) 登记 CDB 记录
+	return fixer.registerCriticalDeviceDatabase(serviceName, classGuid, deviceIds)
+}
+
+// cdbKeyName 将 Windows PCI 设备兼容 ID 转换为
+// CriticalDeviceDatabase 的注册表键名。
+//
+// Windows PnP 的设备实例路径中字段之间使用 "&" 分隔
+// （如 PCI\VEN_8086&DEV_7010），仅枚举器前缀与首个字段之间
+// 使用 "\"，在 CDB 键名中统一替换为 "#"：
+//
+//	PCI\VEN_8086&DEV_7010 -> pci#ven_8086&dev_7010
+//
+// 兼容 ID 若以 "\" 分隔各字段（如 PCI\VEN_8086\DEV_7010），
+// 第一个 "\" 替换为 "#"，其余 "\" 替换为 "&"。
+func cdbKeyName(compatID string) string {
+	id := strings.ToLower(strings.TrimSpace(compatID))
+	if id == "" {
+		return ""
+	}
+
+	i := strings.Index(id, `\`)
+	if i < 0 {
+		return id
+	}
+
+	return id[:i] + "#" + strings.ReplaceAll(id[i+1:], `\`, "&")
+}
+
 // registerCriticalDeviceDatabase 在 CriticalDeviceDatabase 中为每个
 // PCI 兼容 ID 创建条目（HKLM\SYSTEM\<CCS>\Control\CriticalDeviceDatabase\PCI#...），
 // 值为 Service（驱动服务名）与 ClassGUID。这是旧版 Windows 引导阶段
 // 识别启动关键设备并加载对应驱动的机制。
 func (fixer *windowsSystemFixer) registerCriticalDeviceDatabase(serviceName, classGuid string, compatIds []string) error {
+	logger.Debugf("registerCriticalDeviceDatabase: service=%s, class=%s, compatIds=\n%s",
+		serviceName, classGuid, strings.Join(compatIds, "\n"))
+
 	cdbRoot := fmt.Sprintf(
 		"%s\\ControlSet00%d\\Control\\CriticalDeviceDatabase",
 		fixer.offsys.registryRootKey,
@@ -1369,8 +1501,10 @@ func (fixer *windowsSystemFixer) registerCriticalDeviceDatabase(serviceName, cla
 	)
 
 	for _, compatID := range compatIds {
-		// CDB 键名使用 "#" 替代 "\"
-		keyName := strings.ToLower(strings.ReplaceAll(compatID, `\`, `#`))
+		keyName := cdbKeyName(compatID)
+		if keyName == "" {
+			continue
+		}
 		keyPath := cdbRoot + `\` + keyName
 
 		key, _, err := registry.CreateKey(
@@ -1600,15 +1734,35 @@ func removeGraphicsModeDisabled(hiveName, entryGuid string) error {
 	return deleteRegistryTree(registry.LOCAL_MACHINE, graphicsKey)
 }
 
-func (fixer *windowsSystemFixer) largerThanNT61() (bool, error) {
+// ntVersion 返回离线系统的 Windows NT 版本号
+// （如 NT61 表示 Win7/2008R2）。未知版本返回错误。
+func (fixer *windowsSystemFixer) ntVersion() (define.NTVersion, error) {
 	ntVer, ok := define.OsNTVersion[fixer.offsys.windowsVersion]
 	if !ok {
-		return false, errors.New("not supported windows version")
+		return define.NTUnknown, errors.New("not supported windows version")
 	}
-	if ntVer >= define.NT61 {
-		return true, nil
+	return ntVer, nil
+}
+
+// isModernWindows 判断离线系统是否为现代版 Windows
+// （>= Win7/2008R2），支持 DISM 离线注入、DriverStore 与
+// firstboot 配置服务。
+func (fixer *windowsSystemFixer) isModernWindows() (bool, error) {
+	ntVer, e := fixer.ntVersion()
+	if e != nil {
+		return false, e
 	}
-	return false, nil
+	return ntVer >= define.NT61, nil
+}
+
+// isLegacyWindows 判断离线系统是否为旧版 Windows
+// （< Win7/2008R2），需走 CriticalDeviceDatabase 等传统注入方式。
+func (fixer *windowsSystemFixer) isLegacyWindows() (bool, error) {
+	modern, e := fixer.isModernWindows()
+	if e != nil {
+		return false, e
+	}
+	return !modern, nil
 }
 
 // probeLegacyKvmDrivers 探测旧系统当前可用的 KVM virtio 驱动，
@@ -1654,7 +1808,7 @@ func (fixer *windowsSystemFixer) injectConfigService() error {
 	logger.Debugf("injectConfigService: ++")
 	defer logger.Debugf("injectConfigService: --")
 
-	yes, err := fixer.largerThanNT61()
+	yes, err := fixer.isModernWindows()
 	if err != nil {
 		return errors.Wrap(err, "check nt version")
 	}
@@ -1779,7 +1933,7 @@ func (fixer *windowsSystemFixer) injectNetworkConfig() error {
 
 	// 网络配置由 drfirstboot 服务在首次启动时应用，
 	// 该服务不支持低于 NT61 的旧系统，因此旧系统无需写入配置文件。
-	yes, err := fixer.largerThanNT61()
+	yes, err := fixer.isModernWindows()
 	if err != nil {
 		return errors.Wrap(err, "check nt version")
 	}
@@ -1828,4 +1982,8 @@ func (fixer *windowsSystemFixer) warnf(tpl LangTpl, v ...interface{}) {
 
 func (fixer *windowsSystemFixer) errorf(tpl LangTpl, v ...interface{}) {
 	fixer.logf(LogError, tpl, v...)
+}
+
+func (fixer *windowsSystemFixer) sync() {
+	_, _, _ = command.Execute("sync.exe /accepteula", command.WithDebug())
 }

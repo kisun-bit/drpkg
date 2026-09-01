@@ -3,7 +3,6 @@ package x2xcore
 import (
 	"github.com/kisun-bit/drpkg/define"
 	"github.com/kisun-bit/drpkg/logger"
-	"github.com/pkg/errors"
 )
 
 // unconfigXen 移除Xen的配置
@@ -60,11 +59,11 @@ func (fixer *windowsSystemFixer) configXen() error {
 		return err
 	}
 
-	ntVer, ok := define.OsNTVersion[fixer.offsys.windowsVersion]
-	if !ok {
-		return errors.New("not supported windows version")
+	legacy, e := fixer.isLegacyWindows()
+	if e != nil {
+		return e
 	}
-	if ntVer >= define.NT61 {
+	if !legacy {
 		if e := fixer.injectDriversByDism(ds); e != nil {
 			return e
 		}

@@ -35,9 +35,9 @@ func (fixer *windowsSystemFixer) configKvm() error {
 
 	fixer.infof(LogTplForConfigKVMWith0Args)
 
-	ntVer, ok := define.OsNTVersion[fixer.offsys.windowsVersion]
-	if !ok {
-		return errors.New("not supported windows version")
+	legacy, e := fixer.isLegacyWindows()
+	if e != nil {
+		return e
 	}
 
 	isAllExisted := true
@@ -58,7 +58,7 @@ func (fixer *windowsSystemFixer) configKvm() error {
 		// 旧系统（< Win7/2008R2）即使驱动服务已存在，也要确保
 		// CriticalDeviceDatabase 引导注册项与 "SCSI miniport" 加载组
 		// 完整，否则引导阶段无法加载块驱动。
-		if ntVer < define.NT61 {
+		if legacy {
 			if e := fixer.ensureLegacyKvmBootRegistry(); e != nil {
 				return e
 			}
@@ -75,7 +75,7 @@ func (fixer *windowsSystemFixer) configKvm() error {
 		true,
 	)
 	if e != nil {
-		if ntVer < define.NT61 && errors.Cause(e) == os.ErrNotExist {
+		if legacy && errors.Cause(e) == os.ErrNotExist {
 			// 驱动库中没有该旧系统的 KVM 驱动：不阻断恢复，
 			// 恢复后宿主机使用 IDE 等模拟设备即可启动。
 			fixer.warnf(LogTplForNoLegacyVirtualDriverWith2Args,
@@ -85,7 +85,7 @@ func (fixer *windowsSystemFixer) configKvm() error {
 		return errors.Wrapf(e, "SelectWindowsBestVirtualDriver")
 	}
 
-	if ntVer >= define.NT61 {
+	if !legacy {
 		if e = fixer.injectDriversByDism(ds); e != nil {
 			return e
 		}

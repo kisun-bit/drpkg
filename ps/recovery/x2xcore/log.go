@@ -47,12 +47,12 @@ type LangTpl struct {
 var (
 	LogTplForReadyWith0Args = LangTpl{
 		Zh: "加载异构修复环境",
-		En: "Heterogeneous recovery environment loaded",
+		En: "Loading heterogeneous recovery environment",
 	}
 
 	LogTplForOfflineSystemReadyWith0Args = LangTpl{
 		Zh: "识别离线系统的磁盘集",
-		En: "Offline system disk set identified",
+		En: "Identifying offline system disks",
 	}
 
 	LogTplForResetWith0Args = LangTpl{
@@ -62,7 +62,7 @@ var (
 
 	LogTplForOpenLUKSWith0Args = LangTpl{
 		Zh: "打开 LUKS 加密卷",
-		En: "Opening LUKS encrypted volume",
+		En: "Opening LUKS encrypted volumes",
 	}
 
 	LogTplForEnumFsWith0Args = LangTpl{
@@ -71,18 +71,18 @@ var (
 	}
 
 	LogTplForFsckFsWith0Args = LangTpl{
-		Zh: "修复文件系统设备",
-		En: "fscking filesystem devices",
+		Zh: "修复文件系统",
+		En: "Repairing filesystems",
 	}
 
 	LogTplForCleanElastioSnapWith0Args = LangTpl{
 		Zh: "清理可能残留的 Elastio/Datto 快照",
-		En: "Clean up potential residual Elastio/Datto snapshots",
+		En: "Cleaning up potential residual Elastio/Datto snapshots",
 	}
 
 	LogTplForCleanSpecifiedPathWith1Args = LangTpl{
 		Zh: "清理文件（/文件夹）：%s",
-		En: "Clean up file (/folder): %s",
+		En: "Cleaning up file/directory: %s",
 	}
 
 	LogTplForSpecifySystemBootDeviceWith0Args = LangTpl{
@@ -97,7 +97,7 @@ var (
 
 	LogTplForBootableKernelWith1Args = LangTpl{
 		Zh: "可启动内核版本：%s",
-		En: "Bootable kernel: %v",
+		En: "Bootable kernel version: %s",
 	}
 
 	LogTplForLoadRegistryWith0Args = LangTpl{
@@ -121,8 +121,8 @@ var (
 	}
 
 	LogTplForPrintDriverDatabaseLegacyWith0Args = LangTpl{
-		Zh: "系统驱动数据库类型：CriticalDeviceDatabase",
-		En: "System driver database type: CriticalDeviceDatabase",
+		Zh: "系统驱动数据库类型：CDB",
+		En: "System driver database type: CDB",
 	}
 
 	LogTplForPrintDriverDatabasePnpWith0Args = LangTpl{
@@ -157,52 +157,52 @@ var (
 
 	LogTplForDisableSELinuxWith0Args = LangTpl{
 		Zh: "禁用 SELinux",
-		En: "Disable SELinux",
+		En: "Disabling SELinux",
 	}
 
 	LogTplForDisableAutoRebootWith0Args = LangTpl{
 		Zh: "禁用自动重启",
-		En: "Disable auto-reboot",
+		En: "Disabling automatic reboot",
 	}
 
 	LogTplForRepairPAMWith0Args = LangTpl{
 		Zh: "修复 PAM 模块",
-		En: "Repair PAM module",
+		En: "Repairing PAM modules",
 	}
 
 	LogTplForRepairGrubWith0Args = LangTpl{
 		Zh: "修复 GRUB 配置",
-		En: "Repair GRUB configuration",
+		En: "Repairing GRUB configuration",
 	}
 
 	LogTplForRepairFstabWith0Args = LangTpl{
 		Zh: "修复 fstab 配置",
-		En: "Repair fstab configuration",
+		En: "Repairing fstab configuration",
 	}
 
 	LogTplForIgnoreRepairWith1Args = LangTpl{
-		Zh: "系统版本（%s）过旧，跳过硬件修复和网络注入。恢复后请使用IDE等传统硬件启动。",
-		En: "System version (%s) is too old. Skipping hardware repair/network injection. Boot with legacy hardware (e.g., IDE) after recovery.",
+		Zh: "系统版本（%s）过旧，跳过硬件修复和网络注入。恢复后请使用 IDE 等传统硬件启动。",
+		En: "System version (%s) is too old. Skipping hardware repair and network injection. Please boot with legacy hardware such as IDE after recovery.",
 	}
 
 	LogTplForInjectLegacyDriversWith0Args = LangTpl{
-		Zh: "以传统方式（CriticalDeviceDatabase）注入虚拟化平台驱动",
-		En: "Injecting virtualization platform drivers using legacy method (CriticalDeviceDatabase)",
+		Zh: "以传统方式（CDB）注入虚拟化平台驱动",
+		En: "Injecting virtualization platform drivers using the legacy method (CDB)",
 	}
 
 	LogTplForSkipFirstBootServiceWith1Args = LangTpl{
 		Zh: "系统版本（%s）过旧，跳过首次启动配置服务与网络配置注入。",
-		En: "System version (%s) is old. Skipping first-boot config service and network config injection.",
+		En: "System version (%s) is too old. Skipping first-boot configuration service and network configuration injection.",
 	}
 
 	LogTplForNoLegacyBlockDriverWith1Args = LangTpl{
 		Zh: "未找到适用于系统版本（%s）的 virtio 块设备启动驱动，恢复后请使用 IDE 等模拟磁盘启动。",
-		En: "No virtio block boot driver found for system version (%s). Boot with an emulated disk (e.g., IDE) after recovery.",
+		En: "No virtio block boot driver found for system version (%s). Please boot with an emulated disk such as IDE after recovery.",
 	}
 
 	LogTplForNoLegacyVirtualDriverWith2Args = LangTpl{
 		Zh: "驱动库中没有适用于系统版本（%s）的 KVM 虚拟化驱动（%v），恢复后请使用 IDE 等模拟设备启动。",
-		En: "The driver library has no KVM virtualization drivers for system version (%s) (%v). Boot with emulated devices (e.g., IDE) after recovery.",
+		En: "No KVM virtualization driver (%v) is available in the driver library for system version (%s). Please boot with emulated devices such as IDE after recovery.",
 	}
 
 	LogTplForOptimizeUEFIWith0Args = LangTpl{
@@ -222,7 +222,7 @@ var (
 
 	LogTplForInjectNetworkToolFailedWith1Args = LangTpl{
 		Zh: "注入网络配置程序失败：%v",
-		En: "Injecting network tool failed: %v",
+		En: "Failed to inject network configuration tool: %v",
 	}
 
 	LogTplForInjectNetworkConfigWith0Args = LangTpl{
@@ -281,8 +281,18 @@ var (
 	}
 
 	LogTplForIncompatibleNonBootPCIWith2Args = LangTpl{
-		Zh: "检测到不兼容的非启动设备：%s（%s）",
-		En: "Detected incompatible non-boot device: %s (%s)",
+		Zh: "检测到不兼容的非启动设备：%s（%s），请在系统启动后安装相应驱动程序",
+		En: "Detected incompatible non-boot device: %s (%s). Please install the appropriate driver after system startup.",
+	}
+
+	LogTplForMatchDriverWith1Args = LangTpl{
+		Zh: "正在匹配硬件 %s 的驱动程序",
+		En: "Matching driver for hardware %s",
+	}
+
+	LogTplForMatchDriverSuccessWith1Args = LangTpl{
+		Zh: "硬件 %s 匹配到兼容驱动程序",
+		En: "Found a compatible driver for hardware %s",
 	}
 
 	LogTplForUnlockBitlockerWith1Args = LangTpl{
