@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/bits"
 	"os"
+	"sync"
 )
 
 // QcowRawFile A qcow file. Allows reading/writing clusters and appending clusters.
@@ -69,8 +70,8 @@ func (rawFile QcowRawFile) readPointerTable(
 	mask uint64,
 ) ([]uint64, error) {
 	table := make([]uint64, count)
-	_, err := rawFile.file.Seek(int64(offset), 0)
-	if err != nil {
+	buffer := make([]byte, count*8)
+	if _, err := rawFile.file.ReadAt(buffer, int64(offset)); err != nil {
 		return nil, err
 	}
 	if mask == 0 { // to avoid using optional, replace empty mask with 0
@@ -78,11 +79,7 @@ func (rawFile QcowRawFile) readPointerTable(
 		mask = ^uint64(0)
 	}
 	for index := range table {
-		value := uint64(0)
-		if err = binary.Read(rawFile.file, binary.BigEndian, &value); err != nil {
-			return nil, err
-		}
-		table[index] = value & mask
+		table[index] = binary.BigEndian.Uint64(buffer[index*8:]) & mask
 	}
 	return table, nil
 }
@@ -98,16 +95,12 @@ func (rawFile QcowRawFile) readRefCountBlock(offset uint64) ([]uint16, error) {
 	uint16Size := uint64(2) // todo here reference count bits are used
 	count := rawFile.clusterSize / uint16Size
 	table := make([]uint16, count)
-	_, err := rawFile.file.Seek(int64(offset), 0)
-	if err != nil {
+	buffer := make([]byte, rawFile.clusterSize)
+	if _, err := rawFile.file.ReadAt(buffer, int64(offset)); err != nil {
 		return nil, err
 	}
 	for index := range table {
-		value := uint16(0)
-		if err := binary.Read(rawFile.file, binary.BigEndian, &value); err != nil {
-			return nil, err
-		}
-		table[index] = value
+		table[index] = binary.BigEndian.Uint16(buffer[index*2:])
 	}
 	return table, nil
 }
@@ -178,42 +171,27 @@ func (rawFile QcowRawFile) writePointerTable(
 	if rawFile.readOnly {
 		return newErrWriteAttemptToReadOnlyDisk(offset, uint64(len(table)*8))
 	}
-	_, err := rawFile.file.Seek(int64(offset), 0)
-	if err != nil {
-		return err
-	}
-	toWrite := make([]byte, 0, len(table))
-	for _, value := range table {
-		if value == 0 {
-			toWrite = append(toWrite, uint64ToByte(value)...)
-		} else {
-			toWrite = append(toWrite, uint64ToByte(value|nonZeroFlags)...)
+	toWrite := make([]byte, len(table)*8)
+	for index, value := range table {
+		if value != 0 {
+			value |= nonZeroFlags
 		}
+		binary.BigEndian.PutUint64(toWrite[index*8:], value)
 	}
-	_, err = rawFile.file.Write(toWrite)
-	if err != nil {
-		return err
-	}
-	return nil
+	_, err := rawFile.file.WriteAt(toWrite, int64(offset))
+	return err
 }
 
 func (rawFile QcowRawFile) writeRefcountBlock(offset uint64, table []uint16) error {
 	if rawFile.readOnly {
 		return newErrWriteAttemptToReadOnlyDisk(offset, uint64(len(table)*2))
 	}
-	_, err := rawFile.file.Seek(int64(offset), 0)
-	if err != nil {
-		return err
+	toWrite := make([]byte, len(table)*2)
+	for index, value := range table {
+		binary.BigEndian.PutUint16(toWrite[index*2:], value)
 	}
-	toWrite := make([]byte, 0, len(table))
-	for _, value := range table {
-		toWrite = append(toWrite, uint16ToByte(value)...)
-	}
-	_, err = rawFile.file.Write(toWrite)
-	if err != nil {
-		return err
-	}
-	return nil
+	_, err := rawFile.file.WriteAt(toWrite, int64(offset))
+	return err
 }
 
 func (rawFile QcowRawFile) allocateClusterAtFileEnd(maxValidClusterOffset uint64) (uint64, error) {
@@ -235,18 +213,27 @@ func (rawFile QcowRawFile) allocateClusterAtFileEnd(maxValidClusterOffset uint64
 	return newClusterAddress, nil
 }
 
-func (rawFile QcowRawFile) zeroCluster(address uint64) error {
+// zeroBuffer is a lazily grown, shared all-zero buffer used to zero out new
+// clusters without allocating a fresh cluster sized buffer on every call.
+// The buffer is only ever read from (never written to), so its content stays
+// zero; the mutex only guards the grow operation.
+var zeroBuffer struct {
+	sync.Mutex
+	data []byte
+}
 
-	_, err := rawFile.file.Seek(int64(address), 0)
-	if err != nil {
-		return err
+func zeroBytes(size uint64) []byte {
+	zeroBuffer.Lock()
+	defer zeroBuffer.Unlock()
+	if uint64(cap(zeroBuffer.data)) < size {
+		zeroBuffer.data = make([]byte, size)
 	}
-	zeroClusters := make([]byte, rawFile.clusterSize)
-	_, err = rawFile.file.Write(zeroClusters)
-	if err != nil {
-		return err
-	}
-	return nil
+	return zeroBuffer.data[:size]
+}
+
+func (rawFile QcowRawFile) zeroCluster(address uint64) error {
+	_, err := rawFile.file.WriteAt(zeroBytes(rawFile.clusterSize), int64(address))
+	return err
 }
 
 func (rawFile QcowRawFile) writeCluster(address uint64, initialData []byte) error {
@@ -260,8 +247,21 @@ func (rawFile QcowRawFile) writeCluster(address uint64, initialData []byte) erro
 	// See: https://google.github.io/crosvm/doc/src/base/sys/unix/file_traits.rs.html
 	// EINTR is being handled in FD.PWrite in golang which
 	// is called in WriteAt API call.
+	if uint64(len(initialData)) > rawFile.clusterSize {
+		return fmt.Errorf(
+			"initial data of size %d is larger than the cluster size %d",
+			len(initialData),
+			rawFile.clusterSize,
+		)
+	}
+	// The last cluster of a virtual disk can be partial when the virtual
+	// disk size is not a multiple of the cluster size. In that case the
+	// initial data (for example read from a backing file) is shorter than
+	// a cluster and must be zero padded up to the cluster size.
 	if uint64(len(initialData)) < rawFile.clusterSize {
-		return fmt.Errorf("initital data is too small")
+		paddedData := make([]byte, rawFile.clusterSize)
+		copy(paddedData, initialData)
+		initialData = paddedData
 	}
 	_, err := rawFile.file.WriteAt(initialData, int64(address))
 	if err != nil {

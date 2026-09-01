@@ -40,6 +40,9 @@ func newReferenceCountWriteBack(
 	clusterSize uint64,
 	cacheSize int,
 ) (ReferenceCountTable, error) {
+	if cacheSize <= 0 {
+		return nil, fmt.Errorf("reference count table cache size must be positive, got %d", cacheSize)
+	}
 	tableData, err := rawFile.readPointerTable(
 		refcountTableOffset,
 		refcountTableEntries,

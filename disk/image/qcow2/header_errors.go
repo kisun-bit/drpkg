@@ -179,14 +179,28 @@ func newErrL1TableTooLarge(l1Size uint32) error {
 
 type ErrL1OffsetExceedsFileBoundaries struct {
 	lineNumberString string
-} // w value
+	l1TableOffset    uint64
+	fileSize         uint64
+}
 
 func (err ErrL1OffsetExceedsFileBoundaries) Error() string {
-	return ""
+	return fmt.Sprintf(
+		"L1 table offset %d exceeds the image file size %d",
+		err.l1TableOffset,
+		err.fileSize,
+	)
 }
 
 func (err ErrL1OffsetExceedsFileBoundaries) TraceInfo() string {
 	return err.lineNumberString
+}
+
+func newErrL1OffsetExceedsFileBoundaries(l1TableOffset, fileSize uint64) error {
+	return &ErrL1OffsetExceedsFileBoundaries{
+		lineNumberString: extend.GetTraceInfo(),
+		l1TableOffset:    l1TableOffset,
+		fileSize:         fileSize,
+	}
 }
 
 type ErrNoReferenceCountTableClusters struct {

@@ -1,7 +1,11 @@
 // Copyright 2018-present Network Optix, Inc. Licensed under MPL 2.0: www.mozilla.org/MPL/2.0/
 package qcow2
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestPrettyFormatDiskSize(t *testing.T) {
 	var kb uint64 = 1024
@@ -67,35 +71,50 @@ func TestPrettyFormatDiskSize(t *testing.T) {
 }
 
 func TestSubDirectory(t *testing.T) {
-	paths := []string{
-		"/abc/def/hig",
-		"/dd/cc",
-		"/t",
-		"/eeee/l/l  l  1/x.qcow2",
+	base := t.TempDir()
+	type subDirectoryCase struct {
+		path     string
+		dir      string
+		expected bool
 	}
-	dirs := []string{
-		"/abc/def/",
-		"/dd",
-		"/l",
-		"/eeee/l/",
+	cases := []subDirectoryCase{
+		{
+			filepath.Join(base, "abc", "def", "hig"),
+			filepath.Join(base, "abc", "def") + string(os.PathSeparator),
+			true,
+		},
+		{
+			filepath.Join(base, "dd", "cc"),
+			filepath.Join(base, "dd"),
+			true,
+		},
+		{
+			filepath.Join(base, "t"),
+			filepath.Join(base, "l"),
+			false,
+		},
+		{
+			filepath.Join(base, "eeee", "l", "l  l  1", "x.qcow2"),
+			filepath.Join(base, "eeee", "l") + string(os.PathSeparator),
+			true,
+		},
+		{
+			"relative/path",
+			base,
+			false,
+		},
 	}
-	expected := []bool{
-		true,
-		true,
-		false,
-		true,
-	}
-	for index, path := range paths {
+	for _, testCase := range cases {
 		expectedString := "matched"
-		if !expected[index] {
+		if !testCase.expected {
 			expectedString = "doesn't match"
 		}
-		if expected[index] != isSubDirectory(path, dirs[index]) {
+		if testCase.expected != isSubDirectory(testCase.path, testCase.dir) {
 			t.Errorf(
 				"path='%s' %s subdirectory of '%s'",
-				path,
+				testCase.path,
 				expectedString,
-				dirs[index],
+				testCase.dir,
 			)
 		}
 	}

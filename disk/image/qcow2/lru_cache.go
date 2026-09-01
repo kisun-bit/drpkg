@@ -81,11 +81,12 @@ func (cacheMap *LruCacheMap[T, P]) get(key T) (*VectorCache[P], bool) {
 	if !ok {
 		return nil, ok
 	}
-	index, _ := cacheMap.queue.removeByPointer(value.linkedListPointer)
-	linkedListEntryPointer := cacheMap.queue.addRear(index)
-	cacheMap.store[key] = &cacheMapEntry[T, P]{
-		data:              value.data,
-		linkedListPointer: linkedListEntryPointer,
+	// Move the existing cell to the tail in place instead of removing and
+	// re-adding it, which avoids allocating a new cell and a new map entry
+	// on every cache hit.
+	err := cacheMap.queue.moveToRear(value.linkedListPointer)
+	if err != nil {
+		return nil, false
 	}
 	return value.data, ok
 }

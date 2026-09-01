@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type unsignedInt interface {
@@ -18,35 +19,49 @@ func divRoundUp[T unsignedInt](dividend, divisor T) T {
 	return (dividend + divisor - 1) / divisor
 }
 
+// smallBufferPool serves scratch buffers for the tiny fixed-size reads and
+// writes below. Without it, those buffers escape to the heap on every call
+// because they are passed through io.ReaderAt/io.WriterAt interfaces.
+var smallBufferPool = sync.Pool{
+	New: func() interface{} {
+		buffer := make([]byte, 8)
+		return &buffer
+	},
+}
+
 func readUint64At(file io.ReaderAt, address uint64) (uint64, error) {
-	var toConvert [8]byte
-	_, err := file.ReadAt(toConvert[:], int64(address))
+	buffer := smallBufferPool.Get().(*[]byte)
+	defer smallBufferPool.Put(buffer)
+	_, err := file.ReadAt((*buffer)[:8], int64(address))
 	if err != nil {
 		return 0, err
 	}
-	return binary.BigEndian.Uint64(toConvert[:]), nil
+	return binary.BigEndian.Uint64(*buffer), nil
 }
 
 func writeUint64At(file io.WriterAt, value, address uint64) error {
-	var toConvert [8]byte
-	binary.BigEndian.PutUint64(toConvert[:], value)
-	_, err := file.WriteAt(toConvert[:], int64(address))
+	buffer := smallBufferPool.Get().(*[]byte)
+	defer smallBufferPool.Put(buffer)
+	binary.BigEndian.PutUint64(*buffer, value)
+	_, err := file.WriteAt((*buffer)[:8], int64(address))
 	return err
 }
 
 func readUint16At(file io.ReaderAt, address uint64) (uint16, error) {
-	var toConvert [2]byte
-	_, err := file.ReadAt(toConvert[:], int64(address))
+	buffer := smallBufferPool.Get().(*[]byte)
+	defer smallBufferPool.Put(buffer)
+	_, err := file.ReadAt((*buffer)[:2], int64(address))
 	if err != nil {
 		return 0, err
 	}
-	return binary.BigEndian.Uint16(toConvert[:]), nil
+	return binary.BigEndian.Uint16(*buffer), nil
 }
 
 func writeUint16At(file io.WriterAt, value uint16, address uint64) error {
-	var toConvert [2]byte
-	binary.BigEndian.PutUint16(toConvert[:], value)
-	_, err := file.WriteAt(toConvert[:], int64(address))
+	buffer := smallBufferPool.Get().(*[]byte)
+	defer smallBufferPool.Put(buffer)
+	binary.BigEndian.PutUint16((*buffer)[:2], value)
+	_, err := file.WriteAt((*buffer)[:2], int64(address))
 	return err
 }
 
@@ -120,18 +135,13 @@ func checkAddUint64Boundaries(first, second uint64) error {
 	return nil
 }
 
-func trimBackslash(path string) string {
-	if path[len(path)-1] == '/' {
-		return path[:len(path)-1]
-	}
-	return path
-}
 func isSubDirectory(filePath, dir string) bool {
 	if !filepath.IsAbs(filePath) {
 		return false
 	}
+	cleanDir := filepath.Clean(dir)
 	for filepath.Dir(filePath) != filePath {
-		if filePath == trimBackslash(dir) {
+		if filePath == cleanDir {
 			return true
 		}
 		filePath = filepath.Dir(filePath)

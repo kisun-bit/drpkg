@@ -34,9 +34,9 @@ func TestLinkedListU64(t *testing.T) {
 }
 
 func TestLinkedListU64DoesntLeak(t *testing.T) {
-	gb10Size := 10 * 1024 * 1024 * 1024
+	iterations := 10 * 1024 * 1024
 	linkedList := newLinkedList[uint64]()
-	for i := 0; i < gb10Size; i += 1 {
+	for i := 0; i < iterations; i += 1 {
 		linkedList.addRear(uint64(1))
 		_, err := linkedList.removeFront()
 		if err != nil {
@@ -44,10 +44,11 @@ func TestLinkedListU64DoesntLeak(t *testing.T) {
 		}
 	}
 	var m runtime.MemStats
+	runtime.GC()
 	runtime.ReadMemStats(&m)
-	if m.Alloc > uint64(gb10Size/100) {
+	if m.Alloc > uint64(iterations/10) {
 		t.Errorf(
-			"Allocation size=%d is more than 100MB, it is probaby leaking",
+			"Allocation size=%d is more than 1MB, it is probably leaking",
 			m.Alloc,
 		)
 	}

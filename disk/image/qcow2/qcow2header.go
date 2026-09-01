@@ -155,13 +155,17 @@ func (header ImageHeader) validateL1TableSize() error {
 }
 
 func (header ImageHeader) validateL1TableOffset() error {
-	// todo check if not the actual file size
-	if header.l1TableOffset > header.virtualDiskSizeBytes {
-		return fmt.Errorf(
-			"table offset %d is more than virtual file size %d",
-			header.l1TableOffset,
-			header.virtualDiskSizeBytes,
-		)
+	// The L1 table offset points into the host file, so it cannot be
+	// validated against the virtual disk size; the check against the actual
+	// file size happens in imageFromFile where the file size is known.
+	// Here only structural sanity is checked.
+	if header.l1Size > 0 {
+		if header.l1TableOffset == 0 {
+			return fmt.Errorf("L1 table offset must not be zero while the L1 table is not empty")
+		}
+		if err := checkAddUint64Boundaries(header.l1TableOffset, uint64(header.l1Size)*8); err != nil {
+			return err
+		}
 	}
 	return nil
 }

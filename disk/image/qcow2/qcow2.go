@@ -4,7 +4,6 @@ package qcow2
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -99,15 +98,16 @@ func resolveBackingFileImage(backingFilePath, childDiskPath string) (file *os.Fi
 func (factory ImageFactory) getBackingFileImage(
 	backingFilePath, childDiskPath string,
 	recursionDepth uint32,
+	maxRecursionDepth uint32,
 ) (*ImageFile, error) {
 	if recursionDepth == 0 {
-		return nil, newErrRecursionDepthExceeded(backingFileMaxNestingDepth)
+		return nil, newErrRecursionDepthExceeded(maxRecursionDepth)
 	}
 	backingFile, resolvedBackingFilePath, err := resolveBackingFileImage(backingFilePath, childDiskPath)
 	if err != nil {
 		return nil, err
 	}
-	return factory.imageFromFile(resolvedBackingFilePath, backingFile, recursionDepth, true)
+	return factory.imageFromFile(resolvedBackingFilePath, backingFile, recursionDepth, maxRecursionDepth, true)
 }
 
 func (factory ImageFactory) resolveImagePath(imagePath string) (string, error) {
@@ -129,6 +129,7 @@ func (factory ImageFactory) imageFromFile(
 	filePath string,
 	file *os.File,
 	recursionDepth uint32,
+	maxRecursionDepth uint32,
 	readOnly bool,
 ) (*ImageFile, error) {
 	header, err := imageHeaderFromFile(file)
@@ -139,12 +140,24 @@ func (factory ImageFactory) imageFromFile(
 	if err != nil {
 		return nil, err
 	}
+	// The L1 table offset points into the host file, so validate it against
+	// the actual file size (the header itself only carries the virtual size).
+	if header.l1Size > 0 {
+		fileSize, err := rawFile.size()
+		if err != nil {
+			return nil, err
+		}
+		if header.l1TableOffset >= fileSize {
+			return nil, newErrL1OffsetExceedsFileBoundaries(header.l1TableOffset, fileSize)
+		}
+	}
 	var backingFileImage *ImageFile
 	if header.backingFilePath != nil {
 		backingFileImage, err = factory.getBackingFileImage(
 			*header.backingFilePath,
 			filePath,
-			recursionDepth-1)
+			recursionDepth-1,
+			maxRecursionDepth)
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +294,7 @@ func (factory ImageFactory) CreateImageFromBacking(
 	if pathExists {
 		return nil, fmt.Errorf("path %s already exists", filePath)
 	}
-	backingFileImage, err := factory.getBackingFileImage(backingFileName, filePath, backingFileMaxNestingDepth-1)
+	backingFileImage, err := factory.getBackingFileImage(backingFileName, filePath, backingFileMaxNestingDepth-1, backingFileMaxNestingDepth)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +326,7 @@ func (factory ImageFactory) createImageFromHeader(
 	if err != nil {
 		return nil, err
 	}
-	qcowImage, err := factory.imageFromFile(filePath, file, maxNestingDepth, false)
+	qcowImage, err := factory.imageFromFile(filePath, file, maxNestingDepth, maxNestingDepth, false)
 	if err != nil {
 		return nil, err
 	}
@@ -329,6 +342,12 @@ func (factory ImageFactory) createImageFromHeader(
 	return qcowImage, nil
 }
 
+// OpenImage opens an existing qcow2 image for reading and writing.
+// recursionDepth is the maximum number of images allowed in the backing
+// chain, counting the image itself: pass at least 2 to open an image that
+// has one backing file, at least 3 for a child whose backing file itself
+// has a backing file, and so on. If the chain turns out to be deeper,
+// opening fails with ErrRecursionDepthExceeded.
 func (factory ImageFactory) OpenImage(filePath string, recursionDepth uint32) (*ImageFile, error) {
 	filePath, err := factory.resolveImagePath(filePath)
 	if err != nil {
@@ -338,7 +357,7 @@ func (factory ImageFactory) OpenImage(filePath string, recursionDepth uint32) (*
 	if err != nil {
 		return nil, err
 	}
-	return factory.imageFromFile(filePath, file, recursionDepth, false)
+	return factory.imageFromFile(filePath, file, recursionDepth, recursionDepth, false)
 }
 
 func (imageFile *ImageFile) findAvailableClusters() error {
@@ -480,7 +499,7 @@ func (imageFile *ImageFile) fileOffsetRead(address uint64) (uint64, bool, error)
 	}
 	clusterAddress, err := imageFile.pointerTable.readClusterAddress(address)
 	if err != nil {
-		if errors.Is(err, &ErrNeedPointerCluster{}) {
+		if _, ok := err.(*ErrNeedPointerCluster); ok {
 			return 0, false, nil
 		}
 		return 0, false, err
@@ -493,24 +512,30 @@ func (imageFile *ImageFile) fileOffsetRead(address uint64) (uint64, bool, error)
 }
 
 // Gets the offset of the given guest address in the host file. If L1, L2, or data clusters need
-// to be allocated, they will be.
-func (imageFile *ImageFile) fileOffsetWrite(address uint64) (uint64, error) {
+// to be allocated, they will be. writeData is the data that the caller is about to write at the
+// returned offset. When a new data cluster is allocated and writeData covers the whole cluster,
+// the cluster is initialized with writeData directly and the second return value is true, which
+// means the caller must not write writeData again.
+func (imageFile *ImageFile) fileOffsetWrite(address uint64, writeData []byte) (uint64, bool, error) {
 	if address >= imageFile.header.virtualDiskSizeBytes {
-		return 0, fmt.Errorf(
+		return 0, false, fmt.Errorf(
 			"address %d is bigger the virtual file size %d",
 			address,
 			imageFile.header.virtualDiskSizeBytes,
 		)
 	}
-	referenceCountBeingSet := make([]referenceCountToSet, 0)
+	// Keep the slice nil until something actually needs to be appended: most
+	// writes hit already allocated clusters and would otherwise pay for an
+	// unused allocation on every call.
+	var referenceCountBeingSet []referenceCountToSet
 	clusterAddress, err := imageFile.pointerTable.readClusterAddress(address)
 	if err != nil {
-		if !errors.Is(err, &ErrNeedPointerCluster{}) {
-			return 0, err
+		if _, ok := err.(*ErrNeedPointerCluster); !ok {
+			return 0, false, err
 		}
 		newL2ClusterAddress, err := imageFile.getNewCluster(nil)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		referenceCountBeingSet = append(
 			referenceCountBeingSet,
@@ -521,41 +546,51 @@ func (imageFile *ImageFile) fileOffsetWrite(address uint64) (uint64, error) {
 		)
 		err = imageFile.pointerTable.addNewPointerCluster(address, newL2ClusterAddress)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 	}
+	dataWritten := false
 	if clusterAddress == 0 {
 		// initialize cluster data
 		var initialData []uint8
 		var err error
-		if imageFile.backingFile != nil {
+		// Fast path: a full cluster write can initialize the newly allocated
+		// cluster with the user data in a single write. This skips both the
+		// cluster zeroing and the backing file pre-read, since the user data
+		// covers the whole cluster anyway.
+		fullClusterWrite := uint64(len(writeData)) == imageFile.header.clusterSize &&
+			address%imageFile.header.clusterSize == 0
+		if fullClusterWrite {
+			initialData = writeData
+			dataWritten = true
+		} else if imageFile.backingFile != nil {
 			// initialize cluster data with backing file data,
 			// write can be partial.
 			clusterBegin := address - (address % imageFile.header.clusterSize)
 			data, err := imageFile.backingFile.ReadAt(clusterBegin, imageFile.header.clusterSize)
 			if err != nil {
-				return 0, err
+				return 0, false, err
 			}
 			initialData = data
 		}
 		clusterAddress, err = imageFile.appendDataCluster(initialData)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		err = imageFile.updateClusterAddress(address, clusterAddress, &referenceCountBeingSet)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 	}
 	for _, refCountToSet := range referenceCountBeingSet {
 		unreferencedClusters, err := imageFile.setClusterRefcount(refCountToSet.address, refCountToSet.value)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		imageFile.unrefClusters = append(imageFile.unrefClusters, unreferencedClusters...)
 	}
 	result := clusterAddress + imageFile.rawFile.clusterOffset(address)
-	return result, nil
+	return result, dataWritten, nil
 }
 
 func (imageFile *ImageFile) ReadAt(address, size uint64) ([]byte, error) {
@@ -599,17 +634,20 @@ func (imageFile *ImageFile) WriteAt(address uint64, data []byte) error {
 	numberBytesWritten := uint64(0)
 	for numberBytesWritten < writeCount {
 		currentAddress := address + numberBytesWritten
-		offset, err := imageFile.fileOffsetWrite(currentAddress)
+		count := imageFile.rawFile.limitRangeCluster(currentAddress, writeCount-numberBytesWritten)
+		chunk := data[numberBytesWritten : numberBytesWritten+count]
+		offset, dataWritten, err := imageFile.fileOffsetWrite(currentAddress, chunk)
 		if err != nil {
 			return err
 		}
-		count := imageFile.rawFile.limitRangeCluster(currentAddress, writeCount-numberBytesWritten)
-		err = imageFile.rawFile.WriteAt(
-			data[numberBytesWritten:numberBytesWritten+count],
-			int64(offset),
-		)
-		if err != nil {
-			return err
+		// dataWritten means the newly allocated cluster has already been
+		// initialized with this chunk (full cluster fast path), so writing it
+		// again would be redundant.
+		if !dataWritten {
+			err = imageFile.rawFile.WriteAt(chunk, int64(offset))
+			if err != nil {
+				return err
+			}
 		}
 		numberBytesWritten += count
 	}
@@ -620,22 +658,26 @@ func (imageFile *ImageFile) Close() error {
 	if imageFile.closed {
 		return nil
 	}
+	// Mark as closed before doing any I/O: if flushing fails the underlying
+	// file handle is still closed below, and a second Close() must not
+	// operate on the already closed handle.
+	imageFile.closed = true
 	var errOnSync error
 	if !imageFile.readOnly {
 		errOnSync = imageFile.syncCache()
 	}
+	var errOnBackingClose error
 	if imageFile.backingFile != nil {
-		err := imageFile.backingFile.Close()
-		if err != nil {
-			return err
-		}
+		errOnBackingClose = imageFile.backingFile.Close()
 	}
-	err := imageFile.rawFile.close()
+	errOnFileClose := imageFile.rawFile.close()
 	if errOnSync != nil {
 		return errOnSync
 	}
-	imageFile.closed = true
-	return err
+	if errOnBackingClose != nil {
+		return errOnBackingClose
+	}
+	return errOnFileClose
 }
 
 func (imageFile *ImageFile) appendDataCluster(data []uint8) (uint64, error) {

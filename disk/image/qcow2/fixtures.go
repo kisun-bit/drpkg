@@ -3,6 +3,7 @@ package qcow2
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -14,7 +15,15 @@ func testsDir() string {
 	return path
 }
 
-func prepareTestDir(testsDir string, t *testing.T) {
+// skipIfQemuImgMissing skips the test when the qemu-img executable is not
+// available on the machine running the tests.
+func skipIfQemuImgMissing(t testing.TB) {
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		t.Skip("qemu-img executable is not available, skipping test")
+	}
+}
+
+func prepareTestDir(testsDir string, t testing.TB) {
 	fileExists, err := PathExists(testsDir)
 	if err != nil {
 		t.Fatalf("Error while performing stat of tests directory")
@@ -27,7 +36,7 @@ func prepareTestDir(testsDir string, t *testing.T) {
 	}
 }
 
-func deleteDiskIfExists(imagePath string, t *testing.T) {
+func deleteDiskIfExists(imagePath string, t testing.TB) {
 	fileExists, err := PathExists(imagePath)
 	if err != nil {
 		t.Fatalf("Error while preforming stat of test image file")
@@ -41,6 +50,7 @@ func deleteDiskIfExists(imagePath string, t *testing.T) {
 }
 
 func prepareQemuImage(imageName string, imageSize int, t *testing.T) string {
+	skipIfQemuImgMissing(t)
 	var err error
 	prepareTestDir(testsDir(), t)
 	imagePath := filepath.Join(testsDir(), imageName+".qcow2")
@@ -62,6 +72,7 @@ func prepareQemuImageWithParent(
 	parentImageSize int,
 	t *testing.T,
 ) (string, string) {
+	skipIfQemuImgMissing(t)
 	var err error
 	prepareTestDir(testsDir(), t)
 	parentImagePath := filepath.Join(testsDir(), parentImageName+".qcow2")

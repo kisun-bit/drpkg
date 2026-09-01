@@ -95,6 +95,9 @@ func newL1WriteBackCache(header ImageHeader, rawFile QcowRawFile) (*l1WriteBackC
 }
 
 func newPointerWriteBackCache(header ImageHeader, rawFile QcowRawFile, cacheSize int) (pointerTableCache, error) {
+	if cacheSize <= 0 {
+		return nil, fmt.Errorf("pointer table cache size must be positive, got %d", cacheSize)
+	}
 	l1Table, err := newL1WriteBackCache(header, rawFile)
 	if err != nil {
 		return nil, err
@@ -278,7 +281,14 @@ func l2ClusterAddressOffsetInFile(header ImageHeader, virtualAddress uint64) uin
 }
 func (l1Table *l1NoCache) getL2ClusterAddress(virtualAddress uint64) (uint64, error) {
 	offset := l2ClusterAddressOffsetInFile(l1Table.header, virtualAddress)
-	return l1Table.rawFile.readUint64At(offset)
+	l2ClusterAddress, err := l1Table.rawFile.readUint64At(offset)
+	if err != nil {
+		return 0, err
+	}
+	// Mask out the reserved bits (for example the COPIED flag) so that L1
+	// entries written by other implementations or by the cached mode of this
+	// library are still readable here.
+	return l2ClusterAddress & L1TableOffsetMask, nil
 }
 
 func (l1Table *l1NoCache) setL2ClusterAddress(virtualAddress, newL2TableClusterAddress uint64) (uint64, error) {
@@ -307,7 +317,16 @@ func (pointerTable *pointerTableNoCache) readClusterAddress(virtualAddress uint6
 	indexInL2Table := l2TableIndex(pointerTable.header, virtualAddress)
 	offset := l2ClusterAddress + 8*indexInL2Table
 	clusterAddress, err := pointerTable.rawFile.readUint64At(offset)
-	return clusterAddress, err
+	if err != nil {
+		return 0, err
+	}
+	if clusterAddress&CompressedFlag != 0 {
+		return 0, fmt.Errorf("compressed clusters are not supported")
+	}
+	// Mask out the reserved bits (for example the COPIED flag) so that L2
+	// entries written by the cached mode of this library or by other
+	// implementations are still readable here.
+	return clusterAddress & L2TableOffsetMask, nil
 }
 
 func (pointerTable *pointerTableNoCache) addNewPointerCluster(virtualAddress, newClusterAddress uint64) error {
@@ -326,7 +345,10 @@ func (pointerTable *pointerTableNoCache) updateClusterAddress(
 	}
 	indexInL2Table := l2TableIndex(pointerTable.header, virtualAddress)
 	offset := l2ClusterAddress + 8*indexInL2Table
-	err = pointerTable.rawFile.writeUint64At(newClusterAddress, offset)
+	// Mark the entry as used (COPIED flag) to stay consistent with the
+	// cached mode, which writes L2 tables with this flag set for non-zero
+	// entries.
+	err = pointerTable.rawFile.writeUint64At(newClusterAddress|ClusterUsedFlag, offset)
 	if err != nil {
 		return err
 	}

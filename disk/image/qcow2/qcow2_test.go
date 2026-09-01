@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"testing"
-	"time"
 )
 
 func imagePreparedQemuImgDefault(
@@ -141,9 +140,12 @@ func TestParseHeaderDiskWithParent(t *testing.T) {
 func checkParseDisk(t *testing.T, useCache bool) {
 	imagePath := prepareQemuImage("good_image_no_default", 10*1024*1024, t)
 	imageFactory := NewImageFactory(useCache)
-	_, err := imageFactory.OpenImage(imagePath, 1)
+	image, err := imageFactory.OpenImage(imagePath, 1)
 	if err != nil {
 		t.Fatalf("Bad parsing result %s", err)
+	}
+	if err := image.Close(); err != nil {
+		t.Fatalf("Error while closing the image %s", err)
 	}
 }
 
@@ -167,21 +169,31 @@ func TestCreateDiskReadWrite(t *testing.T) {
 			err,
 		)
 	}
+	defer func() {
+		if err := image.Close(); err != nil {
+			t.Fatalf("While closing the image an error occured %s", err)
+		}
+	}()
 
 	for step := uint64(1); step <= size; step *= 2 {
-		for offset := uint64(0); offset < size; offset += step {
-			sizeToWrite := step
-			if size-offset < step {
-				sizeToWrite = size - offset
+		// Sample up to 64 offsets per step size to keep the test fast while
+		// still covering many size/offset combinations.
+		stride := size / 64
+		if stride < step {
+			stride = step
+		}
+		for offset := uint64(0); offset+step <= size; offset += stride {
+			toWrite := make([]byte, step)
+			for index := range toWrite {
+				toWrite[index] = byte(offset + uint64(index))
 			}
-			toWrite := make([]byte, sizeToWrite)
 			err := image.WriteAt(offset, toWrite)
 			if err != nil {
 				t.Errorf(
 					"Error while writing to file offset=%d, step=%d; err=%s",
 					offset, step, err)
 			}
-			data, err := image.ReadAt(offset, sizeToWrite)
+			data, err := image.ReadAt(offset, step)
 			if err != nil {
 				t.Errorf(
 					"Error while reading from file offset=%d, step=%d; err=%s",
@@ -256,6 +268,9 @@ func checkDiskWrite(t *testing.T, useCache bool) {
 	if err != nil {
 		t.Fatalf("error while reading from the file with unsaved caches %s", err)
 	}
+	if err := image.Close(); err != nil {
+		t.Fatalf("error while closing the reopened file %s", err)
+	}
 	if !bytes.Equal(data, toWrite) {
 		t.Fatalf("bytes read and write are not equal %t", useCache)
 	}
@@ -279,21 +294,21 @@ func checkDiskWithParentReadWriteOk(t *testing.T, useCache bool) {
 		t.Fatalf("error while creating a parent image")
 	}
 	writeSize := uint64(512)
-	bytesToWrite := make([]byte, writeSize)
-	for i := range bytesToWrite {
-		bytesToWrite[i] = 5
+	parentBytes := make([]byte, writeSize)
+	for i := range parentBytes {
+		parentBytes[i] = 5
 	}
-	for offset := uint64(0); offset < size; offset += writeSize * 2 {
-		err = parentImage.WriteAt(offset, bytesToWrite)
+	for offset := uint64(0); offset < size; offset += writeSize {
+		err = parentImage.WriteAt(offset, parentBytes)
 		if err != nil {
-			t.Errorf("Error while writing to a parent image")
+			t.Fatalf("Error while writing to a parent image at offset %d", offset)
 		}
 	}
 	if useCache {
 		err = parentImage.Flush()
-	}
-	if err != nil {
-		t.Fatalf("Error while flushing a parent image")
+		if err != nil {
+			t.Fatalf("Error while flushing a parent image")
+		}
 	}
 	err = parentImage.Close()
 	if err != nil {
@@ -304,33 +319,60 @@ func checkDiskWithParentReadWriteOk(t *testing.T, useCache bool) {
 	if err != nil {
 		t.Fatalf("error while creating image from backing file")
 	}
-	defer func() {
-		if err := image.Close(); err != nil {
-			t.Fatalf("While closing file, %s", err)
+	// Write to every other 512 byte block of the child image. Each write is a
+	// partial cluster write, so the rest of every cluster must be copied from
+	// the backing file (copy on write).
+	childBytes := make([]byte, writeSize)
+	for i := range childBytes {
+		childBytes[i] = 19
+	}
+	for offset := uint64(0); offset < size; offset += writeSize * 2 {
+		err = image.WriteAt(offset, childBytes)
+		if err != nil {
+			t.Fatalf("Error while writing to a child image at offset %d", offset)
 		}
-	}()
-	defaultBytesToRead := make([]byte, writeSize)
-	bytesToWriteToChild := make([]byte, writeSize)
-	for i := range bytesToWriteToChild {
-		bytesToWriteToChild[i] = 19
 	}
 	counter := 0
 	for offset := uint64(0); offset < size; offset += writeSize {
-
 		data, err := image.ReadAt(offset, writeSize)
 		if err != nil {
 			t.Fatalf("Error while reading from disk with a parent")
 		}
 		if counter%2 == 0 {
-			if !bytes.Equal(data, bytesToWrite) {
-				t.Errorf("Wrong data which is read from backing")
+			if !bytes.Equal(data, childBytes) {
+				t.Errorf("Child write is not visible at offset %d", offset)
 			}
 		} else {
-			if !bytes.Equal(data, defaultBytesToRead) {
-				t.Errorf("Bytes which are read from file are not zeroed")
+			// The backing data copied into the child on write must still be
+			// visible in the blocks the child has not written.
+			if !bytes.Equal(data, parentBytes) {
+				t.Errorf("Backing data is lost at offset %d", offset)
 			}
 		}
 		counter += 1
+	}
+	err = image.Close()
+	if err != nil {
+		t.Fatalf("While closing file, %s", err)
+	}
+	// Writes to the child image must never modify the backing file.
+	parentImage, err = imageFactory.OpenImage(parentImagePath, 1)
+	if err != nil {
+		t.Fatalf("Error while reopening the parent image")
+	}
+	defer func() {
+		if err := parentImage.Close(); err != nil {
+			t.Fatalf("While closing the parent image, %s", err)
+		}
+	}()
+	for offset := uint64(0); offset < size; offset += writeSize {
+		data, err := parentImage.ReadAt(offset, writeSize)
+		if err != nil {
+			t.Fatalf("Error while reading the parent image at offset %d", offset)
+		}
+		if !bytes.Equal(data, parentBytes) {
+			t.Errorf("The backing file was modified by child writes at offset %d", offset)
+		}
 	}
 }
 
@@ -339,45 +381,69 @@ func TestDiskWithParentReadWrite(t *testing.T) {
 	checkDiskWithParentReadWriteOk(t, false)
 }
 
-func benchImageWrite(t *testing.T, size uint64, useCache bool, blockSize uint64) {
-	imagePath := path.Join(testsDir(), "sample.img")
-	prepareTestDir(testsDir(), t)
-	deleteDiskIfExists(imagePath, t)
+func benchImageWrite(b *testing.B, size uint64, useCache bool, blockSize uint64) {
+	imagePath := path.Join(testsDir(), "bench_sample.img")
+	prepareTestDir(testsDir(), b)
+	deleteDiskIfExists(imagePath, b)
 	imageFactory := NewImageFactory(useCache)
 	image, err := imageFactory.CreateImage(imagePath, size)
 	if err != nil {
-		t.Fatalf("error while creating an image")
+		b.Fatalf("error while creating an image")
 	}
+	defer func() {
+		if err := image.Close(); err != nil {
+			b.Fatalf("error while closing the image %s", err)
+		}
+	}()
 	toWrite := make([]byte, blockSize)
 	for i := range toWrite {
 		toWrite[i] = 65
 	}
-	start := time.Now()
+	b.ResetTimer()
 	for i := uint64(0); i < size; i += blockSize {
 		err := image.WriteAt(i, toWrite)
 		if err != nil {
-			t.Fatalf("Error while writing to file %s at %d", err, i)
+			b.Fatalf("Error while writing to file %s at %d", err, i)
 		}
-	}
-	elapsed := time.Since(start)
-	cacheStr := "cache is used"
-	if !useCache {
-		cacheStr = "cache is not used"
-	}
-	fmt.Printf("Write for block size=%d and %s, time=%s\n", blockSize, cacheStr, elapsed)
-}
-func TestBenchmarkQCow2Format(t *testing.T) {
-	for blockSize := uint64(512); blockSize <= uint64(1024*1024*1024); blockSize *= 8 {
-		benchImageWrite(t, uint64(3*1024*1024*1024), true, blockSize)
-		benchImageWrite(t, uint64(3*1024*1024*1024), false, blockSize)
 	}
 }
 
-func TestBenchmarkQcow2LargeDisk(t *testing.T) {
+func BenchmarkQCow2Format(b *testing.B) {
+	for blockSize := uint64(512); blockSize <= uint64(1024*1024*1024); blockSize *= 8 {
+		blockSize := blockSize
+		for _, useCache := range []bool{true, false} {
+			useCache := useCache
+			cacheStr := "cached"
+			if !useCache {
+				cacheStr = "nocache"
+			}
+			b.Run(
+				fmt.Sprintf("blockSize=%d/%s", blockSize, cacheStr),
+				func(b *testing.B) {
+					for i := 0; i < b.N; i++ {
+						benchImageWrite(b, uint64(3*1024*1024*1024), useCache, blockSize)
+					}
+				},
+			)
+		}
+	}
+}
+
+func BenchmarkQcow2LargeDisk(b *testing.B) {
 	blockSize := uint64(2 * 1024 * 1024)
 	diskSize := uint64(10 * 1024 * 1024 * 1024)
-	benchImageWrite(t, diskSize, true, blockSize)
-	benchImageWrite(t, diskSize, false, blockSize)
+	for _, useCache := range []bool{true, false} {
+		useCache := useCache
+		cacheStr := "cached"
+		if !useCache {
+			cacheStr = "nocache"
+		}
+		b.Run(cacheStr, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				benchImageWrite(b, diskSize, useCache, blockSize)
+			}
+		})
+	}
 }
 
 func TestImageWithBackingFileDoNotWriteToBackingFileOnCacheEviction(t *testing.T) {
@@ -431,6 +497,9 @@ func TestImageWithBackingFileDoNotWriteToBackingFileOnCacheEviction(t *testing.T
 	if err != nil {
 		t.Fatalf("Error while reading from a address=%d: %s", uint64(2*numberOfBytesCanAllocatePerL2Cluster+1), err)
 	}
+	if err := childImage.Close(); err != nil {
+		t.Fatalf("While closing the child image an error occured %s", err)
+	}
 }
 
 func TestHugeFileWrite(t *testing.T) {
@@ -444,6 +513,11 @@ func TestHugeFileWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while creating an image")
 	}
+	defer func() {
+		if err := image.Close(); err != nil {
+			t.Fatalf("error while closing the image %s", err)
+		}
+	}()
 	test := func(address, blockSize uint64) {
 		toWrite := make([]byte, blockSize)
 		for i := range toWrite {

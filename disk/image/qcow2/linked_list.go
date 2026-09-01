@@ -90,6 +90,33 @@ func (list *linkedList[T]) removeByPointer(pointer *linkedListCell[T]) (T, error
 	return pointer.value, nil
 }
 
+// moveToRear detaches the given cell from its current position and reattaches
+// it at the tail of the list without allocating a new cell. The pointer stays
+// valid, which allows callers to keep using it after the move.
+func (list *linkedList[T]) moveToRear(pointer *linkedListCell[T]) error {
+	if list.size == 0 {
+		return fmt.Errorf("can't move an element of an empty list")
+	}
+	if pointer == list.tail {
+		return nil
+	}
+	// Detach.
+	if pointer.previous != nil {
+		pointer.previous.next = pointer.next
+	} else {
+		list.head = pointer.next
+	}
+	if pointer.next != nil {
+		pointer.next.previous = pointer.previous
+	}
+	// Attach at the tail.
+	pointer.previous = list.tail
+	pointer.next = nil
+	list.tail.next = pointer
+	list.tail = pointer
+	return nil
+}
+
 func (list linkedList[T]) content() []T {
 	result := make([]T, list.size)
 	index := 0
