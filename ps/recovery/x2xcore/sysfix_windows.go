@@ -2,6 +2,7 @@ package x2xcore
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1092,6 +1093,13 @@ var (
 		//`PCI\VEN_1AF4&DEV_1004`,
 		//`PCI\VEN_1AF4&DEV_1048`,
 	}
+
+	netkvmCompatIds = []string{
+		`PCI\VEN_1AF4&DEV_1000&SUBSYS_00011AF4&REV_00`,
+		`PCI\VEN_1AF4&DEV_1041&SUBSYS_11001AF4&REV_01`,
+		//`PCI\VEN_1AF4&DEV_1000`,
+		//`PCI\VEN_1AF4&DEV_1041`,
+	}
 )
 
 const scsiMiniportGroup = "SCSI miniport"
@@ -1152,6 +1160,14 @@ func (fixer *windowsSystemFixer) injectDriversLegacy(ds *x2xlib.DriverResource) 
 		return "", "", errors.Wrapf(e, "read driver dir %s", ds.Dir)
 	}
 
+	// 启动相关（块）驱动需要拷贝到 system32\drivers 并注册 Services / CDB；
+	// 非启动驱动（如 netkvm）不拷贝，统一放入 DriverStore\FileRepository，
+	// 由用户恢复后手动安装。
+	isBlockModule := map[string]bool{
+		moduleViostor: true,
+		moduleVioscsi: true,
+	}
+
 	// legacySysFiles 记录每个模块实际复制成功的 .sys 文件名，
 	// 供后续注册表写入使用。
 	legacySysFiles := make(map[string]string)
@@ -1165,7 +1181,7 @@ func (fixer *windowsSystemFixer) injectDriversLegacy(ds *x2xlib.DriverResource) 
 		ext := strings.ToLower(filepath.Ext(name))
 		module := strings.TrimSuffix(strings.ToLower(name), ext)
 
-		// 仅拷贝驱动库中与本驱动集模块相关的文件
+		// 仅拷贝与本驱动集启动模块相关的文件
 		matched := false
 		for _, m := range ds.Modules {
 			if strings.EqualFold(m, module) {
@@ -1173,7 +1189,7 @@ func (fixer *windowsSystemFixer) injectDriversLegacy(ds *x2xlib.DriverResource) 
 				break
 			}
 		}
-		if !matched {
+		if !matched || !isBlockModule[module] {
 			continue
 		}
 
@@ -1206,15 +1222,33 @@ func (fixer *windowsSystemFixer) injectDriversLegacy(ds *x2xlib.DriverResource) 
 	}
 
 	// ------------------------------------------------------------------
-	// 2. 注册表注入
+	// 1.1 非启动驱动：放入 DriverStore\FileRepository，恢复后手动安装
 	// ------------------------------------------------------------------
 
-	isBlockModule := map[string]bool{
-		moduleViostor: true,
-		moduleVioscsi: true,
+	for _, module := range ds.Modules {
+		if isBlockModule[module] {
+			continue
+		}
+		pkgDir, e := fixer.installNonBootDriverPackage(ds.Dir, module)
+		if e != nil {
+			return "", "", e
+		}
+		if pkgDir != "" && module == moduleNetkvm {
+			// 网络驱动已就位，标记可用（供宿主机网卡类型参考）
+			netDrv = module
+		}
 	}
 
+	// ------------------------------------------------------------------
+	// 2. 注册表注入（仅启动相关驱动）
+	// ------------------------------------------------------------------
+
 	for _, module := range ds.Modules {
+		if !isBlockModule[module] {
+			// 非启动驱动不注册服务（恢复后由用户手动安装）
+			continue
+		}
+
 		sysFile, ok := legacySysFiles[module]
 		if !ok {
 			// 模块没有对应的 .sys（例如纯 INF 驱动），跳过服务注册
@@ -1222,9 +1256,8 @@ func (fixer *windowsSystemFixer) injectDriversLegacy(ds *x2xlib.DriverResource) 
 			continue
 		}
 
-		// 块驱动必须为 boot start（Start=0）；网络等非引导驱动
-		// 注册为按需启动（Start=3），由 PnP 管理器在首次启动时安装。
-		if e := fixer.installLegacyService(module, sysFile, isBlockModule[module]); e != nil {
+		// 启动驱动必须为 boot start（Start=0），保证引导阶段可加载
+		if e := fixer.installLegacyService(module, sysFile, true); e != nil {
 			return "", "", e
 		}
 	}
@@ -1246,11 +1279,6 @@ func (fixer *windowsSystemFixer) injectDriversLegacy(ds *x2xlib.DriverResource) 
 		blockDrv = module
 	}
 
-	// 网络驱动
-	if _, ok := legacySysFiles[moduleNetkvm]; ok {
-		netDrv = moduleNetkvm
-	}
-
 	fixer.offsys.legacyBlockDriver = blockDrv
 	fixer.offsys.legacyNetDriver = netDrv != ""
 
@@ -1261,6 +1289,63 @@ func (fixer *windowsSystemFixer) injectDriversLegacy(ds *x2xlib.DriverResource) 
 	)
 
 	return blockDrv, netDrv, nil
+}
+
+// installNonBootDriverPackage 将非启动相关驱动（如 netkvm）以驱动包
+// 形式放入离线系统的 DriverStore\FileRepository（目录不存在则创建）。
+//
+// 低版本 Windows（XP/2003/Vista/2008）没有 DISM 工具，非启动驱动的
+// 完整安装无法离线完成，因此这里只负责把驱动文件放到固定位置，并
+// 提示用户在恢复后进入该目录手动安装；不做任何 Services / CDB 注册。
+//
+// 包目录命名为 <inf名>.inf_<8位哈希>，哈希取 INF 文件内容 MD5 的
+// 前 8 位十六进制，与 Vista/2008 时代 pnputil 生成的包目录格式一致。
+//
+// 返回安装后的包目录绝对路径（无 INF 时返回空字符串，表示跳过）。
+func (fixer *windowsSystemFixer) installNonBootDriverPackage(srcDir, module string) (string, error) {
+	sysRoot := fixer.offsys.sysVolumeLtr + `:\`
+	fileRepoDir := filepath.Join(sysRoot, "Windows", "System32", "DriverStore", "FileRepository")
+
+	infName := module + ".inf"
+	infSrc := filepath.Join(srcDir, infName)
+
+	if !extend.IsExisted(infSrc) {
+		logger.Debugf("installNonBootDriverPackage: %s not found in %s, skip", infName, srcDir)
+		return "", nil
+	}
+
+	// 计算包目录哈希：INF 文件内容 MD5 的前 8 位
+	infData, e := os.ReadFile(infSrc)
+	if e != nil {
+		return "", errors.Wrapf(e, "read %s", infSrc)
+	}
+	hash := fmt.Sprintf("%x", md5.Sum(infData))[:8]
+
+	pkgDirName := infName + "_" + hash
+	pkgDir := filepath.Join(fileRepoDir, pkgDirName)
+
+	if e = os.MkdirAll(pkgDir, 0o755); e != nil {
+		return "", errors.Wrapf(e, "mkdir %s", pkgDir)
+	}
+
+	// 将模块的 .inf/.cat/.pnf/.sys 复制到包目录
+	for _, ext := range []string{".inf", ".cat", ".pnf", ".sys"} {
+		src := filepath.Join(srcDir, module+ext)
+		if !extend.IsExisted(src) {
+			continue
+		}
+		dst := filepath.Join(pkgDir, module+ext)
+		if e = extend.CopyFile(src, dst, 0o666); e != nil {
+			return "", errors.Wrapf(e, "copy %s -> %s", src, dst)
+		}
+		logger.Debugf("installNonBootDriverPackage: copied %s", dst)
+	}
+
+	// 提示用户：恢复后进入该目录手动安装驱动
+	fixer.warnf(LogTplForNonBootDriverInstalledWith2Args, module, pkgDir)
+
+	logger.Infof("installNonBootDriverPackage: package %s installed", pkgDirName)
+	return pkgDir, nil
 }
 
 // installLegacyService 在离线 SYSTEM hive 中创建/更新内核驱动服务项。

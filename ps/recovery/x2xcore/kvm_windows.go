@@ -131,7 +131,10 @@ func (fixer *windowsSystemFixer) ensureLegacyKvmBootRegistry() error {
 		return e
 	}
 
-	// viostor 对应宿主机 virtio-blk 磁盘总线
+	// viostor 对应宿主机 virtio-blk 磁盘总线。
+	// netkvm 不登记 CDB、不强制引导启动（保持 Start=3），
+	// 由 PnP 管理器在首次启动时安装；此处仅记录其可用性供
+	// 宿主机配置参考。
 	fixer.offsys.legacyBlockDriver = "viostor"
 	fixer.offsys.legacyNetDriver = fixer.existedService("netkvm")
 
