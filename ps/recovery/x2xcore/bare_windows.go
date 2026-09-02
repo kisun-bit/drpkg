@@ -285,6 +285,30 @@ var intelIDEPCIIDs = map[string]struct{}{
 	`pci#ven_8086&dev_27df`: {}, // ICH7 IDE
 }
 
+// ensureIntelIdeBootDriver 在低版本 Windows（< Win7/2008R2）上
+// 无条件确保 intelide 具备引导能力。
+//
+// intelIDEPCIIDs 枚举了 intelide.sys 支持的全部 Intel IDE 控制器
+// （PIIX/PIIX3/PIIX4/ICH 系列）。低版本系统迁移到虚拟化平台后，
+// 这些控制器的 CDB 记录可能缺失或不完整（例如 KVM i440fx 芯片组
+// 使用的 PIIX3 IDE 控制器），导致启动盘驱动无法加载。
+//
+// intelide.sys 为系统自带驱动，因此不依赖目标 PCI 设备列表是否
+// 枚举到这些控制器，这里对 intelIDEPCIIDs 中的全部 ID 一次性
+// 注册 intelide 服务与 CDB 记录（幂等，可重复执行）。
+func (fixer *windowsSystemFixer) ensureIntelIdeBootDriver() error {
+	logger.Infof("ensureIntelIdeBootDriver: ensuring intelide boot driver for legacy windows")
+
+	deviceIds := make([]string, 0, len(intelIDEPCIIDs))
+	for id := range intelIDEPCIIDs {
+		deviceIds = append(deviceIds, id)
+	}
+
+	return fixer.ensureLegacyBootDriver(
+		"intelide", "intelide.sys",
+		scsiMiniportGroup, classGuidHDC, deviceIds)
+}
+
 func (fixer *windowsSystemFixer) checkPciInDriverStoreLegacy(up *universal.UniPci) error {
 	logger.Debugf("checkPciInDriverStoreLegacy: ++")
 	defer logger.Debugf("checkPciInDriverStoreLegacy: --")

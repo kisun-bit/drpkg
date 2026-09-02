@@ -205,6 +205,11 @@ var (
 		En: "No KVM virtualization driver (%v) is available for system version (%s). Please boot with emulated devices such as IDE after recovery.",
 	}
 
+	LogTplForIntelIdeNotAvailableWith1Args = LangTpl{
+		Zh: "确保 Intel IDE 引导驱动失败：%v。若系统使用 Intel IDE 启动盘，恢复后可能无法正常启动。",
+		En: "Failed to ensure Intel IDE boot driver: %v. If the system boots from an Intel IDE disk, it may fail to boot after recovery.",
+	}
+
 	LogTplForNonBootDriverInstalledWith2Args = LangTpl{
 		Zh: "系统版本过旧，非启动驱动（%s）已放入驱动目录 %s，请在恢复后进入该目录手动安装驱动。",
 		En: "System version is too old. Non-boot driver (%s) has been placed in %s. Please install the driver manually from that directory after recovery.",

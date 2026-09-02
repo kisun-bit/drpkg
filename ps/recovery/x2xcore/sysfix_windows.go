@@ -163,6 +163,14 @@ func (fixer *windowsSystemFixer) Repair() (err error) {
 		}
 	} else {
 		fixer.warnf(LogTplForSkipFirstBootServiceWith1Args, fixer.offsys.windowsVersion)
+
+		// 低版本系统：无条件确保 Intel IDE（intelide.sys）具备引导
+		// 能力，不依赖目标 PCI 设备列表是否枚举到对应控制器。
+		if err = fixer.ensureIntelIdeBootDriver(); err != nil {
+			// 精简版系统可能缺失 intelide.sys，降级为警告，
+			// 不中断整体修复流程。
+			fixer.warnf(LogTplForIntelIdeNotAvailableWith1Args, err)
+		}
 	}
 
 	// 4. 虚拟化平台驱动适配
