@@ -15,6 +15,9 @@ type pointerTableCache interface {
 	) error
 	sync() error
 	syncL1() (bool, error)
+	// clearTables empties the L1 table (so that no cluster is allocated
+	// anymore) and drops all cached L2 tables without writing them back.
+	clearTables() error
 }
 
 // Gets the offset of `address` in the L1 table.
@@ -270,6 +273,21 @@ func (writeBackCache *pointerWriteBackCache) syncL1() (bool, error) {
 	}
 }
 
+// clearTables empties the L1 table and drops all cached L2 tables without
+// writing them back. Used by Commit, after the allocated clusters have been
+// merged into the backing file: the image must no longer reference any data
+// or L2 table cluster. The zeroed L1 table is marked dirty so that it gets
+// flushed to disk on the next sync.
+func (writeBackCache *pointerWriteBackCache) clearTables() error {
+	l1Table := &writeBackCache.l1Table.table
+	for index := uint64(0); index < l1Table.len(); index++ {
+		l1Table.set(index, 0)
+	}
+	writeBackCache.cache.clear()
+	writeBackCache.l2ClustersEvictedButNotL1Synced = map[uint64]uint8{}
+	return nil
+}
+
 type l1NoCache struct {
 	header  ImageHeader
 	rawFile QcowRawFile
@@ -361,6 +379,14 @@ func (pointerTable *pointerTableNoCache) sync() error {
 
 func (pointerTable *pointerTableNoCache) syncL1() (bool, error) {
 	return false, nil
+}
+
+// clearTables zeroes the L1 table directly on disk so that no cluster is
+// allocated anymore. Used by Commit.
+func (pointerTable *pointerTableNoCache) clearTables() error {
+	l1TableSizeBytes := uint64(pointerTable.header.numL2Clusters) * 8
+	zeroL1Table := make([]byte, l1TableSizeBytes)
+	return pointerTable.rawFile.WriteAt(zeroL1Table, int64(pointerTable.header.l1TableOffset))
 }
 
 func newPointerTableNoCache(header ImageHeader, rawFile QcowRawFile) (pointerTableCache, error) {

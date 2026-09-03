@@ -170,3 +170,46 @@ type NonAbsolutePathError struct {
 func (e NonAbsolutePathError) Error() string {
 	return fmt.Sprintf("%s is not absolute", e.diskPath)
 }
+
+type ErrCommitImageHasNoBackingFile struct {
+	diskPath string
+}
+
+func newErrCommitImageHasNoBackingFile(diskPath string) error {
+	return &ErrCommitImageHasNoBackingFile{diskPath: diskPath}
+}
+
+func (err ErrCommitImageHasNoBackingFile) Error() string {
+	return fmt.Sprintf(
+		"can't commit image %s, because it has no backing file",
+		err.diskPath,
+	)
+}
+
+type ErrRebaseBackingImageTooSmall struct {
+	backingPath        string
+	backingVirtualSize uint64
+	imageVirtualSize   uint64
+}
+
+func newErrRebaseBackingImageTooSmall(
+	backingPath string,
+	backingVirtualSize uint64,
+	imageVirtualSize uint64,
+) error {
+	return &ErrRebaseBackingImageTooSmall{
+		backingPath:        backingPath,
+		backingVirtualSize: backingVirtualSize,
+		imageVirtualSize:   imageVirtualSize,
+	}
+}
+
+func (err ErrRebaseBackingImageTooSmall) Error() string {
+	return fmt.Sprintf(
+		"new backing image %s of size %d is smaller than the image being "+
+			"rebased of size %d",
+		err.backingPath,
+		err.backingVirtualSize,
+		err.imageVirtualSize,
+	)
+}

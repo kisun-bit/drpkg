@@ -160,6 +160,15 @@ func (rawFile QcowRawFile) writeHeader(header ImageHeader) error {
 	return header.writeToFile(rawFile.file)
 }
 
+// writeHeaderOnly writes the header (including the backing file name) without
+// extending the file, so it can be used on images that already contain data.
+func (rawFile QcowRawFile) writeHeaderOnly(header ImageHeader) error {
+	if rawFile.readOnly {
+		return newErrWriteAttemptToReadOnlyDisk(0, uint64(header.Length))
+	}
+	return header.writeHeaderOnly(rawFile.file)
+}
+
 // Writes `table` of uint64 pointers to `offset` in the file.
 // `non_zero_flags` will be ORed with all non-zero values in `table`.
 // writing.

@@ -629,3 +629,29 @@ func (header ImageHeader) writeToFile(file *os.File) error {
 	}
 	return nil
 }
+
+// writeHeaderOnly writes the fixed-size header, the (empty) header extension
+// area and the backing file name to the beginning of the file without
+// touching the rest of the file. Unlike writeToFile it does not grow the file
+// to its full size, which makes it safe for updating the backing file
+// reference of an image that already contains data.
+func (header ImageHeader) writeHeaderOnly(file *os.File) error {
+	if _, err := file.Seek(0, 0); err != nil {
+		return err
+	}
+	if _, err := file.Write(header.toByte()); err != nil {
+		return extend.RaiseFrom(err, newErrHeaderWrite())
+	}
+	if _, err := file.Write([]byte{
+		0x00, 0x00, 0x00, 0x00, // end of header extension area
+		0x00, 0x00, 0x00, 0x00, // length of header extension = 0
+	}); err != nil {
+		return extend.RaiseFrom(err, newErrHeaderWrite())
+	}
+	if header.backingFilePath != nil {
+		if _, err := file.Write([]byte(*header.backingFilePath)); err != nil {
+			return extend.RaiseFrom(err, newErrHeaderWrite())
+		}
+	}
+	return nil
+}

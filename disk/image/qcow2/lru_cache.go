@@ -155,3 +155,9 @@ func (cacheMap *LruCacheMap[T, P]) remove(key T) error {
 	}
 	return nil
 }
+
+// clear drops every cached entry without writing anything back.
+func (cacheMap *LruCacheMap[T, P]) clear() {
+	cacheMap.store = make(map[T]*cacheMapEntry[T, P], cacheMap.capacity)
+	cacheMap.queue = newLinkedList[T]()
+}

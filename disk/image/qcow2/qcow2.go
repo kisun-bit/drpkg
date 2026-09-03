@@ -35,6 +35,10 @@ type ImageFile struct {
 	backingFile     *ImageFile
 	closed          bool
 	readOnly        bool
+	// factory remembers the configuration this image was opened with so that
+	// operations such as Commit and Rebase can (re)open related images the
+	// same way.
+	factory ImageFactory
 }
 
 type ImageFactory struct {
@@ -237,6 +241,7 @@ func (factory ImageFactory) imageFromFile(
 		availClusters:   availClusters,
 		closed:          false,
 		readOnly:        readOnly,
+		factory:         factory,
 	}
 	err = checkAddUint64Boundaries(
 		header.l1TableOffset,
