@@ -75,7 +75,7 @@ func (fixer *windowsSystemFixer) configBareMetal() error {
 
 		if up.BaseClassId() == 0x01 {
 			fixer.errorf(LogTplForIncompatibleBootPCIWith2Args, p, up.Human())
-			return errors.Wrapf(err, "incompatible pci(%s): %s", up, up.MsHardwareId()[0])
+			return errors.Wrapf(err, "incompatible pci(%s), detail: %s", up.MsHardwareId()[0], up.Human())
 		}
 		fixer.warnf(LogTplForIncompatibleNonBootPCIWith2Args, p, up.Human())
 	}
@@ -154,7 +154,7 @@ func (fixer *windowsSystemFixer) checkPciInDriverStore(up *universal.UniPci) err
 			return e
 		}
 
-		if e = fixer.injectDriversByDism(ds); e != nil {
+		if e = fixer.injectWindowsDriver(ds); e != nil {
 			return e
 		}
 
@@ -412,9 +412,9 @@ func (fixer *windowsSystemFixer) checkPciInDriverStoreLegacy(up *universal.UniPc
 
 	logger.Debugf("checkPciInDriverStoreLegacy: ds is %s", extend.Pretty(ds))
 
-	// 旧版系统（< Win7/2008R2）不支持 DISM /Add-Driver，
-	// 通过文件复制 + 创建服务 + 登记 CDB 的方式注入。
-	if e = fixer.injectNormalDriverLegacy(ds, up); e != nil {
+	// 按驱动资源目录内容选择注入方式：.msu 走 DISM /Add-Package，
+	// 否则走传统的文件复制 + 创建服务 + 登记 CDB 方式。
+	if e = fixer.injectWindowsDriverLegacy(ds, up); e != nil {
 		return e
 	}
 

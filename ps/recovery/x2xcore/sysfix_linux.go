@@ -252,7 +252,7 @@ func (fixer *linuxSystemFixer) Repair() error {
 		logger.Warnf("NewNetworkInjector: %v", err)
 	} else {
 		if err = netijt.Inject(); err != nil {
-			fixer.warnf(LogTplForInjectNetworkConfigFailedWith0Args, err)
+			fixer.warnf(LogTplForInjectNetworkConfigFailedWith1Args, err)
 			logger.Warnf("Inject: %v", err)
 		}
 	}

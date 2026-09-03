@@ -963,13 +963,13 @@ func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) 
 
 	logger.Debugf("injectDriversByDism: querying existing drivers")
 
-	listCmd := fmt.Sprintf(
-		`%s /Image:%s:\ /Get-Drivers`,
+	_, output, err := command.ExecuteArgs(
 		fixer.getDismProgram(),
-		fixer.offsys.sysVolumeLtr,
+		[]string{
+			fmt.Sprintf("/Image:%s:\\", fixer.offsys.sysVolumeLtr),
+			"/Get-Drivers",
+		},
 	)
-
-	_, output, err := command.Execute(listCmd)
 	if err != nil {
 		return errors.Wrap(err, "query existing drivers")
 	}
@@ -1014,15 +1014,15 @@ func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) 
 			publishedNames,
 		)
 
-		drvArgs := make([]string, 0)
-		for _, publishName := range publishedNames {
-			drvArgs = append(drvArgs, fmt.Sprintf("/Driver:%s", publishName))
+		rmArgs := []string{
+			fmt.Sprintf("/Image:%s:\\", fixer.offsys.sysVolumeLtr),
+			"/Remove-Driver",
 		}
-		rmCmdline := fmt.Sprintf(`dism /Image:%s:\ /Remove-Driver %s`,
-			fixer.offsys.sysVolumeLtr,
-			strings.Join(drvArgs, " "))
+		for _, publishName := range publishedNames {
+			rmArgs = append(rmArgs, fmt.Sprintf("/Driver:%s", publishName))
+		}
 
-		if _, _, e := command.Execute(rmCmdline, command.WithDebug()); e != nil {
+		if _, _, e := command.ExecuteArgs(fixer.getDismProgram(), rmArgs, command.WithDebug()); e != nil {
 			return errors.Wrapf(e,
 				"remove drivers (%s)",
 				strings.Join(publishedNames, ", "))
@@ -1041,15 +1041,17 @@ func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) 
 		ds.Dir,
 	)
 
-	injectCmd := fmt.Sprintf(
-		`%s /Image:%s:\ /Add-Driver /Driver:%s /Recurse`,
+	_, output, err = command.ExecuteArgs(
 		fixer.getDismProgram(),
-		fixer.offsys.sysVolumeLtr,
-		ds.Dir,
+		[]string{
+			fmt.Sprintf("/Image:%s:\\", fixer.offsys.sysVolumeLtr),
+			"/Add-Driver",
+			fmt.Sprintf("/Driver:%s", ds.Dir),
+			"/Recurse",
+			// "/ForceUnsigned",
+		},
+		command.WithDebug(),
 	)
-	// injectCmd += " /ForceUnsigned"
-
-	_, output, err = command.Execute(injectCmd, command.WithDebug())
 	if err != nil {
 		logger.Errorf(
 			"injectDriversByDism: driver injection failed\n%s",

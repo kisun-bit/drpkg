@@ -416,6 +416,13 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 		return nil, err
 	}
 
+	// hardware_compat 入库时统一为小写；查询侧同样归一化，
+	// 并用 LOWER() 包裹列，兼容历史大小写混存的记录。
+	compatIdsLower := make([]string, 0, len(compatIds))
+	for _, id := range compatIds {
+		compatIdsLower = append(compatIdsLower, strings.ToLower(id))
+	}
+
 	var drivers []Driver
 
 	err = x.db.
@@ -433,8 +440,8 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 		Where("driver.arch = ?", architecture).
 		Where("driver.hw_type = ?", driverTypeNormal).
 		Where(
-			"hardware_compat.compat_id IN ?",
-			compatIds,
+			"LOWER(hardware_compat.compat_id) IN ?",
+			compatIdsLower,
 		).
 		Where(
 			"? = nt_compat.windows_version",

@@ -113,3 +113,11 @@ var SupportedDriverExt = []string{
 const DriverStoreDirName = "driverstore.H0nK1"
 
 var DriverStoreDBName = fmt.Sprintf("%s.db", DriverStoreDirName)
+
+// MsuExt 是 MSU 格式驱动安装包的扩展名。
+const MsuExt = ".msu"
+
+// MsuOrderFileName 是驱动资源目录中描述 MSU 安装包安装顺序的
+// 顺序文件名：每行一个 MSU 文件名，行序即安装顺序；
+// 该文件不存在表示各安装包之间无顺序要求。
+const MsuOrderFileName = "order"
