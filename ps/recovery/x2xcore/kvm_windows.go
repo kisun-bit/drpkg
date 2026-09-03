@@ -85,6 +85,8 @@ func (fixer *windowsSystemFixer) configKvm() error {
 		return errors.Wrapf(e, "SelectWindowsBestVirtualDriver")
 	}
 
+	fixer.infof(LogTplForKVMDriverDbWith1Args, ds.FriendlyName)
+
 	if !legacy {
 		if e = fixer.injectDriversByDism(ds); e != nil {
 			return e
@@ -103,6 +105,8 @@ func (fixer *windowsSystemFixer) configKvm() error {
 				fixer.offsys.windowsVersion)
 		}
 	}
+
+	fixer.infof(LogTplForConfigKVMSuccessWith0Args)
 
 	return nil
 }

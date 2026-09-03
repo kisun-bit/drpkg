@@ -230,6 +230,7 @@ func (vm *Vm) buildCommand() error {
 
 	if vm.opt.RecoveryParams.OSType == "windows" {
 		vm.cmdArgs = append(vm.cmdArgs, "-m", "2G")
+		// NOTE：不要将windows pe的内存设置为>2G的，实际测试发现32位windows pe内存配置为3G或4G时出现启动卡死在windows图标的阶段
 	} else {
 		vm.cmdArgs = append(vm.cmdArgs, "-m", "1G")
 	}
@@ -463,6 +464,15 @@ func (vm *Vm) addCDROM() {
 }
 
 func (vm *Vm) Repair() (extra map[string]string, err error) {
+	defer func() {
+		if err == nil {
+			vm.infof(x2xcore.LogTplForRepairSuccessWith0Args)
+			return
+		}
+		vm.infof(x2xcore.LogTplForRepairFailedWith1Args, err)
+		return
+	}()
+
 	vm.cmd = exec.CommandContext(vm.ctx, vm.cmdCaller, vm.cmdArgs...)
 	vm.cmd.Stdin = nil
 	vm.cmd.Stdout = nil

@@ -46,47 +46,47 @@ type LangTpl struct {
 
 var (
 	LogTplForReadyWith0Args = LangTpl{
-		Zh: "正在加载异构修复环境",
+		Zh: "加载异构修复环境",
 		En: "Loading heterogeneous recovery environment",
 	}
 
 	LogTplForOfflineSystemReadyWith0Args = LangTpl{
-		Zh: "正在识别离线系统磁盘",
+		Zh: "识别系统磁盘资源",
 		En: "Identifying offline system disks",
 	}
 
 	LogTplForResetWith0Args = LangTpl{
-		Zh: "正在重置存储映射环境",
+		Zh: "重置存储映射环境",
 		En: "Resetting storage mapping environment",
 	}
 
 	LogTplForOpenLUKSWith0Args = LangTpl{
-		Zh: "正在打开 LUKS 加密卷",
+		Zh: "打开 LUKS 加密卷",
 		En: "Opening LUKS encrypted volumes",
 	}
 
 	LogTplForEnumFsWith0Args = LangTpl{
-		Zh: "正在扫描文件系统",
+		Zh: "扫描文件系统",
 		En: "Scanning filesystems",
 	}
 
 	LogTplForFsckFsWith0Args = LangTpl{
-		Zh: "正在修复文件系统",
+		Zh: "修复文件系统",
 		En: "Repairing filesystems",
 	}
 
 	LogTplForCleanElastioSnapWith0Args = LangTpl{
-		Zh: "正在清理可能残留的 Elastio/Datto 快照",
+		Zh: "清理可能残留的 Elastio/Datto 快照",
 		En: "Cleaning up potential residual Elastio/Datto snapshots",
 	}
 
 	LogTplForCleanSpecifiedPathWith1Args = LangTpl{
-		Zh: "正在清理文件或目录：%s",
+		Zh: "清理文件或目录：%s",
 		En: "Cleaning up file or directory: %s",
 	}
 
 	LogTplForSpecifySystemBootDeviceWith0Args = LangTpl{
-		Zh: "正在识别系统启动设备",
+		Zh: "识别系统启动设备",
 		En: "Identifying system boot device",
 	}
 
@@ -101,17 +101,17 @@ var (
 	}
 
 	LogTplForLoadRegistryWith0Args = LangTpl{
-		Zh: "正在加载注册表",
+		Zh: "加载注册表",
 		En: "Loading registry",
 	}
 
 	LogTplForUnloadRegistryWith0Args = LangTpl{
-		Zh: "正在卸载注册表",
+		Zh: "卸载注册表",
 		En: "Unloading registry",
 	}
 
 	LogTplForMountSystemWith0Args = LangTpl{
-		Zh: "正在切换至离线系统环境",
+		Zh: "切换至离线系统环境",
 		En: "Switching to offline system environment",
 	}
 
@@ -156,27 +156,27 @@ var (
 	}
 
 	LogTplForDisableSELinuxWith0Args = LangTpl{
-		Zh: "正在禁用 SELinux",
+		Zh: "禁用 SELinux",
 		En: "Disabling SELinux",
 	}
 
 	LogTplForDisableAutoRebootWith0Args = LangTpl{
-		Zh: "正在禁用自动重启",
+		Zh: "禁用自动重启",
 		En: "Disabling automatic reboot",
 	}
 
 	LogTplForRepairPAMWith0Args = LangTpl{
-		Zh: "正在修复 PAM 配置",
+		Zh: "修复 PAM 配置",
 		En: "Repairing PAM configuration",
 	}
 
 	LogTplForRepairGrubWith0Args = LangTpl{
-		Zh: "正在修复 GRUB 配置",
+		Zh: "修复 GRUB 配置",
 		En: "Repairing GRUB configuration",
 	}
 
 	LogTplForRepairFstabWith0Args = LangTpl{
-		Zh: "正在修复 fstab 配置",
+		Zh: "修复 fstab 配置",
 		En: "Repairing fstab configuration",
 	}
 
@@ -186,7 +186,7 @@ var (
 	}
 
 	LogTplForInjectLegacyDriversWith0Args = LangTpl{
-		Zh: "正在以传统方式（CDB）注入虚拟化驱动",
+		Zh: "以传统方式（CDB）注入虚拟化驱动",
 		En: "Injecting virtualization drivers using the legacy method (CDB)",
 	}
 
@@ -216,17 +216,17 @@ var (
 	}
 
 	LogTplForOptimizeUEFIWith0Args = LangTpl{
-		Zh: "正在优化 UEFI 启动配置",
+		Zh: "优化 UEFI 启动配置",
 		En: "Optimizing UEFI boot configuration",
 	}
 
 	LogTplForOptimizeBCDWith0Args = LangTpl{
-		Zh: "正在优化 BCD 启动配置",
+		Zh: "优化 BCD 启动配置",
 		En: "Optimizing BCD boot configuration",
 	}
 
 	LogTplForInjectFirstBootServiceWith1Args = LangTpl{
-		Zh: "正在注入首次启动服务：%s",
+		Zh: "注入首次启动服务：%s",
 		En: "Injecting first-boot service: %s",
 	}
 
@@ -236,7 +236,7 @@ var (
 	}
 
 	LogTplForInjectNetworkConfigWith0Args = LangTpl{
-		Zh: "正在写入网络配置",
+		Zh: "写入网络配置",
 		En: "Writing network configuration",
 	}
 
@@ -246,42 +246,52 @@ var (
 	}
 
 	LogTplForUnconfigHVWith0Args = LangTpl{
-		Zh: "正在解除 Hyper-V 驱动绑定",
+		Zh: "解除 Hyper-V 驱动绑定",
 		En: "Removing Hyper-V driver bindings",
 	}
 
 	LogTplForUnconfigKVMWith0Args = LangTpl{
-		Zh: "正在解除 KVM 驱动绑定",
+		Zh: "解除 KVM 驱动绑定",
 		En: "Removing KVM driver bindings",
 	}
 
 	LogTplForUnconfigXenWith0Args = LangTpl{
-		Zh: "正在解除 Xen 驱动绑定",
+		Zh: "解除 Xen 驱动绑定",
 		En: "Removing Xen driver bindings",
 	}
 
 	LogTplForUnconfigVmwareWith0Args = LangTpl{
-		Zh: "正在解除 VMware 驱动绑定",
+		Zh: "解除 VMware 驱动绑定",
 		En: "Removing VMware driver bindings",
 	}
 
 	LogTplForConfigHVWith0Args = LangTpl{
-		Zh: "正在配置 Hyper-V 驱动支持",
+		Zh: "配置 Hyper-V 驱动支持",
 		En: "Configuring Hyper-V driver support",
 	}
 
 	LogTplForConfigKVMWith0Args = LangTpl{
-		Zh: "正在配置 KVM 驱动支持",
+		Zh: "配置 KVM 驱动支持",
 		En: "Configuring KVM driver support",
 	}
 
+	LogTplForKVMDriverDbWith1Args = LangTpl{
+		Zh: "已匹配 KVM 兼容驱动：%s",
+		En: "Matched KVM-compatible driver: %s",
+	}
+
+	LogTplForConfigKVMSuccessWith0Args = LangTpl{
+		Zh: "KVM 驱动支持配置完成",
+		En: "KVM driver support configured successfully",
+	}
+
 	LogTplForConfigXenWith0Args = LangTpl{
-		Zh: "正在配置 Xen 驱动支持",
+		Zh: "配置 Xen 驱动支持",
 		En: "Configuring Xen driver support",
 	}
 
 	LogTplForConfigVmwareWith0Args = LangTpl{
-		Zh: "正在配置 VMware 驱动支持",
+		Zh: "配置 VMware 驱动支持",
 		En: "Configuring VMware driver support",
 	}
 
@@ -296,22 +306,37 @@ var (
 	}
 
 	LogTplForMatchDriverWith1Args = LangTpl{
-		Zh: "正在为硬件 %s 匹配驱动",
-		En: "Matching driver for hardware %s",
+		Zh: "为硬件 %s 进行兼容性检查",
+		En: "Checking compatibility for hardware %s",
+	}
+
+	LogTplForMatchDriverDbWith2Args = LangTpl{
+		Zh: "硬件 %s 的兼容驱动：%s",
+		En: "Compatible driver for hardware %s: %s",
 	}
 
 	LogTplForMatchDriverSuccessWith1Args = LangTpl{
-		Zh: "已为硬件 %s 匹配到兼容驱动",
-		En: "Found a compatible driver for hardware %s",
+		Zh: "硬件 %s 已完成兼容性修正",
+		En: "Hardware %s compatibility fix completed",
 	}
 
 	LogTplForUnlockBitlockerWith1Args = LangTpl{
-		Zh: "正在解锁卷 %s 的 BitLocker",
+		Zh: "解锁卷 %s 的 BitLocker",
 		En: "Unlocking BitLocker on volume %s",
 	}
 
 	LogTplForUnlockBitlockerFailedWith2Args = LangTpl{
 		Zh: "卷 %s 的 BitLocker 解锁失败：%v",
 		En: "Failed to unlock BitLocker on volume %s: %v",
+	}
+
+	LogTplForRepairSuccessWith0Args = LangTpl{
+		Zh: "系统修复完成",
+		En: "System repair completed successfully",
+	}
+
+	LogTplForRepairFailedWith1Args = LangTpl{
+		Zh: "系统修复失败，原因：%v",
+		En: "System repair failed: %v",
 	}
 )

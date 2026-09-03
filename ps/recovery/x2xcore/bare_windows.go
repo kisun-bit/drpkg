@@ -154,6 +154,8 @@ func (fixer *windowsSystemFixer) checkPciInDriverStore(up *universal.UniPci) err
 			return e
 		}
 
+		fixer.infof(LogTplForMatchDriverDbWith2Args, up, ds.FriendlyName)
+
 		if e = fixer.injectWindowsDriver(ds); e != nil {
 			return e
 		}
@@ -409,6 +411,8 @@ func (fixer *windowsSystemFixer) checkPciInDriverStoreLegacy(up *universal.UniPc
 		logger.Warnf("checkPciInDriverStoreLegacy: SelectWindowsBestNormalDriver: %v", e)
 		return e
 	}
+
+	fixer.infof(LogTplForMatchDriverDbWith2Args, up, ds.FriendlyName)
 
 	logger.Debugf("checkPciInDriverStoreLegacy: ds is %s", extend.Pretty(ds))
 
