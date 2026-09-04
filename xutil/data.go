@@ -6,12 +6,14 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math/bits"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unsafe"
 
@@ -322,12 +324,21 @@ func Pretty(i any) string {
 	return string(b)
 }
 
-// ReadFileSkipBadSector 以跳过坏块的方式读取数据
+// DefaultSectorReadTimeout 是读取单个扇区的默认超时时间。
+// 当磁盘存在物理坏道时，syscall.Read 可能长时间阻塞（数分钟），
+// 设置此超时可避免无限等待，超时后该扇区被当作坏块处理。
+var DefaultSectorReadTimeout = 30 * time.Second
+
+// ReadFileSkipBadSector 以跳过坏块的方式读取数据。
+//
+// timeout 控制每个扇区的读取超时：<=0 使用 DefaultSectorReadTimeout，<0 表示无超时。
+// 当读取某个扇区超时时，该扇区被视为坏块（用 0 填充），继续读取后续扇区。
 func ReadFileSkipBadSector(
-	handle *os.File,
+	reader io.ReaderAt,
 	offset int64,
 	data []byte,
 	sectorSize int64,
+	timeout time.Duration,
 ) (n int, containsBadSector bool, err error) {
 
 	if offset%sectorSize != 0 {
@@ -338,8 +349,12 @@ func ReadFileSkipBadSector(
 		return 0, containsBadSector, errors.Errorf("size %d is not sector aligned", len(data))
 	}
 
+	if timeout <= 0 {
+		timeout = DefaultSectorReadTimeout
+	}
+
 	// 先尝试正常读取
-	n, err = handle.ReadAt(data, offset)
+	n, err = readAtWithTimeout(reader, data, offset, timeout)
 	if err == nil {
 		return n, containsBadSector, nil
 	}
@@ -348,7 +363,7 @@ func ReadFileSkipBadSector(
 		return n, containsBadSector, io.EOF
 	}
 
-	if errutil.IsDataCrcError(err) {
+	if errutil.IsDataCrcError(err) || isTimeoutError(err) {
 		containsBadSector = true
 
 		if len(data) < int(sectorSize) {
@@ -371,7 +386,7 @@ func ReadFileSkipBadSector(
 			chunk := data[start:end]
 			curOff := offset + int64(start)
 
-			nn, cerr := handle.ReadAt(chunk, curOff)
+			nn, cerr := readAtWithTimeout(reader, chunk, curOff, timeout)
 
 			switch {
 			case cerr == nil:
@@ -382,8 +397,8 @@ func ReadFileSkipBadSector(
 				n += nn
 				return n, containsBadSector, io.EOF
 
-			case errutil.IsDataCrcError(cerr):
-				// 该4K区间是坏块，跳过，清零占位（避免残留脏数据）
+			case errutil.IsDataCrcError(cerr) || isTimeoutError(cerr):
+				// 该扇区是坏块或读取超时，跳过，清零占位（避免残留脏数据）
 				for i := range chunk {
 					chunk[i] = 0
 				}
@@ -400,4 +415,22 @@ func ReadFileSkipBadSector(
 
 	// 其它未知错误，原样返回
 	return n, false, err
+}
+
+// timeoutError 用于标记读取超时，与系统级 CRC 错误区分。
+type timeoutError struct {
+	offset   int64
+	duration time.Duration
+}
+
+func (e *timeoutError) Error() string {
+	return fmt.Sprintf("read timeout at offset %d after %v", e.offset, e.duration)
+}
+
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	_, ok := err.(*timeoutError)
+	return ok
 }
