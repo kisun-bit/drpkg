@@ -14,7 +14,7 @@ import (
 	"unicode"
 
 	"github.com/kisun-bit/drpkg/command"
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
 )
@@ -141,7 +141,7 @@ func Map(ctx context.Context, image string) (imi MapInfo, err error) {
 		_r := bufio.NewScanner(stdoutPipe)
 		_lineCount := int64(0)
 		for _r.Scan() {
-			if extend.IsContextDone(c) {
+			if xutil.IsContextDone(c) {
 				return
 			}
 			_lineCount++

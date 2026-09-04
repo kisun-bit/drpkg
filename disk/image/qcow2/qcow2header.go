@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil/errutil"
 )
 
 // QcowMagic QCOW magic constant that starts the header.
@@ -599,7 +599,7 @@ func (header ImageHeader) writeToFile(file *os.File) error {
 	}
 	_, err = file.Write(headerBytes)
 	if err != nil {
-		return extend.RaiseFrom(err, newErrHeaderWrite())
+		return errutil.RaiseFrom(err, newErrHeaderWrite())
 	}
 	_, err = file.Write(
 		[]byte{
@@ -608,12 +608,12 @@ func (header ImageHeader) writeToFile(file *os.File) error {
 		},
 	)
 	if err != nil {
-		return extend.RaiseFrom(err, newErrHeaderWrite())
+		return errutil.RaiseFrom(err, newErrHeaderWrite())
 	}
 	if header.backingFilePath != nil {
 		_, err = file.Write([]byte(*header.backingFilePath))
 		if err != nil {
-			return extend.RaiseFrom(err, newErrHeaderWrite())
+			return errutil.RaiseFrom(err, newErrHeaderWrite())
 		}
 	}
 	// Set file length by seeking zero to the last byte
@@ -621,11 +621,11 @@ func (header ImageHeader) writeToFile(file *os.File) error {
 	refCountBlocksSize := uint64(header.refCountTableClusters) * header.clusterSize
 	_, err = file.Seek(int64(refCountBlocksSize+header.refCountTableOffset-2), 0)
 	if err != nil {
-		return extend.RaiseFrom(err, newErrHeaderWrite())
+		return errutil.RaiseFrom(err, newErrHeaderWrite())
 	}
 	_, err = file.Write([]byte{0x00})
 	if err != nil {
-		return extend.RaiseFrom(err, newErrHeaderWrite())
+		return errutil.RaiseFrom(err, newErrHeaderWrite())
 	}
 	return nil
 }
@@ -640,17 +640,17 @@ func (header ImageHeader) writeHeaderOnly(file *os.File) error {
 		return err
 	}
 	if _, err := file.Write(header.toByte()); err != nil {
-		return extend.RaiseFrom(err, newErrHeaderWrite())
+		return errutil.RaiseFrom(err, newErrHeaderWrite())
 	}
 	if _, err := file.Write([]byte{
 		0x00, 0x00, 0x00, 0x00, // end of header extension area
 		0x00, 0x00, 0x00, 0x00, // length of header extension = 0
 	}); err != nil {
-		return extend.RaiseFrom(err, newErrHeaderWrite())
+		return errutil.RaiseFrom(err, newErrHeaderWrite())
 	}
 	if header.backingFilePath != nil {
 		if _, err := file.Write([]byte(*header.backingFilePath)); err != nil {
-			return extend.RaiseFrom(err, newErrHeaderWrite())
+			return errutil.RaiseFrom(err, newErrHeaderWrite())
 		}
 	}
 	return nil

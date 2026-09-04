@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kisun-bit/drpkg/define"
+	"github.com/kisun-bit/drpkg/defs"
 	"github.com/kisun-bit/drpkg/disk/image/qemublk"
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
-	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
+	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
 	"github.com/pkg/errors"
 )
 
@@ -164,7 +164,7 @@ func validateDisk(
 		)
 	}
 
-	if !extend.IsExisted(d.Path) {
+	if !xutil.IsExisted(d.Path) {
 		return errors.Wrapf(os.ErrNotExist, d.Path)
 	}
 
@@ -366,9 +366,9 @@ func IsKVMAvailable() bool {
 	return false
 }
 
-func hardwarePlatform(base define.HardwarePlatform, virt define.HPVirtType) string {
-	if base == define.HPVirt {
+func hardwarePlatform(base defs.HardwarePlatform, virt defs.HPVirtType) string {
+	if base == defs.HPVirt {
 		return string(virt)
 	}
-	return string(define.HPBareMetal)
+	return string(defs.HPBareMetal)
 }

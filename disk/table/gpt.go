@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/lunixbochs/struc"
 	"github.com/pkg/errors"
 )
@@ -62,7 +62,7 @@ type BackupGPT struct {
 }
 
 func NewGPT(disk string, start int64) (gpt *GPT, err error) {
-	ss, err := extend.BytesPerSector(disk)
+	ss, err := xutil.BytesPerSector(disk)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func newGPT(disk io.ReadSeeker, start int64, lbaSize int) (gpt *GPT, err error) 
 }
 
 func (gpt *GPT) Close() error {
-	if extend.IsNilType(gpt.disk) {
+	if xutil.IsNilType(gpt.disk) {
 		return nil
 	}
 	fd := gpt.disk.(*os.File)
@@ -170,7 +170,7 @@ func (gpt *GPT) Identifier() string {
 }
 
 func (gpt *GPT) Size() (int64, error) {
-	size, err := extend.FileSize(gpt.Path)
+	size, err := xutil.FileSize(gpt.Path)
 	return int64(size), err
 }
 

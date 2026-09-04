@@ -9,7 +9,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/lunixbochs/struc"
 	"github.com/pkg/errors"
 )
@@ -60,7 +60,7 @@ func InitializeCdpMetaFile(path string) (err error) {
 	headerBuf := new(bytes.Buffer)
 
 	_ = os.Remove(path)
-	f, err := os.OpenFile(path, os.O_CREATE|extend.W_DSYNC_MODE, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|xutil.W_DSYNC_MODE, 0644)
 	if err != nil {
 		return err
 	}
@@ -106,13 +106,13 @@ func Validate(metaFile string) (err error) {
 	}
 	defer f.Close()
 
-	fileMd5, err := extend.FileMd5sum(f)
+	fileMd5, err := xutil.FileMd5sum(f)
 	if err != nil {
 		return err
 	}
 	diskMd5Hasher := md5.New()
 
-	if _, err = extend.CopyFileByDiskExtents(metaFile, diskMd5Hasher); err != nil {
+	if _, err = xutil.CopyFileByDiskExtents(metaFile, diskMd5Hasher); err != nil {
 		return err
 	}
 	diskMd5 := hex.EncodeToString(diskMd5Hasher.Sum(nil))

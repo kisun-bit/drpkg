@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
@@ -354,7 +354,7 @@ func (img *Image) Close() (err error) {
 		err = errors.Wrapf(err, "Close")
 	}()
 
-	if extend.IsProcessRunning(img.proc) {
+	if xutil.IsProcessRunning(img.proc) {
 		if eSync := img.flushLocked(); eSync != nil {
 			return eSync
 		}

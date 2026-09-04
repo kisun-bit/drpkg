@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/lunixbochs/struc"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
@@ -86,7 +86,7 @@ type MBRPartition struct {
 }
 
 func NewMBR(disk string, start int64, isEBR bool) (mbr *MBR, err error) {
-	ss, err := extend.BytesPerSector(disk)
+	ss, err := xutil.BytesPerSector(disk)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func newEBR(disk io.ReadSeeker, start int64, sectorSize int) (ebr *EBR, err erro
 }
 
 func (mbr *MBR) Close() error {
-	if extend.IsNilType(mbr.disk) {
+	if xutil.IsNilType(mbr.disk) {
 		return nil
 	}
 	if fd, ok := mbr.disk.(*os.File); ok {
@@ -160,7 +160,7 @@ func (mbr *MBR) Identifier() string {
 }
 
 func (mbr *MBR) Size() (int64, error) {
-	size, err := extend.FileSize(mbr.Path)
+	size, err := xutil.FileSize(mbr.Path)
 	return int64(size), err
 }
 

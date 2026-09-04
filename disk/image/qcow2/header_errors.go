@@ -4,7 +4,7 @@ package qcow2
 import (
 	"fmt"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil/errutil"
 )
 
 type ErrInvalidMagic struct {
@@ -26,7 +26,7 @@ func (err ErrInvalidMagic) TraceInfo() string {
 
 func newErrInvalidMagic(magic uint32) error {
 	return &ErrInvalidMagic{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 		magic:            magic,
 	}
 }
@@ -50,7 +50,7 @@ func (err ErrBackingFileNameTooLong) TraceInfo() string {
 
 func newErrBackingFileNameTooLong(backingFileNameSize uint32) error {
 	return &ErrBackingFileNameTooLong{
-		lineNumberString:    extend.GetTraceInfo(),
+		lineNumberString:    errutil.GetTraceInfo(),
 		backingFileNameSize: backingFileNameSize,
 	}
 }
@@ -73,7 +73,7 @@ func (err ErrBackingFileNameNonZeroOffsetZeroLength) TraceInfo() string {
 
 func newErrBackingFileNameNonZeroOffsetZeroLength(backingFileOffset uint64) error {
 	return &ErrBackingFileNameNonZeroOffsetZeroLength{
-		lineNumberString:  extend.GetTraceInfo(),
+		lineNumberString:  errutil.GetTraceInfo(),
 		backingFileOffset: backingFileOffset,
 	}
 }
@@ -96,7 +96,7 @@ func (err ErrBackingFileZeroOffsetNameLengthNotZero) TraceInfo() string {
 
 func newErrBackingFileZeroOffsetNameLengthNotZero(backingFileNameLength uint32) error {
 	return &ErrBackingFileZeroOffsetNameLengthNotZero{
-		lineNumberString:      extend.GetTraceInfo(),
+		lineNumberString:      errutil.GetTraceInfo(),
 		backingFileNameLength: backingFileNameLength,
 	}
 }
@@ -121,7 +121,7 @@ func (err ErrInvalidClusterBits) TraceInfo() string {
 
 func newErrInvalidClusterBits(clusterBits uint32) error {
 	return &ErrInvalidClusterBits{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 		clusterBits:      clusterBits,
 	}
 }
@@ -148,7 +148,7 @@ func (err ErrUnsupportedCryptMethod) TraceInfo() string {
 
 func newErrUnsupportedCryptMethod(cryptMethod uint32) error {
 	return &ErrUnsupportedCryptMethod{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 		cryptMethod:      cryptMethod,
 	}
 }
@@ -172,7 +172,7 @@ func (err ErrL1TableTooLarge) TraceInfo() string {
 
 func newErrL1TableTooLarge(l1Size uint32) error {
 	return &ErrL1TableTooLarge{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 		l1Size:           l1Size,
 	}
 }
@@ -197,7 +197,7 @@ func (err ErrL1OffsetExceedsFileBoundaries) TraceInfo() string {
 
 func newErrL1OffsetExceedsFileBoundaries(l1TableOffset, fileSize uint64) error {
 	return &ErrL1OffsetExceedsFileBoundaries{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 		l1TableOffset:    l1TableOffset,
 		fileSize:         fileSize,
 	}
@@ -217,7 +217,7 @@ func (err ErrNoReferenceCountTableClusters) TraceInfo() string {
 
 func newErrNoReferenceCountTableClusters() error {
 	return &ErrNoReferenceCountTableClusters{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 	}
 }
 
@@ -239,7 +239,7 @@ func (err ErrSnapshotsUnsupported) TraceInfo() string {
 
 func newErrSnapshotsUnsupported(nbSnapshots uint32) error {
 	return &ErrSnapshotsUnsupported{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 		nbSnapshots:      nbSnapshots,
 	}
 }
@@ -258,7 +258,7 @@ func (err ErrCompressionNotSupported) TraceInfo() string {
 
 func newErrCompressionNotSupported() error {
 	return &ErrCompressionNotSupported{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 	}
 }
 
@@ -276,7 +276,7 @@ func (err ErrExternalDataFileNotSupported) TraceInfo() string {
 
 func newErrExternalDataFileNotSupported() error {
 	return &ErrExternalDataFileNotSupported{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 	}
 }
 
@@ -294,7 +294,7 @@ func (err ErrExtendedL2EntriesNotSupported) TraceInfo() string {
 
 func newErrExtendedL2EntriesNotSupported() error {
 	return &ErrExtendedL2EntriesNotSupported{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 	}
 }
 
@@ -312,7 +312,7 @@ func (err ErrRawExternalDataNotSupported) TraceInfo() string {
 
 func newErrRawExternalDataNotSupported() error {
 	return &ErrRawExternalDataNotSupported{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 	}
 }
 
@@ -330,7 +330,7 @@ func (err ErrBitmapExtensionsNotSupported) TraceInfo() string {
 
 func newErrBitmapExtensionsNotSupported() error {
 	return &ErrBitmapExtensionsNotSupported{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 	}
 }
 
@@ -353,7 +353,7 @@ func (err ErrInvalidReferenceCountOrder) TraceInfo() string {
 
 func newErrInvalidReferenceCountOrder(referenceCountOrder uint32) error {
 	return &ErrInvalidReferenceCountOrder{
-		lineNumberString:    extend.GetTraceInfo(),
+		lineNumberString:    errutil.GetTraceInfo(),
 		referenceCountOrder: referenceCountOrder,
 	}
 }
@@ -377,7 +377,7 @@ func (err ErrInvalidHeaderLength) TraceInfo() string {
 
 func newErrInvalidHeaderLength(headerLength uint32) error {
 	return &ErrInvalidHeaderLength{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 		headerLength:     headerLength,
 	}
 }
@@ -402,7 +402,7 @@ func (err ErrOffsetIsNotAClusterBoundary) TraceInfo() string {
 
 func newErrOffsetIsNotAClusterBoundary(offset, clusterSize uint64) error {
 	return &ErrOffsetIsNotAClusterBoundary{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 		offset:           offset,
 		clusterSize:      clusterSize,
 	}
@@ -446,7 +446,7 @@ func (err ErrHeaderWrite) TraceInfo() string {
 
 func newErrHeaderWrite() error {
 	return &ErrHeaderWrite{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 	}
 }
 
@@ -465,7 +465,7 @@ func (err ErrInvalidVersion) TraceInfo() string {
 
 func newErrInvalidVersion(versionNumber uint32) error {
 	return &ErrInvalidVersion{
-		lineNumberString: extend.GetTraceInfo(),
+		lineNumberString: errutil.GetTraceInfo(),
 		versionNumber:    versionNumber,
 	}
 }

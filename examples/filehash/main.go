@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 )
 
 func main() {
@@ -19,19 +19,19 @@ func main() {
 	}
 	defer f.Close()
 
-	hashFromFile, err := extend.FileMd5sum(f)
+	hashFromFile, err := xutil.FileMd5sum(f)
 	if err != nil {
 		log.Fatalln("FileMd5sum: ", err)
 	}
 	fmt.Println("hash from file: ", hashFromFile)
 
 	hasher := md5.New()
-	if _, err = extend.CopyFileByDiskExtents(file, hasher); err != nil {
+	if _, err = xutil.CopyFileByDiskExtents(file, hasher); err != nil {
 		log.Fatalln("CopyFileByDiskExtents: ", err)
 	}
 	fmt.Println("hash from disk: ", hex.EncodeToString(hasher.Sum(nil)))
 
-	es, err := extend.FileDiskExtents(file)
+	es, err := xutil.FileDiskExtents(file)
 	if err != nil {
 		log.Fatalln("FileDiskExtents: ", err)
 	}

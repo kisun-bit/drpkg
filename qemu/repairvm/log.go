@@ -1,6 +1,6 @@
 package repairvm
 
-import "github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
+import "github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
 
 var (
 	LogTplReceiveRepairRequest = x2xcore.LangTpl{

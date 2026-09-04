@@ -5,10 +5,10 @@ package main
 import (
 	"context"
 
-	"github.com/kisun-bit/drpkg/define"
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/defs"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
-	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
+	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
 	"github.com/kisun-bit/drpkg/qemu/repairvm"
 )
 
@@ -39,14 +39,14 @@ func main() {
 				Source: x2xcore.Platform{
 					Arch:      "arm64",
 					CpuVendor: "",
-					Base:      define.HPVirt,
-					Virt:      define.HPVTKvm,
+					Base:      defs.HPVirt,
+					Virt:      defs.HPVTKvm,
 				},
 				Target: x2xcore.Platform{
 					Arch:      "arm64",
 					CpuVendor: "",
-					Base:      define.HPVirt,
-					Virt:      define.HPVTKvm,
+					Base:      defs.HPVirt,
+					Virt:      defs.HPVTKvm,
 				},
 				TimeoutSeconds: 0,
 				//OSType:         "windows",
@@ -78,5 +78,5 @@ func main() {
 		logger.Error("Repair: ", err)
 	}
 
-	logger.Debugf("result: %s", extend.Pretty(extra))
+	logger.Debugf("result: %s", xutil.Pretty(extra))
 }

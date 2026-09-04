@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 )
@@ -95,7 +95,7 @@ func OpenPath(target string, opt *Option) (*Target, error) {
 
 	// 打开前探测容量（文件：stat；块设备：ioctl/sysfs 兜底）。
 	if o.Capacity == 0 {
-		size, err := extend.GetFileSize(target)
+		size, err := xutil.GetFileSize(target)
 		if err != nil {
 			return nil, errors.Wrapf(err, "restore: detect capacity of %s", target)
 		}

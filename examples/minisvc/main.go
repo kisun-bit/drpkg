@@ -7,7 +7,7 @@ import (
 
 	"github.com/kardianos/service"
 
-	"github.com/kisun-bit/drpkg/ps/minisvc"
+	"github.com/kisun-bit/drpkg/platform/minisvc"
 )
 
 type Agent struct {

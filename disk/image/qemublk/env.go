@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/kisun-bit/drpkg/command"
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 )
 
@@ -24,7 +24,7 @@ func init() {
 
 // QemuToolDirSetup 配置Qemu工具目录
 func QemuToolDirSetup(dir string) error {
-	if !extend.IsExisted(dir) {
+	if !xutil.IsExisted(dir) {
 		return errors.Errorf("qemu tool directory (%s) does not exist", dir)
 	}
 
@@ -35,7 +35,7 @@ func QemuToolDirSetup(dir string) error {
 }
 
 func fixQemuToolName() {
-	if !extend.IsWindowsPlatform() {
+	if !xutil.IsWindowsPlatform() {
 		return
 	}
 	for _, name := range []*string{&ioToolName, &imgToolName} {
@@ -45,7 +45,7 @@ func fixQemuToolName() {
 
 func checkQemuTool() error {
 	for _, tool := range []string{ioToolPath, imgToolPath} {
-		if !extend.IsExisted(tool) {
+		if !xutil.IsExisted(tool) {
 			return errors.Errorf("qemu tool (%s) does not exist", tool)
 		}
 		r, o, e := command.Execute(tool + " -h")

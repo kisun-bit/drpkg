@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/kisun-bit/drpkg/define"
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/defs"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/pkg/errors"
 )
@@ -63,9 +63,9 @@ func (fc *firmwareConfig) addArgs(args []string) []string {
 // amd64: OVMF）；探测失败则报错。
 //
 // 返回 nil 表示使用 BIOS 启动（不追加 pflash 参数）。
-func resolveFirmware(arch string, bootMode define.BootMode, spec FirmwareSpec, cacheDir string) (*firmwareConfig, error) {
+func resolveFirmware(arch string, bootMode defs.BootMode, spec FirmwareSpec, cacheDir string) (*firmwareConfig, error) {
 	uefiRequired := arch == "arm64" ||
-		bootMode == define.BootModeUEFI ||
+		bootMode == defs.BootModeUEFI ||
 		spec.Code != "" || spec.VarsTemplate != ""
 
 	if !uefiRequired {
@@ -93,15 +93,15 @@ func resolveFirmware(arch string, bootMode define.BootMode, spec FirmwareSpec, c
 // 与 libvirt 的 nvram 处理一致：绝不直接挂载共享的只读模板，而是拷贝一份
 // 实例私有副本。直接复用模板会污染模板本身，并在并发运行时相互冲突。
 func buildFirmwareConfig(code, varsTemplate, cacheDir string) (*firmwareConfig, error) {
-	if !extend.IsExisted(code) {
+	if !xutil.IsExisted(code) {
 		return nil, errors.Errorf("firmware code not found: %s", code)
 	}
-	if !extend.IsExisted(varsTemplate) {
+	if !xutil.IsExisted(varsTemplate) {
 		return nil, errors.Errorf("firmware vars template not found: %s", varsTemplate)
 	}
 
 	vars := filepath.Join(cacheDir, filepath.Base(varsTemplate))
-	if err := extend.CopyFile(varsTemplate, vars, 0666); err != nil {
+	if err := xutil.CopyFile(varsTemplate, vars, 0666); err != nil {
 		return nil, errors.Wrapf(err, "copy firmware vars template %s", varsTemplate)
 	}
 
@@ -149,7 +149,7 @@ func probeFirmware(arch string) (FirmwareSpec, bool) {
 	}
 
 	for _, c := range candidates {
-		if extend.IsExisted(c.Code) && extend.IsExisted(c.VarsTemplate) {
+		if xutil.IsExisted(c.Code) && xutil.IsExisted(c.VarsTemplate) {
 			return c, true
 		}
 	}

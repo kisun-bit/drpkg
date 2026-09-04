@@ -7,13 +7,13 @@ import (
 	"log"
 	"os"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 )
 
 func main() {
-	segs, err := extend.LVSegments(os.Args[1])
+	segs, err := xutil.LVSegments(os.Args[1])
 	if err != nil {
 		log.Panic(err)
 	}
-	fmt.Println(extend.Pretty(segs))
+	fmt.Println(xutil.Pretty(segs))
 }

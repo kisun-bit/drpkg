@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 
-	"github.com/kisun-bit/drpkg/disk/filesystem/btrfs"
-	"github.com/kisun-bit/drpkg/disk/filesystem/fat"
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/disk/fs/btrfs"
+	"github.com/kisun-bit/drpkg/disk/fs/fat"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 )
 
@@ -21,7 +21,7 @@ func testMirrorFs() {
 	// 1. 解析源 XFS 文件系统，生成"已使用块"位图
 	//
 
-	originSize, e := extend.FileSize(origin)
+	originSize, e := xutil.FileSize(origin)
 	if e != nil {
 		panic(e)
 	}
@@ -86,8 +86,8 @@ func testBitmapExport() {
 	}
 
 	origin := os.Args[1]
-	offset := extend.MustInt64(os.Args[2])
-	size := extend.MustInt64(os.Args[3])
+	offset := xutil.MustInt64(os.Args[2])
+	size := xutil.MustInt64(os.Args[3])
 
 	p, err := fat.NewBitmapParser(origin, offset, size)
 	if err != nil {

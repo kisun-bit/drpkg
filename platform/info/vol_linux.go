@@ -1,0 +1,90 @@
+package info
+
+import (
+	"github.com/kisun-bit/drpkg/disk/table"
+	"github.com/kisun-bit/drpkg/xutil"
+)
+
+func QueryVolumes() ([]Volume, error) {
+	devMounts, err := xutil.VolumeMountpoints()
+	if err != nil {
+		return nil, err
+	}
+
+	vols := make([]Volume, 0)
+
+	for _, devMount := range devMounts {
+		v := Volume{}
+		v.Name = devMount.Device
+		v.Layout = xutil.VolumeTypeSimple
+		v.SegmentLayoutType = xutil.SegmentLayoutTypeLine
+
+		switch {
+		case devMount.Major.IsLV():
+			// 逻辑卷
+			v.Segments, err = xutil.LVSegments(devMount.Device)
+			if err != nil {
+				return nil, err
+			}
+		case devMount.Major.IsMultipath():
+			size, err := xutil.FileSize(devMount.Device)
+			if err != nil {
+				return nil, err
+			}
+			v.Segments = append(v.Segments, xutil.Segment{
+				Device: devMount.Device,
+				Start:  0,
+				Size:   size,
+			})
+		case devMount.Major.IsCrypt():
+			v.SegmentLayoutType = xutil.SegmentLayoutTypeCrypt
+			// [root@localhost ~]# dmsetup table /dev/mapper/luks-e0a6d6d5-e764-47cc-b45f-1e427116890a
+			// 0 22433792 crypt aes-xts-plain64 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 0 253:3 4096
+			// do nothing
+		default:
+			isDA, err := xutil.IsNormalDiskDevice(devMount.Device)
+			if err != nil {
+				return nil, err
+			}
+			if !isDA {
+				continue
+			}
+			// 普通分区或磁盘
+			seg, err := xutil.DiskOrPartitionSegment(devMount.Device)
+			if err != nil {
+				return nil, err
+			}
+			v.Segments = append(v.Segments, seg)
+		}
+
+		v.MountPoint = devMount.Mountpoint
+		v.GUID = xutil.DeviceUUID(devMount.Device)
+		v.Filesystem = devMount.Filesystem
+
+		ava, total, used, _, _, _, err := xutil.MountpointUsage(devMount.Mountpoint)
+		if err != nil {
+			return nil, err
+		}
+		v.Usage.AvailBytes = uint64(ava)
+		v.Usage.TotalBytes = uint64(total)
+		v.Usage.UsedBytes = uint64(used)
+
+		v.Size, err = xutil.FileSize(devMount.Device)
+		if err != nil {
+			return nil, err
+		}
+
+		isDiskBootable := false
+		for _, d := range v.Segments {
+			if table.IsDiskBootable(d.Device) {
+				isDiskBootable = true
+				break
+			}
+		}
+		v.IsBootable = isDiskBootable && xutil.EffectiveForBoot(v.MountPoint)
+
+		vols = append(vols, v)
+	}
+
+	return vols, nil
+}

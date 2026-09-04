@@ -9,8 +9,8 @@ import (
 	"os/exec"
 
 	"github.com/google/uuid"
-	"github.com/kisun-bit/drpkg/define"
-	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
+	"github.com/kisun-bit/drpkg/defs"
+	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
 )
 
 type Option struct {
@@ -53,11 +53,11 @@ type Option struct {
 
 	// BootMode 修复虚拟机的启动模式（可选）。
 	//
-	// 取值 define.BootModeBIOS / define.BootModeUEFI。留空时由架构
+	// 取值 defs.BootModeBIOS / defs.BootModeUEFI。留空时由架构
 	// 决定：arm64 强制 UEFI，amd64 默认 BIOS（配置了 Firmware 时
 	// 使用 UEFI）。显式指定 UEFI 但未配置 Firmware 的 amd64 场景，
 	// 同样走固件探测。
-	BootMode define.BootMode `json:"bootMode"`
+	BootMode defs.BootMode `json:"bootMode"`
 
 	// ForceUseTcg 是否强制启用TCG
 	ForceUseTcg bool `json:"forceUseTcg"`

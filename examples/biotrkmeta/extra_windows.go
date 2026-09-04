@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/lunixbochs/struc"
 	"github.com/olekukonko/tablewriter"
 	"github.com/pkg/errors"
@@ -60,13 +60,13 @@ func ConfigRegistry(metaFile string) error {
 	defer k.Close()
 
 	var meta MetadataRegions
-	es, err := extend.FileDiskExtents(metaFile)
+	es, err := xutil.FileDiskExtents(metaFile)
 	if err != nil {
 		return err
 	}
 	for _, v := range es {
 		meta.Count++
-		id, e := extend.WindowsDiskIDFromPath(v.Disk)
+		id, e := xutil.WindowsDiskIDFromPath(v.Disk)
 		if e != nil {
 			return e
 		}

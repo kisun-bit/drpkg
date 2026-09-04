@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
+	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
 )
 
 func main() {

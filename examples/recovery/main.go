@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kisun-bit/drpkg/define"
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/defs"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
-	"github.com/kisun-bit/drpkg/ps/info"
-	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
+	"github.com/kisun-bit/drpkg/platform/info"
+	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
 )
 
 func main() {
@@ -117,6 +117,6 @@ func main() {
 		return
 	}
 
-	cfg, _ := fixer.GetPreferHostConfig(define.HPVTKvm)
-	fmt.Println(extend.Pretty(cfg))
+	cfg, _ := fixer.GetPreferHostConfig(defs.HPVTKvm)
+	fmt.Println(xutil.Pretty(cfg))
 }

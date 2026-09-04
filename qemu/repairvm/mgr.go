@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kisun-bit/drpkg/define"
-	"github.com/kisun-bit/drpkg/extend"
+	"github.com/kisun-bit/drpkg/defs"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
-	"github.com/kisun-bit/drpkg/ps/recovery/x2xcore"
+	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
 	"github.com/lunixbochs/struc"
 	"github.com/pkg/errors"
 )
@@ -243,7 +243,7 @@ func (vm *Vm) buildCommand() error {
 	useKvm := vm.arch == runtime.GOARCH &&
 		IsKVMAvailable() &&
 		!vm.opt.ForceUseTcg &&
-		vm.opt.RecoveryParams.OSType == define.OsLinux
+		vm.opt.RecoveryParams.OSType == defs.OsLinux
 	if useKvm {
 		vm.cmdArgs = append(vm.cmdArgs, "-enable-kvm")
 	} else {
@@ -377,7 +377,7 @@ func (vm *Vm) addStorage() {
 			scsiIndex++
 		}
 
-		logger.Debugf("offlineDisks: %v", extend.Pretty(vm.offlineDisks))
+		logger.Debugf("offlineDisks: %v", xutil.Pretty(vm.offlineDisks))
 	}
 }
 
@@ -523,7 +523,7 @@ func (vm *Vm) Repair() (extra map[string]string, err error) {
 		RecoveryParam:   vm.opt.RecoveryParams,
 		InRepairVM:      true,
 	}
-	logger.Debugf("fixParam: %s", extend.Pretty(fixParam))
+	logger.Debugf("fixParam: %s", xutil.Pretty(fixParam))
 	if err = x2xcore.WriteSerialMessageTypeStartRepair(*vm.reqSockConn, *fixParam); err != nil {
 		return nil, errors.Wrapf(err, "WriteSerialMessageTypeStartRepair")
 	}

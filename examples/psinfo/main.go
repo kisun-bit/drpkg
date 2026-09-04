@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/kisun-bit/drpkg/ps/info"
+	"github.com/kisun-bit/drpkg/platform/info"
 )
 
 func main() {
