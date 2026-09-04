@@ -1,6 +1,6 @@
-//go:build !windows && !linux
+//go:build !windows
 
-package xutil
+package blkctl
 
 import (
 	"io"
@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// readFileAtWithTimeout 非 Windows/Linux 平台使用 goroutine 回退方案。
+// readFileAtWithTimeout 非 Windows 平台使用 goroutine 回退方案。
 func readFileAtWithTimeout(f *os.File, p []byte, off int64, timeout time.Duration) (n int, err error) {
 	return readAtWithTimeoutFallback(f, p, off, timeout)
 }

@@ -26,140 +26,140 @@ type hresult uint
 
 // HRESULT constant values for VSS api.
 const (
-	sOK                                          hresult = 0x00000000
-	sFalse                                       hresult = 0x00000001
-	eAccessDenied                                 hresult = 0x80070005
-	eOutOfMemory                                  hresult = 0x8007000E
-	eInvalidArg                                   hresult = 0x80070057
-	vssEBadState                                  hresult = 0x80042301
-	vssEUnexpected                                hresult = 0x80042302
-	vssEProviderAlreadyRegistered                 hresult = 0x80042303
-	vssEProviderNotRegistered                     hresult = 0x80042304
-	vssEProviderVeto                              hresult = 0x80042306
-	vssEProviderInUse                             hresult = 0x80042307
-	vssEObjectNotFound                            hresult = 0x80042308
-	vssEVolumeNotSupported                        hresult = 0x8004230C
-	vssEVolumeNotSupportedByProvider              hresult = 0x8004230E
-	vssEObjectAlreadyExists                       hresult = 0x8004230D
-	vssEUnexpectedProviderError                   hresult = 0x8004230F
-	vssECorruptXMLDocument                        hresult = 0x80042310
-	vssEInvalidXMLDocument                        hresult = 0x80042311
-	vssEMaximumNumberOfVolumesReached             hresult = 0x80042312
-	vssEFlushWritesTimeout                        hresult = 0x80042313
-	vssEHoldWritesTimeout                         hresult = 0x80042314
-	vssEUnexpectedWriterError                     hresult = 0x80042315
-	vssESnapshotSetInProgress                     hresult = 0x80042316
-	vssEMaximumNumberOfSnapshotsReached           hresult = 0x80042317
-	vssEWriterInfrastructure                      hresult = 0x80042318
-	vssEWriterNotResponding                       hresult = 0x80042319
-	vssEWriterAlreadySubscribed                   hresult = 0x8004231A
-	vssEUnsupportedContext                        hresult = 0x8004231B
-	vssEVolumeInUse                               hresult = 0x8004231D
-	vssEMaximumDiffareaAssociationsReached        hresult = 0x8004231E
-	vssEInsufficientStorage                       hresult = 0x8004231F
-	vssENoSnapshotsImported                       hresult = 0x80042320
-	vssESomeSnapshotsNotImported                  hresult = 0x80042321
-	vssEMaximumNumberOfRemoteMachinesReached      hresult = 0x80042322
-	vssERemoteServerUnavailable                   hresult = 0x80042323
-	vssERemoteServerUnsupported                   hresult = 0x80042324
-	vssERevertInProgress                          hresult = 0x80042325
-	vssERevertVolumeLost                          hresult = 0x80042326
-	vssERebootRequired                            hresult = 0x80042327
-	vssETransactionFreezeTimeout                  hresult = 0x80042328
-	vssETransactionThawTimeout                    hresult = 0x80042329
-	vssEVolumeNotLocal                            hresult = 0x8004232D
-	vssEClusterTimeout                            hresult = 0x8004232E
-	vssEWritererrorInconsistentsnapshot           hresult = 0x800423F0
-	vssEWritererrorOutofresources                 hresult = 0x800423F1
-	vssEWritererrorTimeout                        hresult = 0x800423F2
-	vssEWritererrorRetryable                      hresult = 0x800423F3
-	vssEWritererrorNonretryable                   hresult = 0x800423F4
-	vssEWritererrorRecoveryFailed                 hresult = 0x800423F5
-	vssEBreakRevertIDFailed                       hresult = 0x800423F6
-	vssELegacyProvider                            hresult = 0x800423F7
-	vssEMissingDisk                               hresult = 0x800423F8
-	vssEMissingHiddenVolume                       hresult = 0x800423F9
-	vssEMissingVolume                             hresult = 0x800423FA
-	vssEAutorecoveryFailed                        hresult = 0x800423FB
-	vssEDynamicDiskError                          hresult = 0x800423FC
-	vssENontransportableBCD                       hresult = 0x800423FD
-	vssECannotRevertDiskid                        hresult = 0x800423FE
-	vssEResyncInProgress                          hresult = 0x800423FF
-	vssEClusterError                              hresult = 0x80042400
-	vssEUnselectedVolume                          hresult = 0x8004232A
-	vssESnapshotNotInSet                          hresult = 0x8004232B
-	vssENestedVolumeLimit                         hresult = 0x8004232C
-	vssENotSupported                              hresult = 0x8004232F
-	vssEWritererrorPartialFailure                 hresult = 0x80042336
-	vssEWriterStatusNotAvailable                  hresult = 0x80042409
+	sOK                                      hresult = 0x00000000
+	sFalse                                   hresult = 0x00000001
+	eAccessDenied                            hresult = 0x80070005
+	eOutOfMemory                             hresult = 0x8007000E
+	eInvalidArg                              hresult = 0x80070057
+	vssEBadState                             hresult = 0x80042301
+	vssEUnexpected                           hresult = 0x80042302
+	vssEProviderAlreadyRegistered            hresult = 0x80042303
+	vssEProviderNotRegistered                hresult = 0x80042304
+	vssEProviderVeto                         hresult = 0x80042306
+	vssEProviderInUse                        hresult = 0x80042307
+	vssEObjectNotFound                       hresult = 0x80042308
+	vssEVolumeNotSupported                   hresult = 0x8004230C
+	vssEVolumeNotSupportedByProvider         hresult = 0x8004230E
+	vssEObjectAlreadyExists                  hresult = 0x8004230D
+	vssEUnexpectedProviderError              hresult = 0x8004230F
+	vssECorruptXMLDocument                   hresult = 0x80042310
+	vssEInvalidXMLDocument                   hresult = 0x80042311
+	vssEMaximumNumberOfVolumesReached        hresult = 0x80042312
+	vssEFlushWritesTimeout                   hresult = 0x80042313
+	vssEHoldWritesTimeout                    hresult = 0x80042314
+	vssEUnexpectedWriterError                hresult = 0x80042315
+	vssESnapshotSetInProgress                hresult = 0x80042316
+	vssEMaximumNumberOfSnapshotsReached      hresult = 0x80042317
+	vssEWriterInfrastructure                 hresult = 0x80042318
+	vssEWriterNotResponding                  hresult = 0x80042319
+	vssEWriterAlreadySubscribed              hresult = 0x8004231A
+	vssEUnsupportedContext                   hresult = 0x8004231B
+	vssEVolumeInUse                          hresult = 0x8004231D
+	vssEMaximumDiffareaAssociationsReached   hresult = 0x8004231E
+	vssEInsufficientStorage                  hresult = 0x8004231F
+	vssENoSnapshotsImported                  hresult = 0x80042320
+	vssESomeSnapshotsNotImported             hresult = 0x80042321
+	vssEMaximumNumberOfRemoteMachinesReached hresult = 0x80042322
+	vssERemoteServerUnavailable              hresult = 0x80042323
+	vssERemoteServerUnsupported              hresult = 0x80042324
+	vssERevertInProgress                     hresult = 0x80042325
+	vssERevertVolumeLost                     hresult = 0x80042326
+	vssERebootRequired                       hresult = 0x80042327
+	vssETransactionFreezeTimeout             hresult = 0x80042328
+	vssETransactionThawTimeout               hresult = 0x80042329
+	vssEVolumeNotLocal                       hresult = 0x8004232D
+	vssEClusterTimeout                       hresult = 0x8004232E
+	vssEWritererrorInconsistentsnapshot      hresult = 0x800423F0
+	vssEWritererrorOutofresources            hresult = 0x800423F1
+	vssEWritererrorTimeout                   hresult = 0x800423F2
+	vssEWritererrorRetryable                 hresult = 0x800423F3
+	vssEWritererrorNonretryable              hresult = 0x800423F4
+	vssEWritererrorRecoveryFailed            hresult = 0x800423F5
+	vssEBreakRevertIDFailed                  hresult = 0x800423F6
+	vssELegacyProvider                       hresult = 0x800423F7
+	vssEMissingDisk                          hresult = 0x800423F8
+	vssEMissingHiddenVolume                  hresult = 0x800423F9
+	vssEMissingVolume                        hresult = 0x800423FA
+	vssEAutorecoveryFailed                   hresult = 0x800423FB
+	vssEDynamicDiskError                     hresult = 0x800423FC
+	vssENontransportableBCD                  hresult = 0x800423FD
+	vssECannotRevertDiskid                   hresult = 0x800423FE
+	vssEResyncInProgress                     hresult = 0x800423FF
+	vssEClusterError                         hresult = 0x80042400
+	vssEUnselectedVolume                     hresult = 0x8004232A
+	vssESnapshotNotInSet                     hresult = 0x8004232B
+	vssENestedVolumeLimit                    hresult = 0x8004232C
+	vssENotSupported                         hresult = 0x8004232F
+	vssEWritererrorPartialFailure            hresult = 0x80042336
+	vssEWriterStatusNotAvailable             hresult = 0x80042409
 )
 
 var hresultToString = map[hresult]string{
-	sOK:                                          "S_OK",
-	eAccessDenied:                                "E_ACCESSDENIED",
-	eOutOfMemory:                                 "E_OUTOFMEMORY",
-	eInvalidArg:                                  "E_INVALIDARG",
-	vssEBadState:                                 "VSS_E_BAD_STATE",
-	vssEUnexpected:                               "VSS_E_UNEXPECTED",
-	vssEProviderAlreadyRegistered:                "VSS_E_PROVIDER_ALREADY_REGISTERED",
-	vssEProviderNotRegistered:                    "VSS_E_PROVIDER_NOT_REGISTERED",
-	vssEProviderVeto:                             "VSS_E_PROVIDER_VETO",
-	vssEProviderInUse:                            "VSS_E_PROVIDER_IN_USE",
-	vssEObjectNotFound:                           "VSS_E_OBJECT_NOT_FOUND",
-	vssEVolumeNotSupported:                       "VSS_E_VOLUME_NOT_SUPPORTED",
-	vssEVolumeNotSupportedByProvider:             "VSS_E_VOLUME_NOT_SUPPORTED_BY_PROVIDER",
-	vssEObjectAlreadyExists:                      "VSS_E_OBJECT_ALREADY_EXISTS",
-	vssEUnexpectedProviderError:                  "VSS_E_UNEXPECTED_PROVIDER_ERROR",
-	vssECorruptXMLDocument:                       "VSS_E_CORRUPT_XML_DOCUMENT",
-	vssEInvalidXMLDocument:                       "VSS_E_INVALID_XML_DOCUMENT",
-	vssEMaximumNumberOfVolumesReached:            "VSS_E_MAXIMUM_NUMBER_OF_VOLUMES_REACHED",
-	vssEFlushWritesTimeout:                       "VSS_E_FLUSH_WRITES_TIMEOUT",
-	vssEHoldWritesTimeout:                        "VSS_E_HOLD_WRITES_TIMEOUT",
-	vssEUnexpectedWriterError:                    "VSS_E_UNEXPECTED_WRITER_ERROR",
-	vssESnapshotSetInProgress:                    "VSS_E_SNAPSHOT_SET_IN_PROGRESS",
-	vssEMaximumNumberOfSnapshotsReached:          "VSS_E_MAXIMUM_NUMBER_OF_SNAPSHOTS_REACHED",
-	vssEWriterInfrastructure:                     "VSS_E_WRITER_INFRASTRUCTURE",
-	vssEWriterNotResponding:                      "VSS_E_WRITER_NOT_RESPONDING",
-	vssEWriterAlreadySubscribed:                  "VSS_E_WRITER_ALREADY_SUBSCRIBED",
-	vssEUnsupportedContext:                       "VSS_E_UNSUPPORTED_CONTEXT",
-	vssEVolumeInUse:                              "VSS_E_VOLUME_IN_USE",
-	vssEMaximumDiffareaAssociationsReached:       "VSS_E_MAXIMUM_DIFFAREA_ASSOCIATIONS_REACHED",
-	vssEInsufficientStorage:                      "VSS_E_INSUFFICIENT_STORAGE",
-	vssENoSnapshotsImported:                      "VSS_E_NO_SNAPSHOTS_IMPORTED",
-	vssESomeSnapshotsNotImported:                 "VSS_E_SOME_SNAPSHOTS_NOT_IMPORTED",
-	vssEMaximumNumberOfRemoteMachinesReached:     "VSS_E_MAXIMUM_NUMBER_OF_REMOTE_MACHINES_REACHED",
-	vssERemoteServerUnavailable:                  "VSS_E_REMOTE_SERVER_UNAVAILABLE",
-	vssERemoteServerUnsupported:                  "VSS_E_REMOTE_SERVER_UNSUPPORTED",
-	vssERevertInProgress:                         "VSS_E_REVERT_IN_PROGRESS",
-	vssERevertVolumeLost:                         "VSS_E_REVERT_VOLUME_LOST",
-	vssERebootRequired:                           "VSS_E_REBOOT_REQUIRED",
-	vssETransactionFreezeTimeout:                 "VSS_E_TRANSACTION_FREEZE_TIMEOUT",
-	vssETransactionThawTimeout:                   "VSS_E_TRANSACTION_THAW_TIMEOUT",
-	vssEVolumeNotLocal:                           "VSS_E_VOLUME_NOT_LOCAL",
-	vssEClusterTimeout:                           "VSS_E_CLUSTER_TIMEOUT",
-	vssEWritererrorInconsistentsnapshot:          "VSS_E_WRITERERROR_INCONSISTENTSNAPSHOT",
-	vssEWritererrorOutofresources:                "VSS_E_WRITERERROR_OUTOFRESOURCES",
-	vssEWritererrorTimeout:                       "VSS_E_WRITERERROR_TIMEOUT",
-	vssEWritererrorRetryable:                     "VSS_E_WRITERERROR_RETRYABLE",
-	vssEWritererrorNonretryable:                  "VSS_E_WRITERERROR_NONRETRYABLE",
-	vssEWritererrorRecoveryFailed:                "VSS_E_WRITERERROR_RECOVERY_FAILED",
-	vssEBreakRevertIDFailed:                      "VSS_E_BREAK_REVERT_ID_FAILED",
-	vssELegacyProvider:                           "VSS_E_LEGACY_PROVIDER",
-	vssEMissingDisk:                              "VSS_E_MISSING_DISK",
-	vssEMissingHiddenVolume:                      "VSS_E_MISSING_HIDDEN_VOLUME",
-	vssEMissingVolume:                            "VSS_E_MISSING_VOLUME",
-	vssEAutorecoveryFailed:                       "VSS_E_AUTORECOVERY_FAILED",
-	vssEDynamicDiskError:                         "VSS_E_DYNAMIC_DISK_ERROR",
-	vssENontransportableBCD:                      "VSS_E_NONTRANSPORTABLE_BCD",
-	vssECannotRevertDiskid:                       "VSS_E_CANNOT_REVERT_DISKID",
-	vssEResyncInProgress:                         "VSS_E_RESYNC_IN_PROGRESS",
-	vssEClusterError:                             "VSS_E_CLUSTER_ERROR",
-	vssEUnselectedVolume:                         "VSS_E_UNSELECTED_VOLUME",
-	vssESnapshotNotInSet:                         "VSS_E_SNAPSHOT_NOT_IN_SET",
-	vssENestedVolumeLimit:                        "VSS_E_NESTED_VOLUME_LIMIT",
-	vssENotSupported:                             "VSS_E_NOT_SUPPORTED",
-	vssEWritererrorPartialFailure:                "VSS_E_WRITERERROR_PARTIAL_FAILURE",
-	vssEWriterStatusNotAvailable:                 "VSS_E_WRITER_STATUS_NOT_AVAILABLE",
+	sOK:                                      "S_OK",
+	eAccessDenied:                            "E_ACCESSDENIED",
+	eOutOfMemory:                             "E_OUTOFMEMORY",
+	eInvalidArg:                              "E_INVALIDARG",
+	vssEBadState:                             "VSS_E_BAD_STATE",
+	vssEUnexpected:                           "VSS_E_UNEXPECTED",
+	vssEProviderAlreadyRegistered:            "VSS_E_PROVIDER_ALREADY_REGISTERED",
+	vssEProviderNotRegistered:                "VSS_E_PROVIDER_NOT_REGISTERED",
+	vssEProviderVeto:                         "VSS_E_PROVIDER_VETO",
+	vssEProviderInUse:                        "VSS_E_PROVIDER_IN_USE",
+	vssEObjectNotFound:                       "VSS_E_OBJECT_NOT_FOUND",
+	vssEVolumeNotSupported:                   "VSS_E_VOLUME_NOT_SUPPORTED",
+	vssEVolumeNotSupportedByProvider:         "VSS_E_VOLUME_NOT_SUPPORTED_BY_PROVIDER",
+	vssEObjectAlreadyExists:                  "VSS_E_OBJECT_ALREADY_EXISTS",
+	vssEUnexpectedProviderError:              "VSS_E_UNEXPECTED_PROVIDER_ERROR",
+	vssECorruptXMLDocument:                   "VSS_E_CORRUPT_XML_DOCUMENT",
+	vssEInvalidXMLDocument:                   "VSS_E_INVALID_XML_DOCUMENT",
+	vssEMaximumNumberOfVolumesReached:        "VSS_E_MAXIMUM_NUMBER_OF_VOLUMES_REACHED",
+	vssEFlushWritesTimeout:                   "VSS_E_FLUSH_WRITES_TIMEOUT",
+	vssEHoldWritesTimeout:                    "VSS_E_HOLD_WRITES_TIMEOUT",
+	vssEUnexpectedWriterError:                "VSS_E_UNEXPECTED_WRITER_ERROR",
+	vssESnapshotSetInProgress:                "VSS_E_SNAPSHOT_SET_IN_PROGRESS",
+	vssEMaximumNumberOfSnapshotsReached:      "VSS_E_MAXIMUM_NUMBER_OF_SNAPSHOTS_REACHED",
+	vssEWriterInfrastructure:                 "VSS_E_WRITER_INFRASTRUCTURE",
+	vssEWriterNotResponding:                  "VSS_E_WRITER_NOT_RESPONDING",
+	vssEWriterAlreadySubscribed:              "VSS_E_WRITER_ALREADY_SUBSCRIBED",
+	vssEUnsupportedContext:                   "VSS_E_UNSUPPORTED_CONTEXT",
+	vssEVolumeInUse:                          "VSS_E_VOLUME_IN_USE",
+	vssEMaximumDiffareaAssociationsReached:   "VSS_E_MAXIMUM_DIFFAREA_ASSOCIATIONS_REACHED",
+	vssEInsufficientStorage:                  "VSS_E_INSUFFICIENT_STORAGE",
+	vssENoSnapshotsImported:                  "VSS_E_NO_SNAPSHOTS_IMPORTED",
+	vssESomeSnapshotsNotImported:             "VSS_E_SOME_SNAPSHOTS_NOT_IMPORTED",
+	vssEMaximumNumberOfRemoteMachinesReached: "VSS_E_MAXIMUM_NUMBER_OF_REMOTE_MACHINES_REACHED",
+	vssERemoteServerUnavailable:              "VSS_E_REMOTE_SERVER_UNAVAILABLE",
+	vssERemoteServerUnsupported:              "VSS_E_REMOTE_SERVER_UNSUPPORTED",
+	vssERevertInProgress:                     "VSS_E_REVERT_IN_PROGRESS",
+	vssERevertVolumeLost:                     "VSS_E_REVERT_VOLUME_LOST",
+	vssERebootRequired:                       "VSS_E_REBOOT_REQUIRED",
+	vssETransactionFreezeTimeout:             "VSS_E_TRANSACTION_FREEZE_TIMEOUT",
+	vssETransactionThawTimeout:               "VSS_E_TRANSACTION_THAW_TIMEOUT",
+	vssEVolumeNotLocal:                       "VSS_E_VOLUME_NOT_LOCAL",
+	vssEClusterTimeout:                       "VSS_E_CLUSTER_TIMEOUT",
+	vssEWritererrorInconsistentsnapshot:      "VSS_E_WRITERERROR_INCONSISTENTSNAPSHOT",
+	vssEWritererrorOutofresources:            "VSS_E_WRITERERROR_OUTOFRESOURCES",
+	vssEWritererrorTimeout:                   "VSS_E_WRITERERROR_TIMEOUT",
+	vssEWritererrorRetryable:                 "VSS_E_WRITERERROR_RETRYABLE",
+	vssEWritererrorNonretryable:              "VSS_E_WRITERERROR_NONRETRYABLE",
+	vssEWritererrorRecoveryFailed:            "VSS_E_WRITERERROR_RECOVERY_FAILED",
+	vssEBreakRevertIDFailed:                  "VSS_E_BREAK_REVERT_ID_FAILED",
+	vssELegacyProvider:                       "VSS_E_LEGACY_PROVIDER",
+	vssEMissingDisk:                          "VSS_E_MISSING_DISK",
+	vssEMissingHiddenVolume:                  "VSS_E_MISSING_HIDDEN_VOLUME",
+	vssEMissingVolume:                        "VSS_E_MISSING_VOLUME",
+	vssEAutorecoveryFailed:                   "VSS_E_AUTORECOVERY_FAILED",
+	vssEDynamicDiskError:                     "VSS_E_DYNAMIC_DISK_ERROR",
+	vssENontransportableBCD:                  "VSS_E_NONTRANSPORTABLE_BCD",
+	vssECannotRevertDiskid:                   "VSS_E_CANNOT_REVERT_DISKID",
+	vssEResyncInProgress:                     "VSS_E_RESYNC_IN_PROGRESS",
+	vssEClusterError:                         "VSS_E_CLUSTER_ERROR",
+	vssEUnselectedVolume:                     "VSS_E_UNSELECTED_VOLUME",
+	vssESnapshotNotInSet:                     "VSS_E_SNAPSHOT_NOT_IN_SET",
+	vssENestedVolumeLimit:                    "VSS_E_NESTED_VOLUME_LIMIT",
+	vssENotSupported:                         "VSS_E_NOT_SUPPORTED",
+	vssEWritererrorPartialFailure:            "VSS_E_WRITERERROR_PARTIAL_FAILURE",
+	vssEWriterStatusNotAvailable:             "VSS_E_WRITER_STATUS_NOT_AVAILABLE",
 }
 
 func (h hresult) str() string {
@@ -185,6 +185,13 @@ func newVssError(text string, h hresult) error {
 
 func newVssErrorIfNotOK(text string, h hresult) error {
 	if h != sOK {
+		return newVssError(text, h)
+	}
+	return nil
+}
+
+func newVssErrorIfNotOKOrFalse(text string, h hresult) error {
+	if h != sOK && h != sFalse {
 		return newVssError(text, h)
 	}
 	return nil
@@ -495,7 +502,7 @@ func (vss *iVssBackupComponents) Query(queriedObjectType vssObjectType) (*iVssEn
 			uintptr(unsafe.Pointer(vss)), uintptr(unsafe.Pointer(ole.IID_NULL)),
 			uintptr(vssObjectNone), uintptr(queriedObjectType), uintptr(unsafe.Pointer(&enum)), 0)
 	}
-	return enum, newVssErrorIfNotOK("Query() failed", hresult(result))
+	return enum, newVssErrorIfNotOKOrFalse("Query() failed", hresult(result))
 }
 
 // =============================================================================

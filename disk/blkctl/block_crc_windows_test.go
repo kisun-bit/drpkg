@@ -1,6 +1,6 @@
 //go:build windows
 
-package xutil
+package blkctl
 
 import "golang.org/x/sys/windows"
 
