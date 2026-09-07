@@ -15,6 +15,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+const ClusterHeaderSize = 32
+
 var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
 
 // encryptionKey 是 AES-256-GCM 加密密钥，必须通过 SetEncryptionKey 初始化。
@@ -37,7 +39,6 @@ func crc32c(data []byte) uint32 {
 type Cluster struct {
 	Magic   [3]byte // 数据块标识，固定为 "hkc"
 	Flags   byte    // 数据块标志：0x01=已加密（AES-256-GCM），0x02=已压缩（LZ4），0x04=已校验（CRC32C）
-	ID      uint64  // 数据块唯一标识。作用域为当前备份链；每条备份链从0开始分配，并按数据块生成顺序递增。
 	CRC32C  uint32  // 原始数据的 CRC32C 校验值
 	Offset  uint64  // 数据块在源磁盘中的字节偏移
 	RawSize uint64  // 原始数据大小（压缩和加密前）
@@ -49,23 +50,38 @@ func (c *Cluster) String() string {
 	var flags []string
 
 	if c.Flags&0x02 != 0 {
-		flags = append(flags, "compressed")
+		flags = append(flags, "COMPRESSED")
 	}
 	if c.Flags&0x04 != 0 {
-		flags = append(flags, "checked")
+		flags = append(flags, "CHECKED")
 	}
 	if c.Flags&0x01 != 0 {
-		flags = append(flags, "encrypted")
+		flags = append(flags, "ENCRYPTED")
+	}
+
+	length := fmt.Sprintf("LEN_%d", c.Size)
+	if c.Size != c.RawSize {
+		length = fmt.Sprintf("LEN_%d&RLEN_%d", c.Size, c.RawSize)
+	}
+
+	if len(flags) > 0 {
+		return fmt.Sprintf(
+			"CLUSTER#OFF_%d&%s(%s)",
+			c.Offset,
+			length,
+			strings.Join(flags, ","),
+		)
 	}
 
 	return fmt.Sprintf(
-		"[Cluster-%d<off=%d,size=%d,rsize=%d>(%s)]",
-		c.ID,
+		"CLUSTER#OFF_%d&%s",
 		c.Offset,
-		c.Size,
-		c.RawSize,
-		strings.Join(flags, ","),
+		length,
 	)
+}
+
+func (c *Cluster) BinaryStructSize() uint64 {
+	return ClusterHeaderSize + c.Size
 }
 
 // Check 验证数据块的静态完整性：Magic 标识正确且 Size 与 Payload 长度一致。
@@ -133,10 +149,9 @@ func (c *Cluster) GetRawData() ([]byte, error) {
 
 // CreateCluster 基于磁盘数据创建 Cluster。
 // data 必须是原始磁盘数据。处理顺序：校验 → 压缩 → 加密。
-func CreateCluster(id uint64, offset uint64, data []byte, compress, encrypt, check bool) (*Cluster, error) {
+func CreateCluster(offset uint64, data []byte, compress, encrypt, check bool) (*Cluster, error) {
 	c := &Cluster{
 		Magic:   [3]byte{'h', 'k', 'c'},
-		ID:      id,
 		Offset:  offset,
 		RawSize: uint64(len(data)),
 	}

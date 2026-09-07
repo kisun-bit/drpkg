@@ -1,0 +1,28 @@
+package klog
+
+import (
+	"github.com/kisun-bit/drpkg/disk/cdp/drvctl/ioctl"
+
+	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
+)
+
+func LogSetEvent() (err error) {
+	var request ioctl.DRVReqSetLogEvent
+
+	if eventHandle == 0 {
+		eventHandle, err = unix.Eventfd(0, unix.EFD_CLOEXEC)
+		if err != nil {
+			return errors.Wrapf(err, "failed to open event handle")
+		}
+	}
+
+	request.Handle = uint64(eventHandle)
+
+	err = ioctl.ReqDrvSetLogEvent(&request)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set log event")
+	}
+
+	return nil
+}

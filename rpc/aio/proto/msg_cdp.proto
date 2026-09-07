@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+option go_package = "drpkg/rpc/aio/proto;proto";
+
+package aio;
+
+// IO掩码定义（8 bit）
+//
+// bit7~6: 数据处理（预留：加密、压缩）
+// bit5   : IO类型（Flag/Data）
+// bit4   : 文件操作（Open/Close）
+// bit3~0 : 数据类型（Full/Bitmap/Repair/Realtime）
+
+enum IOFlagType {
+  IO_FLAG_TYPE_FLAG = 0;   // 0b00000000
+  IO_FLAG_TYPE_DATA = 32;  // 0b00100000
+}
+
+enum IOFileOpType {
+  IO_FILE_OP_TYPE_CLOSE = 0;   // 0b00000000
+  IO_FILE_OP_TYPE_OPEN  = 16;  // 0b00010000
+}
+
+enum IODataType {
+  IO_DATA_TYPE_NONE     = 0;
+  IO_DATA_TYPE_REALTIME = 1;   // 0b00000001
+  IO_DATA_TYPE_REPAIR   = 2;   // 0b00000010
+  IO_DATA_TYPE_BITMAP   = 4;   // 0b00000100
+  IO_DATA_TYPE_FULL     = 8;   // 0b00001000
+}
+
+// 完整IO掩码（组合值）
+enum IOMask {
+  NONE = 0;
+
+  //
+  // 标记IO
+  //
+
+  // 全量
+  FLAG_OPEN_FULL  = 24; // 16 | 8
+  FLAG_CLOSE_FULL = 8;  // 0  | 8
+
+  // 位图
+  FLAG_OPEN_BITMAP  = 20; // 16 | 4
+  FLAG_CLOSE_BITMAP = 4;  // 0  | 4
+
+  // 修复
+  FLAG_OPEN_REPAIR  = 18; // 16 | 2
+  FLAG_CLOSE_REPAIR = 2;  // 0  | 2
+
+  // 实时
+  FLAG_OPEN_REALTIME  = 17; // 16 | 1
+  FLAG_CLOSE_REALTIME = 1;  // 0  | 1
+
+  //
+  // 数据IO
+  //
+
+  DATA_FULL     = 40; // 32 | 8
+  DATA_BITMAP   = 36; // 32 | 4
+  DATA_REPAIR   = 34; // 32 | 2
+  DATA_REALTIME = 33; // 32 | 1
+}
+
+
+// CDP日志单元。
+//
+// 一个Journal包含一组CDP记录（CdpRecord），
+// 其中所有记录的IOMask必须与mask字段保持一致。
+message CdpJournal {
+
+  // 策略ID（UUID）。
+  string schedule_id = 1;
+
+  // 任务ID（UUID）。
+  string task_id = 2;
+
+  // 本Journal中所有CDP记录共用的IO掩码。
+  IOMask mask = 3;
+
+  // CDP记录的序号范围。
+
+  // 最小序号。
+  // 对于标记IO无效，默认为0。
+  uint64 min_sequence_in_cdp_records = 4;
+
+  // 最大序号。
+  // 对于标记IO无效，默认为0。
+  uint64 max_sequence_in_cdp_records = 5;
+
+  // CDP记录的时间戳范围（微秒）。
+
+  // 最小时间戳。
+  // 仅实时IO有效，否则为0。
+  uint64 min_timestamp_in_cdp_records = 6;
+
+  // 最大时间戳。
+  // 仅实时IO有效，否则为0。
+  uint64 max_timestamp_in_cdp_records = 7;
+
+  // CDP记录数据的校验和。
+  //
+  // 由调用方计算并写入，可用于介质侧校验数据完整性。
+  // 校验算法由调用方约定，例如CRC64、XXH64等。目前是XXH64。
+  uint64 cdp_records_checksum = 8;
+
+  // CDP数据统计。
+
+  // 写IO原始数据总大小（字节）。
+  // 对于标记IO无效，默认为0。
+  uint64 cdp_records_raw_bytes = 9;
+
+  // 写IO处理后的数据总大小（字节）。
+  // 对于标记IO无效，默认为0。
+  // 包含压缩（可选）、加密（可选）后的数据。
+  uint64 cdp_records_encoded_bytes = 10;
+
+  // CDP记录集合。
+  //
+  // 数据格式由CdpRecord定义。
+  bytes cdp_records = 12;
+}
