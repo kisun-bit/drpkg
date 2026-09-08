@@ -59,7 +59,6 @@ type ProtectDisk struct {
 }
 
 type Segment struct {
-	//DiskId uint32 `json:"disk_id"`  TODO 后续实现元数据多磁盘分布的场景
 	Start uint64 `struc:"little" json:"start"`
 	Size  uint64 `struc:"little" json:"size"`
 }
@@ -83,7 +82,7 @@ type DRVReqStart struct {
 	// 元数据的所处磁盘   元数据分为 [驱动私有数据] 以及 [各保护磁盘的位图数据]
 	MetadataDiskGuid DiskGuid `json:"metadata_disk_guid"`
 
-	// 驱动私有数据存储位置
+	// 驱动私有数据存储位置，即元数据头部区域在MetadataDiskGuid所处的位置
 	PrivateSegments Segment `json:"private_segments"`
 
 	// 待保护磁盘的数量
