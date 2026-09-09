@@ -35,8 +35,8 @@ const (
 	MaxExtentsPerDevice = 128
 
 	// ProtectedDeviceRecordSize 是单条 ProtectedDevice 记录的固定大小。
-	// 4 (Type) + 512 (DeviceID) + 128*556 (Extents) + 508 (padding) = 72192
-	ProtectedDeviceRecordSize = 4 + DeviceIDLen + MaxExtentsPerDevice*ProtectedExtentBinSize + 508
+	// 4 (Type) + 512 (DeviceID) + 128*556 (Extents) + 2044 (padding) = 73728
+	ProtectedDeviceRecordSize = 4 + DeviceIDLen + MaxExtentsPerDevice*ProtectedExtentBinSize + 2044
 
 	// DiskIDBinSize 是 DiskID 的二进制大小。
 	// 512 (ID) + 4 (Major) + 4 (Minor)
@@ -185,8 +185,8 @@ type ProtectedDevice struct {
 	// Extents 为设备上的受保护区域集合。
 	Extents [128]ProtectedExtent
 
-	// _padding 将记录大小对齐到 512 字节，确保 Windows 物理磁盘直写兼容。
-	_padding [508]byte
+	// _padding 将记录大小对齐到 4096 字节，确保 Windows 物理磁盘直写兼容（含 4K 原生磁盘）。
+	_padding [2044]byte
 }
 
 func (d *ProtectedDevice) String() string {

@@ -760,11 +760,12 @@ type ProtectedDevice struct {
 
 文件结构：
 
-| 偏移  |         大小 | 字段         | 说明        |
-| :-- | ---------: | :--------- | :-------- |
-| 0   |         4B | `Type`     | 设备类型      |
-| 4   |       512B | `DeviceID` | 设备唯一标识    |
-| 516 | 128 × 556B | `Extents`  | 受保护磁盘区域数组 |
+| 偏移    |         大小 | 字段         | 说明                             |
+| :---- | ---------: | :--------- | :----------------------------- |
+| 0     |         4B | `Type`     | 设备类型                           |
+| 4     |       512B | `DeviceID` | 设备唯一标识                         |
+| 516   | 128 × 556B | `Extents`  | 受保护磁盘区域数组                      |
+| 71684 |      2044B | `_padding` | 填充至 4096 字节对齐，兼容 4K 原生磁盘物理直写 |
 
 因此：
 
@@ -773,13 +774,14 @@ ProtectedDeviceRecordSize =
     4
     + 512
     + 128 × 556
+    + 2044
 ```
 
 即：
 
 ```text
 ProtectedDeviceRecordSize =
-    71684 Byte
+    73728 Byte
 ```
 
 ---
@@ -1613,7 +1615,7 @@ ProtectedRegionSize =
 其中：
 
 ```text
-ProtectedDeviceRecordSize = 71684 Byte
+ProtectedDeviceRecordSize = 73728 Byte
 ```
 
 ---
