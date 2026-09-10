@@ -319,3 +319,11 @@ func Pretty(i any) string {
 	}
 	return string(b)
 }
+
+func TrimZeroString(data []byte) string {
+	n := len(data)
+	for n > 0 && data[n-1] == 0 {
+		n--
+	}
+	return string(data[:n])
+}

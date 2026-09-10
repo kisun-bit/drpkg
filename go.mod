@@ -29,6 +29,7 @@ require (
 
 require (
 	github.com/bits-and-blooms/bitset v1.12.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect

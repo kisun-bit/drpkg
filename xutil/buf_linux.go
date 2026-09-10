@@ -10,5 +10,5 @@ func AlignedBlock(size int) []byte {
 	buf := make([]byte, size+align)
 	p := uintptr(unsafe.Pointer(&buf[0]))
 	off := (align - p%align) % align
-	return buf[off : off+size]
+	return buf[off : int(off)+size]
 }
