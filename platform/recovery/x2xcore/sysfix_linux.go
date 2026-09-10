@@ -16,10 +16,10 @@ import (
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/defs"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/info"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xlib"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 )
@@ -1197,7 +1197,8 @@ func (fixer *linuxSystemFixer) detectUdevSupportUuid() {
 	logger.Debugf("detectUdevSupportUuid: udevSupportUuid=`%v`", fixer.offsys.udevSupportUuid)
 
 	if !fixer.offsys.udevSupportUuid {
-		// TODO 警告不支持UUID，grub.cfg、fstab将无法得到更新
+		// 警告不支持UUID，grub.cfg、fstab将无法得到更新
+		fixer.warnf(LogTplForUdevNoUuidWith0Args)
 		logger.Warnf("detectUdevSupportUuid: Unsupported udev-uuid")
 	}
 }
@@ -1343,7 +1344,7 @@ func (fixer *linuxSystemFixer) cleanDattoSnapshot() error {
 			continue
 		}
 
-		if err := fixer.cleanDattoSnapshotOnDevice(dev, tmpMp); err != nil {
+		if err := fixer.cleanDattoSnapshotAndSpecifiedDirOnDevice(dev, tmpMp); err != nil {
 			logger.Warnf("cleanDattoSnapshot: device=%s err=%v", dev.Device, err)
 		}
 	}
@@ -1351,7 +1352,29 @@ func (fixer *linuxSystemFixer) cleanDattoSnapshot() error {
 	return nil
 }
 
-func (fixer *linuxSystemFixer) cleanDattoSnapshotOnDevice(
+func (fixer *linuxSystemFixer) cleanSpecialDirectory(dir string) {
+	logger.Debugf("cleanSpecialDirectory: ++")
+	defer logger.Debugf("cleanSpecialDirectory: --")
+
+	cands := []string{
+		"opt/runstor/db",
+		"runstor/db",
+		"opt/runstor/agent/cdp/metadata",
+		"runstor/agent/cdp/metadata",
+	}
+
+	for _, c := range cands {
+		path := filepath.Join(dir, c)
+		existed := xutil.IsExisted(path)
+		logger.Debugf("cleanSpecialDirectory: path=%s existed=%t", path, existed)
+		if existed {
+			_ = os.RemoveAll(path)
+			fixer.infof(LogTplForCleanBackupMetadataWith1Args, c)
+		}
+	}
+}
+
+func (fixer *linuxSystemFixer) cleanDattoSnapshotAndSpecifiedDirOnDevice(
 	dev fsDevice,
 	tmpMp string,
 ) error {
@@ -1405,6 +1428,8 @@ func (fixer *linuxSystemFixer) cleanDattoSnapshotOnDevice(
 			logger.Debugf("cleanDattoSnapshot: removed %s", cowPath)
 		}
 	}
+
+	fixer.cleanSpecialDirectory(tmpMp)
 
 	return nil
 }
@@ -1499,7 +1524,8 @@ func (fixer *linuxSystemFixer) fixFstab() error {
 			continue
 		}
 
-		// TODO 抛出警告，提示可能存在恢复后系统无法启动的情况
+		// 抛出警告，提示可能存在恢复后系统无法启动的情况
+		fixer.warnf(LogTplForFstabUnknownLineWith1Args, line)
 		logger.Warnf("fixFstab: Warn-Config: `%s`", line)
 		newContentLines = append(newContentLines, line)
 	}
@@ -1662,7 +1688,8 @@ func (fixer *linuxSystemFixer) fixEfiFirmware() error {
 			}
 		}
 		if startupContent == "" {
-			// TODO 警告无efi，启动后需要在uefi shell中手动选择efi固件
+			// 警告无efi，启动后需要在uefi shell中手动选择efi固件
+			fixer.warnf(LogTplForNoEfiFirmwareWith0Args)
 			return nil
 		}
 		logger.Debugf("fixEfiFirmware: Write `%s` to %s", startupContent, startupScript)

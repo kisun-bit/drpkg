@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xlib"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 )
@@ -60,8 +60,8 @@ func (fixer *linuxSystemFixer) compatKernel(k kernel, loader *Loader, pciList []
 			if funk.InUInt32s(x2xlib.SupportedBusTypes, up.BaseClassId()) {
 				return nil, e
 			}
-			// TODO 其余非存储控制器、网卡、显卡的硬件设备，抛出警告即可
-			logger.Warnf("compatKernel: unsupported hardware: %s (%s)", up.Human(), up)
+			// 其余非存储控制器、网卡、显卡的硬件设备，抛出警告即可
+			fixer.warnf(LogTplForUnsupportedHardwareWith2Args, up, up.Human())
 			continue
 		}
 		logger.Debugf("compatKernel: pci=`%s` modules=`%v`", p, ms)

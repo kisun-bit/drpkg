@@ -164,7 +164,8 @@ func (fixer *linuxSystemFixer) patchXen() error {
 
 	for _, k := range fixer.offsys.kernels {
 		if err := fixer.patchOneKernelXen(k); err != nil {
-			// TODO 提示警告，此内核不兼容xen硬件设备
+			// 提示警告，此内核不兼容xen硬件设备
+			fixer.warnf(LogTplForXenPatchFailedWith1Args, err)
 			logger.Warnf("patchXen: patchOneKernelXen: %v", err)
 			return nil
 		}
