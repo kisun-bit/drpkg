@@ -51,7 +51,7 @@ var (
 	}
 
 	LogTplForOfflineSystemReadyWith0Args = LangTpl{
-		Zh: "识别系统磁盘资源",
+		Zh: "识别离线系统磁盘",
 		En: "Identifying offline system disks",
 	}
 
@@ -76,13 +76,13 @@ var (
 	}
 
 	LogTplForCleanElastioSnapWith0Args = LangTpl{
-		Zh: "清理可能残留的 Elastio/Datto 快照",
-		En: "Cleaning up potential residual Elastio/Datto snapshots",
+		Zh: "清理残留的 Elastio/Datto 快照",
+		En: "Cleaning up leftover Elastio/Datto snapshots",
 	}
 
-	LogTplForCleanSpecifiedPathWith1Args = LangTpl{
-		Zh: "清理文件或目录：%s",
-		En: "Cleaning up file or directory: %s",
+	LogTplForCleanBackupMetadataWith1Args = LangTpl{
+		Zh: "清理元数据目录：%s",
+		En: "Cleaning up metadata directory: %s",
 	}
 
 	LogTplForSpecifySystemBootDeviceWith0Args = LangTpl{
@@ -147,7 +147,7 @@ var (
 
 	LogTplForPrintDistroWith1Args = LangTpl{
 		Zh: "系统发行版：%s",
-		En: "Operating system distribution: %s",
+		En: "System distribution: %s",
 	}
 
 	LogTplForPrintInitrdMgrWith1Args = LangTpl{
@@ -181,8 +181,8 @@ var (
 	}
 
 	LogTplForIgnoreRepairWith1Args = LangTpl{
-		Zh: "系统版本（%s）过旧，已跳过硬件修复和网络配置注入，请恢复后使用 IDE 等传统硬件启动。",
-		En: "System version (%s) is too old. Hardware repair and network configuration injection were skipped. Please boot with legacy hardware such as IDE after recovery.",
+		Zh: "系统版本（%s）过旧，已跳过硬件修复和网络配置注入，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "System version (%s) is too old. Hardware repair and network configuration injection were skipped. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
 	}
 
 	LogTplForInjectLegacyDriversWith0Args = LangTpl{
@@ -191,28 +191,28 @@ var (
 	}
 
 	LogTplForSkipFirstBootServiceWith1Args = LangTpl{
-		Zh: "系统版本（%s）过旧，已跳过首次启动服务和网络配置注入。",
+		Zh: "系统版本（%s）过旧，已跳过首次启动服务和网络配置注入",
 		En: "System version (%s) is too old. First-boot service and network configuration injection were skipped.",
 	}
 
 	LogTplForNoLegacyBlockDriverWith1Args = LangTpl{
-		Zh: "未找到适用于系统版本（%s）的 VirtIO 块设备启动驱动，请恢复后使用 IDE 等模拟磁盘启动。",
-		En: "No VirtIO block boot driver is available for system version (%s). Please boot with an emulated disk such as IDE after recovery.",
+		Zh: "未找到适用于系统版本（%s）的 VirtIO 块设备启动驱动，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "No VirtIO block boot driver is available for system version (%s). After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
 	}
 
 	LogTplForNoLegacyVirtualDriverWith2Args = LangTpl{
-		Zh: "未找到适用于系统版本（%s）的 KVM 虚拟化驱动（%v），请恢复后使用 IDE 等模拟设备启动。",
-		En: "No KVM virtualization driver (%v) is available for system version (%s). Please boot with emulated devices such as IDE after recovery.",
+		Zh: "未找到适用于系统版本（%s）的 KVM 虚拟化驱动（%v），请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "No KVM virtualization driver is available for system version (%s) (%v). After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
 	}
 
 	LogTplForIntelIdeNotAvailableWith1Args = LangTpl{
-		Zh: "确保 Intel IDE 引导驱动失败：%v。若系统使用 Intel IDE 启动盘，恢复后可能无法正常启动。",
-		En: "Failed to ensure Intel IDE boot driver: %v. If the system boots from an Intel IDE disk, it may fail to boot after recovery.",
+		Zh: "确保 Intel IDE 引导驱动失败：%v。若系统使用 Intel IDE 启动盘，恢复后可能无法正常启动",
+		En: "Failed to ensure the Intel IDE boot driver is available: %v. If the system boots from an Intel IDE disk, it may fail to boot after recovery.",
 	}
 
 	LogTplForNonBootDriverInstalledWith2Args = LangTpl{
-		Zh: "系统版本过旧，非启动驱动（%s）已放入驱动目录 %s，请在恢复后进入该目录手动安装驱动。",
-		En: "System version is too old. Non-boot driver (%s) has been placed in %s. Please install the driver manually from that directory after recovery.",
+		Zh: "系统版本过旧，非启动驱动（%s）已放入驱动目录 %s，请在恢复后进入该目录手动安装驱动",
+		En: "System version is too old. Non-boot driver (%s) was placed in driver directory %s. Install the driver manually from this directory after recovery.",
 	}
 
 	LogTplForOptimizeUEFIWith0Args = LangTpl{
@@ -301,8 +301,8 @@ var (
 	}
 
 	LogTplForIncompatibleNonBootPCIWith2Args = LangTpl{
-		Zh: "检测到不兼容的非启动设备：%s（%s），请在系统启动后安装相应驱动。",
-		En: "Detected incompatible non-boot device: %s (%s). Please install the appropriate driver after system startup.",
+		Zh: "检测到不兼容的非启动设备：%s（%s），请在系统启动后安装相应驱动",
+		En: "Detected incompatible non-boot device: %s (%s). Install the appropriate driver after system startup.",
 	}
 
 	LogTplForMatchDriverWith1Args = LangTpl{
@@ -316,8 +316,8 @@ var (
 	}
 
 	LogTplForMatchDriverSuccessWith1Args = LangTpl{
-		Zh: "硬件 %s 已完成兼容性修正",
-		En: "Hardware %s compatibility fix completed",
+		Zh: "硬件 %s 已完成兼容性修复",
+		En: "Compatibility fix completed for hardware %s",
 	}
 
 	LogTplForUnlockBitlockerWith1Args = LangTpl{
@@ -338,5 +338,40 @@ var (
 	LogTplForRepairFailedWith1Args = LangTpl{
 		Zh: "系统修复失败，原因：%v",
 		En: "System repair failed: %v",
+	}
+
+	LogTplForUnsupportedHardwareWith2Args = LangTpl{
+		Zh: "不支持的硬件设备：%s（%s），该设备为非启动设备，无需进行兼容性修复",
+		En: "Unsupported hardware device: %s (%s). The device is not a boot device, so compatibility repair is not required.",
+	}
+
+	LogTplForHyperVLowVersionWith0Args = LangTpl{
+		Zh: "当前 Linux 版本可能不兼容 Hyper-V，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "The current Linux version may be incompatible with Hyper-V. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+	}
+
+	LogTplForKVMPatchFailedWith1Args = LangTpl{
+		Zh: "内核 VirtIO 补丁失败：%v，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "Kernel VirtIO patch failed: %v. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+	}
+
+	LogTplForUdevNoUuidWith0Args = LangTpl{
+		Zh: "udev 不支持 UUID，grub.cfg 和 fstab 无法自动更新，恢复后系统可能无法正常启动",
+		En: "udev does not support UUID. grub.cfg and fstab cannot be updated automatically, and the system may fail to boot after recovery.",
+	}
+
+	LogTplForFstabUnknownLineWith1Args = LangTpl{
+		Zh: "fstab 存在无法识别的配置行：%s，恢复后系统可能无法正常启动",
+		En: "Unrecognized fstab configuration line: %s. The system may fail to boot after recovery.",
+	}
+
+	LogTplForNoEfiFirmwareWith0Args = LangTpl{
+		Zh: "未找到 EFI 固件入口，启动后需在 UEFI Shell 中手动选择 EFI 文件",
+		En: "No EFI firmware entry found. Manually select the EFI file in UEFI Shell after boot.",
+	}
+
+	LogTplForXenPatchFailedWith1Args = LangTpl{
+		Zh: "内核 Xen 补丁失败：%v，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "Kernel Xen patch failed: %v. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
 	}
 )

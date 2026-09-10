@@ -13,10 +13,10 @@ import (
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/defs"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/info"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xlib"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 	"golang.org/x/sys/windows/registry"
@@ -103,6 +103,8 @@ func (fixer *windowsSystemFixer) Prepare() error {
 	if err := fixer.chkVolume(); err != nil {
 		return errors.Wrap(err, "check volume")
 	}
+
+	fixer.cleanSpecialDirectory()
 
 	fixer.infof(LogTplForLoadRegistryWith0Args)
 	if err := fixer.loadSystemRegistry(); err != nil {
@@ -408,6 +410,27 @@ func (fixer *windowsSystemFixer) chkVolume() error {
 		_, _, _ = command.Execute(fmt.Sprintf("chkdsk.exe /f %s:", v), command.WithDebug())
 	}
 	return nil
+}
+
+func (fixer *windowsSystemFixer) cleanSpecialDirectory() {
+	logger.Debugf("cleanSpecialDirectory: ++")
+	defer logger.Debugf("cleanSpecialDirectory: --")
+
+	rootPath := fixer.offsys.sysVolumeLtr + ":\\"
+	cands := []string{
+		"runstor\\db",
+		"runstor\\agent\\cdp\\metadata",
+	}
+
+	for _, c := range cands {
+		path := filepath.Join(rootPath, c)
+		existed := xutil.IsExisted(path)
+		logger.Debugf("cleanSpecialDirectory: path=%s existed=%t", path, existed)
+		if existed {
+			_ = os.RemoveAll(path)
+			fixer.infof(LogTplForCleanBackupMetadataWith1Args, c)
+		}
+	}
 }
 
 func (fixer *windowsSystemFixer) loadSystemRegistry() error {
