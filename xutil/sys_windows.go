@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -1066,4 +1067,514 @@ func GetSystemExe(exeName string) string {
 	}
 
 	return exeName
+}
+
+// DiskFreedExtent 表示卷缩容后在物理磁盘上释放的区域。
+type DiskFreedExtent struct {
+	DiskNumber uint32 // 物理磁盘编号
+	Offset     int64  // 释放区域在物理磁盘上的起始偏移（字节）
+	Length     int64  // 释放区域的长度（字节）
+}
+
+// ShrinkVolume 对指定卷进行缩容，返回释放的物理磁盘区域。
+//
+// volumePath 为卷路径，如 "D:" 或 `\\.\D:`。
+// shrinkBytes 为缩容的字节大小，实际缩容大小可能因文件系统对齐向上取整。
+// reuse 为 true 时，若卷尾部已有 >= shrinkBytes 的未分配空间，则直接复用而不执行缩容。
+//
+// 内部通过 diskpart 执行缩容操作。
+//
+// 返回值：
+//   - freed: 缩容后在物理磁盘上释放的区域列表。
+//   - err: 错误信息。
+//
+// 需要管理员权限。缩容只能从卷的尾部释放空间。
+func ShrinkVolume(volumePath string, shrinkBytes int64, reuse bool) (freed []DiskFreedExtent, err error) {
+	volPath, err := normalizeVolumePath(volumePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. 获取当前 extents
+	oldExtents, err := getVolumeExtents(volPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(oldExtents) == 0 {
+		return nil, errors.New("no disk extents found")
+	}
+
+	var totalSize int64
+	for _, e := range oldExtents {
+		totalSize += e.ExtentLength
+	}
+
+	// 2. 验证缩容大小
+	if shrinkBytes <= 0 {
+		return nil, errors.Errorf("shrink size must be positive, got %d", shrinkBytes)
+	}
+	if shrinkBytes >= totalSize {
+		return nil, errors.Errorf("shrink size %d exceeds total size %d", shrinkBytes, totalSize)
+	}
+
+	// 3. 若指定复用，先检查卷尾部是否已有足够空闲空间
+	if reuse {
+		if freed := tryReuseFreeSpace(oldExtents, shrinkBytes); freed != nil {
+			return freed, nil
+		}
+	}
+
+	desiredMB := uint64(shrinkBytes) / (1024 * 1024)
+	if desiredMB == 0 {
+		desiredMB = 1 // 至少 1 MB
+	}
+
+	// 4. 通过 diskpart 执行缩容
+	if err := diskpartShrink(volPath, desiredMB); err != nil {
+		return nil, err
+	}
+
+	// 5. 缩容后获取 extents
+	newExtents, err := getVolumeExtents(volPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// 6. 计算释放的物理区域
+	return diffDiskExtents(oldExtents, newExtents), nil
+}
+
+// tryReuseFreeSpace 检查卷尾部是否已有足够的未分配磁盘空间可以复用。
+//
+// 若卷最后一个 extent 所在的物理磁盘上，紧随其后有
+// >= shrinkBytes 的未分配空间，则将其作为"已释放区域"返回。
+func tryReuseFreeSpace(extents []diskExtent, shrinkBytes int64) []DiskFreedExtent {
+	lastExt := extents[len(extents)-1]
+	volEnd := lastExt.StartingOffset + lastExt.ExtentLength
+	diskNum := lastExt.DiskNumber
+
+	// 读取物理磁盘的分区布局
+	partitions, err := getDiskPartitions(diskNum)
+	if err != nil {
+		return nil // 无法确定，回退到正常缩容
+	}
+
+	// 找到紧随卷尾部之后的分区间隙（空闲区域）
+	nextPartStart := int64(-1)
+	for _, p := range partitions {
+		pStart := int64(p.StartingOffset.QuadPart)
+		if pStart >= volEnd && (nextPartStart < 0 || pStart < nextPartStart) {
+			nextPartStart = pStart
+		}
+	}
+	if nextPartStart < 0 {
+		// 没有后续分区：空闲区域延伸到磁盘末尾
+		diskSize, err := getDiskSize(diskNum)
+		if err != nil {
+			return nil
+		}
+		nextPartStart = diskSize
+	}
+
+	freeAfterVol := nextPartStart - volEnd
+	if freeAfterVol <= 0 || freeAfterVol < shrinkBytes {
+		return nil
+	}
+
+	return []DiskFreedExtent{{
+		DiskNumber: diskNum,
+		Offset:     volEnd,
+		Length:     freeAfterVol,
+	}}
+}
+
+// diskPartition 表示一个磁盘分区的基本信息。
+type diskPartition struct {
+	StartingOffset  largeInteger
+	PartitionLength largeInteger
+}
+
+type largeInteger struct {
+	QuadPart uint64
+}
+
+// getDiskPartitions 读取物理磁盘的分区布局。
+func getDiskPartitions(diskNumber uint32) ([]diskPartition, error) {
+	diskPath := fmt.Sprintf(`\\.\PHYSICALDRIVE%d`, diskNumber)
+	pDisk, err := syscall.UTF16PtrFromString(diskPath)
+	if err != nil {
+		return nil, err
+	}
+
+	hDisk, err := syscall.CreateFile(
+		pDisk,
+		syscall.GENERIC_READ,
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
+		nil,
+		syscall.OPEN_EXISTING,
+		0,
+		0,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer syscall.CloseHandle(hDisk)
+
+	// 先查询需要的缓冲区大小
+	out := make([]byte, 16384) // 足够容纳 ~128 个分区
+	var bytesRet uint32
+
+	err = syscall.DeviceIoControl(
+		hDisk,
+		ioctlDiskGetDriveLayoutEx,
+		nil,
+		0,
+		&out[0],
+		uint32(len(out)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if bytesRet < 8 {
+		return nil, errors.New("drive layout too small")
+	}
+
+	// DRIVE_LAYOUT_INFORMATION_EX:
+	//   PartitionStyle  uint32 (4) at offset 0
+	//   PartitionCount  uint32 (4) at offset 4
+	//   PartitionEntry  []PARTITION_INFORMATION_EX at offset 48
+
+	partCount := *(*uint32)(unsafe.Pointer(&out[4]))
+	if partCount == 0 {
+		return nil, nil
+	}
+
+	// PARTITION_INFORMATION_EX 结构体偏移：
+	//  PartitionStyle              4
+	//  StartingOffset (LARGE_INTEGER) 8
+	//  PartitionLength (LARGE_INTEGER) 8
+	//  ... (总共 144 字节 per entry)
+
+	const partEntrySize = 144
+	const partEntryBase = 48
+
+	partitions := make([]diskPartition, partCount)
+	for i := range partitions {
+		off := partEntryBase + i*partEntrySize
+		if off+16 > int(bytesRet) {
+			break
+		}
+		partitions[i].StartingOffset.QuadPart = *(*uint64)(unsafe.Pointer(&out[off+8]))
+		partitions[i].PartitionLength.QuadPart = *(*uint64)(unsafe.Pointer(&out[off+16]))
+	}
+
+	return partitions, nil
+}
+
+const (
+	// ioctlDiskGetDriveLayoutEx 是 IOCTL_DISK_GET_DRIVE_LAYOUT_EX 控制码。
+	//
+	// CTL_CODE(IOCTL_DISK_BASE, 0x0014, METHOD_BUFFERED, FILE_READ_ACCESS)
+	ioctlDiskGetDriveLayoutEx = 0x00070050
+
+	// ioctlDiskGetLengthInfo 是 IOCTL_DISK_GET_LENGTH_INFO 控制码。
+	//
+	// CTL_CODE(IOCTL_DISK_BASE, 0x0017, METHOD_BUFFERED, FILE_READ_ACCESS)
+	ioctlDiskGetLengthInfo = 0x0007405C
+)
+
+// getDiskSize 获取物理磁盘的总大小（字节）。
+func getDiskSize(diskNumber uint32) (int64, error) {
+	diskPath := fmt.Sprintf(`\\.\PHYSICALDRIVE%d`, diskNumber)
+	pDisk, err := syscall.UTF16PtrFromString(diskPath)
+	if err != nil {
+		return 0, err
+	}
+
+	hDisk, err := syscall.CreateFile(
+		pDisk,
+		syscall.GENERIC_READ,
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
+		nil,
+		syscall.OPEN_EXISTING,
+		0,
+		0,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer syscall.CloseHandle(hDisk)
+
+	out := make([]byte, 8)
+	var bytesRet uint32
+
+	err = syscall.DeviceIoControl(
+		hDisk,
+		ioctlDiskGetLengthInfo,
+		nil,
+		0,
+		&out[0],
+		uint32(len(out)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	if bytesRet >= 8 {
+		return int64(*(*uint64)(unsafe.Pointer(&out[0]))), nil
+	}
+	return 0, errors.New("disk length too small")
+}
+
+// diskpartShrink 使用 diskpart 对卷进行缩容。
+func diskpartShrink(volPath string, desiredMB uint64) error {
+	vol := strings.TrimPrefix(volPath, `\\.\`)
+
+	script := fmt.Sprintf("select volume=%s\nshrink desired=%d\nexit\n", vol, desiredMB)
+	cmd := exec.Command("diskpart")
+	cmd.Stdin = strings.NewReader(script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return errors.Wrapf(err, "diskpart shrink %s by %d MB: %s", vol, desiredMB, string(out))
+	}
+	return nil
+}
+
+// getVolumeExtents 获取卷的物理 extent 列表。
+func getVolumeExtents(volPath string) ([]diskExtent, error) {
+	pVol, err := syscall.UTF16PtrFromString(volPath)
+	if err != nil {
+		return nil, err
+	}
+
+	hVol, err := syscall.CreateFile(
+		pVol,
+		syscall.GENERIC_READ,
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
+		nil,
+		syscall.OPEN_EXISTING,
+		0,
+		0,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "open volume %s", volPath)
+	}
+	defer syscall.CloseHandle(hVol)
+
+	return getVolumeDiskExtents(hVol)
+}
+
+// diffDiskExtents 计算缩容前后释放的物理区域。
+//
+// 缩容只从尾部释放空间，比较前后 extent 列表的末尾差异。
+func diffDiskExtents(oldExtents, newExtents []diskExtent) []DiskFreedExtent {
+	if len(oldExtents) == 0 {
+		return nil
+	}
+
+	lastOld := oldExtents[len(oldExtents)-1]
+
+	// 计算旧总大小
+	var oldTotal, newTotal int64
+	for _, e := range oldExtents {
+		oldTotal += e.ExtentLength
+	}
+	for _, e := range newExtents {
+		newTotal += e.ExtentLength
+	}
+
+	freedBytes := oldTotal - newTotal
+	if freedBytes <= 0 {
+		return nil
+	}
+
+	// 释放区域在最后一个 extent 的尾部
+	freedEnd := lastOld.StartingOffset + lastOld.ExtentLength
+	freedStart := freedEnd - freedBytes
+
+	return []DiskFreedExtent{{
+		DiskNumber: lastOld.DiskNumber,
+		Offset:     freedStart,
+		Length:     freedBytes,
+	}}
+}
+
+// normalizeVolumePath 将卷路径规范化为 \\.\X: 格式。
+func normalizeVolumePath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("empty volume path")
+	}
+
+	// 去掉尾部反斜杠
+	path = strings.TrimRight(path, `\`)
+
+	// 如果已经是 \\.\X: 格式，直接返回
+	if strings.HasPrefix(path, `\\.\`) {
+		if len(path) < 6 || path[5] != ':' {
+			return "", errors.Errorf("invalid volume path: %s", path)
+		}
+		return path, nil
+	}
+
+	// D: 或 D:\ 格式
+	if len(path) >= 2 && path[1] == ':' {
+		return `\\.\` + path[:2], nil
+	}
+
+	return "", errors.Errorf("unsupported volume path format: %s", path)
+}
+
+// getVolumeDiskExtents 获取卷的物理磁盘分布。
+func getVolumeDiskExtents(hVol syscall.Handle) ([]diskExtent, error) {
+	out := make([]byte, 4096)
+	var bytesRet uint32
+
+	err := syscall.DeviceIoControl(
+		hVol,
+		IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+		nil,
+		0,
+		&out[0],
+		uint32(len(out)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "get disk extents")
+	}
+
+	if bytesRet < uint32(unsafe.Sizeof(volumeDiskExtents{})) {
+		return nil, errors.Errorf("disk extents data too small: %d", bytesRet)
+	}
+
+	vde := (*volumeDiskExtents)(unsafe.Pointer(&out[0]))
+	if vde.NumberOfDiskExtents == 0 {
+		return nil, errors.New("zero disk extents")
+	}
+
+	// 将 C 数组转换为 Go 切片
+	extentSize := unsafe.Sizeof(diskExtent{})
+	result := make([]diskExtent, vde.NumberOfDiskExtents)
+	for i := range result {
+		ptr := (*diskExtent)(unsafe.Pointer(uintptr(unsafe.Pointer(&vde.Extents[0])) + uintptr(i)*extentSize))
+		result[i] = *ptr
+	}
+
+	return result, nil
+}
+
+// getBytesPerSector 获取卷的扇区大小。
+func getBytesPerSector(hVol syscall.Handle) (uint32, error) {
+	out := make([]byte, 1024)
+	var bytesRet uint32
+
+	err := syscall.DeviceIoControl(
+		hVol,
+		0x0007405C, // IOCTL_DISK_GET_DRIVE_GEOMETRY_EX
+		nil,
+		0,
+		&out[0],
+		uint32(len(out)),
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		// 尝试使用老版本 IOCTL_DISK_GET_DRIVE_GEOMETRY
+		return 512, nil // 回退到默认值
+	}
+
+	// DISK_GEOMETRY_EX 的 BytesPerSector 在偏移 16 处
+	if bytesRet >= 20 {
+		bps := *(*uint32)(unsafe.Pointer(&out[16]))
+		if bps > 0 {
+			return bps, nil
+		}
+	}
+
+	return 512, nil
+}
+
+const (
+	// fsctlShrinkVolume 是 FSCTL_SHRINK_VOLUME 控制码。
+	//
+	// CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 51, METHOD_BUFFERED, FILE_ANY_ACCESS)
+	// = (9 << 16) | (0 << 14) | (51 << 2) | 0
+	fsctlShrinkVolume = 0x000900CC
+
+	// shrinkVolumeRequestTypes
+	shrinkPrepare = 1
+	shrinkCommit  = 2
+	shrinkAbort   = 3
+)
+
+// shrinkVolumeInformation 是 FSCTL_SHRINK_VOLUME 的输入结构体。
+//
+// 对应 Windows SDK 中的 SHRINK_VOLUME_INFORMATION：
+//
+//	typedef struct {
+//	    SHRINK_VOLUME_REQUEST_TYPES RequestType;  // LONG, 4 bytes
+//	    LONGLONG                    NewVolumeSize; // 8 bytes
+//	} SHRINK_VOLUME_INFORMATION;
+type shrinkVolumeInformation struct {
+	RequestType   int32
+	NewVolumeSize int64
+}
+
+// shrinkVolume 执行卷缩容（两步：Prepare → Commit）。
+//
+// newSize 为缩容后的卷目标大小（字节）。
+func shrinkVolume(hVol syscall.Handle, newSize int64) error {
+	info := shrinkVolumeInformation{
+		RequestType:   shrinkPrepare,
+		NewVolumeSize: newSize,
+	}
+
+	inBuf := make([]byte, unsafe.Sizeof(info))
+	*(*shrinkVolumeInformation)(unsafe.Pointer(&inBuf[0])) = info
+
+	var bytesRet uint32
+	err := syscall.DeviceIoControl(
+		hVol,
+		fsctlShrinkVolume,
+		&inBuf[0],
+		uint32(len(inBuf)),
+		nil,
+		0,
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		return errors.Wrapf(err, "FSCTL_SHRINK_VOLUME Prepare to %d bytes", newSize)
+	}
+
+	// Commit
+	info.RequestType = shrinkCommit
+	*(*shrinkVolumeInformation)(unsafe.Pointer(&inBuf[0])) = info
+
+	err = syscall.DeviceIoControl(
+		hVol,
+		fsctlShrinkVolume,
+		&inBuf[0],
+		uint32(len(inBuf)),
+		nil,
+		0,
+		&bytesRet,
+		nil,
+	)
+	if err != nil {
+		// Commit 失败，尝试 Abort 回滚
+		info.RequestType = shrinkAbort
+		*(*shrinkVolumeInformation)(unsafe.Pointer(&inBuf[0])) = info
+		syscall.DeviceIoControl(hVol, fsctlShrinkVolume, &inBuf[0], uint32(len(inBuf)), nil, 0, &bytesRet, nil)
+		return errors.Wrapf(err, "FSCTL_SHRINK_VOLUME Commit to %d bytes", newSize)
+	}
+
+	return nil
 }
