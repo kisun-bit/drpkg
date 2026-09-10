@@ -30,8 +30,8 @@ const (
 	// Versionv1_0 是格式版本号 v1.0。
 	Versionv1_0 = 0x00010000
 
-	// DefaultBitIndexSpace 是一个 Bitmap Bit 对应的默认磁盘空间大小（4 MiB）。
-	DefaultBitIndexSpace = 4 * 1024 * 1024
+	// DefaultBitIndexSpace 是一个 Bitmap Bit 对应的默认磁盘空间大小（512 KiB）。
+	DefaultBitIndexSpace = 512 * 1024
 
 	// DefaultBitmapClusterSize 是一个 Bitmap Unit 的默认数据大小。
 	DefaultBitmapClusterSize = 4096

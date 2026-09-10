@@ -80,7 +80,7 @@ func TestPhysicalDrive(t *testing.T) {
 	metaStart = (metaStart / AlignSize) * AlignSize
 	t.Logf("Aligned metadata start offset: %d", metaStart)
 
-	h := defaultHeader()
+	h := defaultHeader(0)
 	if metaStart+h.TotalSize() > metaEnd {
 		t.Skipf("disk tail too small: metadata needs %d bytes, safe region is [%d, %d)",
 			h.TotalSize(), metaStart, metaEnd)
@@ -92,7 +92,7 @@ func TestPhysicalDrive(t *testing.T) {
 	// 4. 创建元数据
 	// ======================================================================
 	t.Run("Create", func(t *testing.T) {
-		bm, err := Create(diskPath, metaStart)
+		bm, err := Create(diskPath, metaStart, 0)
 		if err != nil {
 			skipIfPermissionDenied(t, err)
 			t.Fatalf("Create failed: %v", err)

@@ -19,16 +19,28 @@ import (
 // offset 必须是 AlignSize（4096）的整数倍：所有区域起始偏移与区域大小都按 4096 对齐，
 // 只有这样每个区域才能在裸设备上整体做扇区对齐读写。
 //
+// Create 在文件的指定偏移处创建新的元数据文件。
+//
 // Create 会把整个基础区域（Header + Allocation Map + Bitmap Unit Data）写零。
 // 普通文件仅靠 Truncate 撑大时，NTFS 的有效数据长度（VDL）之外的簇通过文件 API
 // 读出为 0，物理簇里却是旧数据；驱动是按物理偏移直读的，两者必须一致。
 // 写零同时消除文件空洞，PhysicalExtents 才能覆盖整个区域。
 //
 // Protected Region 位于最后，初始大小为 0，随设备记录增减而变化。
+//
+// offset 必须是 AlignSize（4096）的整数倍。
+// totalBitmapUnits 指定位图单元总数，传 0 则使用 DefaultTotalBitmapUnits（8192）。
+//
+// 位图单元数量决定了可索引的最大受保护磁盘空间：
+//
+//	总空间 = totalBitmapUnits × BitmapClusterSize × 8 × BitIndexSpace
+//	       = totalBitmapUnits × 4096 × 8 × 512 KiB
+//	       ≈ totalBitmapUnits × 16 GiB
+//
 // 调用方需要自行保证 offset + Size() 落在可用空间内：
 // 记录区后面没有其他区域，增长不会破坏本格式的其他数据，
 // 但在裸设备上可能超出调用方预留的范围。
-func Create(file string, offset int64) (*BioTrkMetadata, error) {
+func Create(file string, offset int64, totalBitmapUnits uint64) (*BioTrkMetadata, error) {
 	if offset%AlignSize != 0 {
 		return nil, errors.Errorf("offset %d is not aligned to %d", offset, AlignSize)
 	}
@@ -42,7 +54,7 @@ func Create(file string, offset int64) (*BioTrkMetadata, error) {
 		return nil, errors.Wrap(err, "failed to create metadata file")
 	}
 
-	h := defaultHeader()
+	h := defaultHeader(totalBitmapUnits)
 	h.ProtectedRegionSize = 0
 	h.ProtectedDeviceCount = 0
 	h.HeaderCRC32 = calcCRC32(&h)
@@ -706,12 +718,18 @@ func mapLinearToExtent(des []DiskExtent, logicalOff uint64) (extIdx int, offInEx
 }
 
 // defaultHeader 创建默认 Header，并推导好与记录内容无关的区域布局。
-func defaultHeader() Header {
+//
+// totalBitmapUnits 指定位图单元总数，传 0 则使用 DefaultTotalBitmapUnits。
+func defaultHeader(totalBitmapUnits uint64) Header {
+	if totalBitmapUnits == 0 {
+		totalBitmapUnits = DefaultTotalBitmapUnits
+	}
+
 	h := Header{
 		Version:           Versionv1_0,
 		BitIndexSpace:     DefaultBitIndexSpace,
 		BitmapClusterSize: DefaultBitmapClusterSize,
-		TotalBitmapUnits:  DefaultTotalBitmapUnits,
+		TotalBitmapUnits:  uint32(totalBitmapUnits),
 	}
 	copy(h.Signature[:], SignatureStr)
 	applyBaseLayout(&h)

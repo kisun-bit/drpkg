@@ -61,7 +61,7 @@ func sizeof(v interface{}) int {
 // StartTask 向驱动发送启动任务请求。
 //
 // 驱动收到请求后，会根据 MetadataExtents 读取元数据区域，
-// 解析其中的受保护设备列表用于 I/O 过滤和位图持久化。
+// 解析其中的位图bit索引空间大小、受保护设备的位图物理分布区域列表用于实现 I/O 过滤和位图持久化。
 //
 // 成功后自动调用 PersistStartRequest 将 req 持久化到注册表（Windows）
 // 或 initramfs（Linux），确保系统重启后驱动能恢复 CDP 任务。
