@@ -24,10 +24,9 @@ func (fixer *linuxSystemFixer) unconfigXen() error {
 		return err
 	}
 
-	// FIXME: xen_platform_pci.dev_unplug=all 貌似只是华为云文档中的参数，并非通用参数，请调研
-	//if err := fixer.fixGrubKernelArg("xen_platform_pci.dev_unplug=all", false); err != nil {
-	//	return errors.Wrap(err, "xen_platform_pci.dev_unplug")
-	//}
+	if err := fixer.fixGrubKernelArg("xen_platform_pci.dev_unplug=all", false); err != nil {
+		return errors.Wrap(err, "xen_platform_pci.dev_unplug")
+	}
 
 	return nil
 }
@@ -246,10 +245,9 @@ func (fixer *linuxSystemFixer) patchOneKernelXen(k kernel) error {
 	if xenCand1ModulesFound {
 		modules = append(modules, xenCand1Modules...)
 
-		// FIXME: xen_platform_pci.dev_unplug=all 貌似只是华为云文档中的参数，并非通用参数，请调研
-		//if err := fixer.fixGrubKernelArg("xen_platform_pci.dev_unplug=all", true); err != nil {
-		//	return errors.Wrap(err, "xen_platform_pci.dev_unplug")
-		//}
+		if err := fixer.fixGrubKernelArg("xen_platform_pci.dev_unplug=all", true); err != nil {
+			return errors.Wrap(err, "xen_platform_pci.dev_unplug")
+		}
 	}
 
 	if xenCand2ModulesFound && len(modules) == 0 {

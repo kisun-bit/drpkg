@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/platform/efi"
+	"github.com/kisun-bit/drpkg/xutil"
 )
 
 type LinuxKernel struct {
@@ -141,7 +141,8 @@ func QueryEFIInfo() (e EFI, err error) {
 
 		cur, err := efi.BytesToU16(data)
 		if err != nil {
-			return e, err
+			//return e, err
+			continue
 		}
 
 		if e.BootCurrent == "" {
