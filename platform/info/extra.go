@@ -116,7 +116,8 @@ func QueryEFIInfo() (e EFI, err error) {
 		}
 		text, err := efi.DecodeUTF16(data)
 		if err != nil {
-			return "", err
+			//return "", err
+			return "", nil
 		}
 		path, _ := efi.MatchUEFIPath(text)
 		return path, nil
