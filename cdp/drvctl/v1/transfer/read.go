@@ -2,12 +2,13 @@ package transfer
 
 import (
 	"bytes"
-	"cdpctl/driver/ioctl"
-	"cdpctl/utils"
 	"encoding/binary"
 	"runtime"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/kisun-bit/drpkg/cdp/drvctl/v1/ioctl"
+	"github.com/kisun-bit/drpkg/xutil"
 
 	"github.com/lunixbochs/struc"
 	"github.com/pkg/errors"
@@ -183,7 +184,7 @@ func readOneIo(head *RingHead, readPos, writePos int64) (*Io, error, int64) {
 	}
 
 	if runtime.GOOS == "windows" && ioHeader.Consistency == 1 {
-		ioHeader.Timestamp = utils.ConvertWindowsTimeToUnixMicros(ioHeader.Timestamp)
+		ioHeader.Timestamp = uint64(xutil.TimeByMicrosoftTimestamp(ioHeader.Timestamp).UnixMicro())
 	}
 
 	io.Header = ioHeader

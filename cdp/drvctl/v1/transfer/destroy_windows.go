@@ -1,7 +1,7 @@
 package transfer
 
 import (
-	"github.com/kisun-bit/drpkg/github.com/kisun-bit/drpkg/cdp/drvctl/ioctl"
+	"github.com/kisun-bit/drpkg/cdp/drvctl/v1/ioctl"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )

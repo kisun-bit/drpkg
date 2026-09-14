@@ -5,8 +5,6 @@ import (
 
 	"github.com/kisun-bit/drpkg/cdp/drvctl/v1/ioctl"
 
-	ioctl2 "github.com/kisun-bit/drpkg/github.com/kisun-bit/drpkg/cdp/drvctl/ioctl"
-
 	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
@@ -26,7 +24,7 @@ func TransferInit(maxReadLenP uint64, ringBufferSize uintptr) error {
 		EventFd: uint64(eventHandle),
 	}
 
-	if err = ioctl2.ReqDrvCreateRingBuffer(req); err != nil {
+	if err = ioctl.ReqDrvCreateRingBuffer(req); err != nil {
 		return errors.Wrap(err, "ReqDrvCreateRingBuffer failed")
 	}
 

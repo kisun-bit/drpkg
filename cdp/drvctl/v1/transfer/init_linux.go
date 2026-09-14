@@ -3,9 +3,7 @@ package transfer
 import (
 	"os"
 
-	ioctl3 "github.com/kisun-bit/drpkg/cdp/drvctl/v1/ioctl"
-
-	ioctl2 "github.com/kisun-bit/drpkg/github.com/kisun-bit/drpkg/cdp/drvctl/ioctl"
+	"github.com/kisun-bit/drpkg/cdp/drvctl/v1/ioctl"
 	"github.com/kisun-bit/drpkg/logger"
 
 	"github.com/pkg/errors"
@@ -13,10 +11,10 @@ import (
 )
 
 func TransferInit(maxReadLenP uint64, ringBufferSize uintptr) (err error) {
-	var req ioctl3.DRVReqCreateRingBuffer
+	var req ioctl.DRVReqCreateRingBuffer
 
 	// 打开驱动设备
-	f, err := os.OpenFile(ioctl3.DriverSymbolName, os.O_RDWR, 0)
+	f, err := os.OpenFile(ioctl.DriverSymbolName, os.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
@@ -33,7 +31,7 @@ func TransferInit(maxReadLenP uint64, ringBufferSize uintptr) (err error) {
 
 	req.EventFd = uint64(eventHandle)
 
-	err = ioctl2.ReqDrvCreateRingBuffer(&req)
+	err = ioctl.ReqDrvCreateRingBuffer(&req)
 
 	if err != nil {
 		// 关闭事件
@@ -53,7 +51,7 @@ func TransferInit(maxReadLenP uint64, ringBufferSize uintptr) (err error) {
 		eventHandle = 0
 
 		// 删除共享内存
-		_ = ioctl2.ReqDrvDeleteRingBuffer()
+		_ = ioctl.ReqDrvDeleteRingBuffer()
 		return err
 	}
 
@@ -67,7 +65,7 @@ func TransferInit(maxReadLenP uint64, ringBufferSize uintptr) (err error) {
 		mapAddr = nil
 
 		// 删除共享内存
-		_ = ioctl2.ReqDrvDeleteRingBuffer()
+		_ = ioctl.ReqDrvDeleteRingBuffer()
 		return errors.Errorf("IOCTLTransferInit: The SharedMemAddr is nil")
 	}
 
