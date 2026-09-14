@@ -40,7 +40,7 @@ func makeDiskExtent(diskID string, start, size uint64) DiskExtent {
 
 func newMeta(t *testing.T) *BioTrkMetadata {
 	t.Helper()
-	bm, err := Create(tempFile(t), 0, 0)
+	bm, err := Create(tempFile(t), 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestFindFreeBitmapUnits(t *testing.T) {
 // ============================================================================
 
 func TestCalcCRC32(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 	h.HeaderCRC32 = 0
 
 	// Manual CRC32 of the binary header
@@ -401,7 +401,7 @@ func TestCalcCRC32(t *testing.T) {
 // ============================================================================
 
 func TestHeaderBinarySize(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 
 	buf := new(bytes.Buffer)
 	if err := binary.Write(buf, binary.LittleEndian, &h); err != nil {
@@ -844,7 +844,7 @@ func TestUnpackRejectsShortBuffer(t *testing.T) {
 func TestCreateAndLoad(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -919,7 +919,7 @@ func TestCreateAndLoad(t *testing.T) {
 // 这是变长记录能安全增长的前提：记录区后面没有任何东西，长大也踩不到
 // Allocation Map 或 Bitmap Unit Data。
 func TestProtectedRegionIsLast(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 
 	if h.ProtectedRegionOffset < h.BitmapAllocMapOffset+h.BitmapAllocMapSize {
 		t.Error("protected region overlaps allocation map")
@@ -942,7 +942,7 @@ func TestProtectedRegionIsLast(t *testing.T) {
 func TestCreateRejectsUnalignedOffset(t *testing.T) {
 	path := tempFile(t)
 
-	if _, err := Create(path, 512, 0); err == nil {
+	if _, err := Create(path, 512, 0, 0); err == nil {
 		t.Error("expected error for unaligned offset, got nil")
 	}
 	if _, err := Load(path, 512); err == nil {
@@ -957,7 +957,7 @@ func TestCreateRejectsUnalignedOffset(t *testing.T) {
 func TestCreateZeroFillsWholeRegion(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -990,7 +990,7 @@ func TestCreateZeroFillsWholeRegion(t *testing.T) {
 // 变长记录的单条长度不保证对齐，所以读写以整个区域为单位；
 // 区域偏移与区域大小必须对齐，裸设备上才能整体读写。
 func TestLayoutIsAligned(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 
 	for name, v := range map[string]uint64{
 		"BitmapAllocMapOffset":  h.BitmapAllocMapOffset,
@@ -1023,7 +1023,7 @@ func TestLayoutIsAligned(t *testing.T) {
 func TestMetadataRegionFitsPhysicalTail(t *testing.T) {
 	const reserveBytes = 100 * 1024 * 1024
 
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 	if h.TotalSize() > reserveBytes {
 		t.Errorf("base metadata region %d bytes exceeds physical tail reserve %d bytes",
 			h.TotalSize(), reserveBytes)
@@ -1042,7 +1042,7 @@ func TestCreateWithOffset(t *testing.T) {
 	path := tempFile(t)
 	const offset int64 = 4096
 
-	bm, err := Create(path, offset, 0)
+	bm, err := Create(path, offset, 0, 0)
 	if err != nil {
 		t.Fatalf("Create with offset failed: %v", err)
 	}
@@ -1382,7 +1382,7 @@ func TestRemoveAllProtectDevice(t *testing.T) {
 func TestFlushAndReload(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -1631,7 +1631,7 @@ func TestValidateHeaderBadCRC(t *testing.T) {
 // ============================================================================
 
 func TestValidateProtectedDeviceInvalidType(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 	allocMap := make([]byte, 1024)
 
 	pd := ProtectedDevice{
@@ -1646,7 +1646,7 @@ func TestValidateProtectedDeviceInvalidType(t *testing.T) {
 }
 
 func TestValidateProtectedDeviceEmptyID(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 	allocMap := make([]byte, 1024)
 
 	pd := ProtectedDevice{
@@ -1661,7 +1661,7 @@ func TestValidateProtectedDeviceEmptyID(t *testing.T) {
 }
 
 func TestValidateProtectedDeviceExtentSizeZero(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 	h.TotalBitmapUnits = 100
 	allocMap := make([]byte, 1024)
 	// Mark unit 0 as allocated
@@ -1685,7 +1685,7 @@ func TestValidateProtectedDeviceExtentSizeZero(t *testing.T) {
 }
 
 func TestValidateProtectedDeviceBitmapUnitStartOutOfRange(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 	h.TotalBitmapUnits = 10
 	allocMap := make([]byte, 1024)
 
@@ -1707,7 +1707,7 @@ func TestValidateProtectedDeviceBitmapUnitStartOutOfRange(t *testing.T) {
 }
 
 func TestValidateProtectedDeviceUnallocatedBitmapUnit(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 	h.TotalBitmapUnits = 100
 	allocMap := make([]byte, 1024)
 	// Unit 0 is NOT allocated
@@ -1730,7 +1730,7 @@ func TestValidateProtectedDeviceUnallocatedBitmapUnit(t *testing.T) {
 }
 
 func TestValidateProtectedDeviceCapacityInsufficient(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 	h.TotalBitmapUnits = 100
 	h.BitmapClusterSize = 4096
 	h.BitIndexSpace = 4 * 1024 * 1024 // 4 MiB
@@ -1916,7 +1916,7 @@ func TestListValidProtectDeviceEmpty(t *testing.T) {
 // ============================================================================
 
 func TestDefaultHeader(t *testing.T) {
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 
 	if string(h.Signature[:len(SignatureStr)]) != SignatureStr {
 		t.Error("default signature mismatch")
@@ -1948,7 +1948,7 @@ func TestWriteReadHeader(t *testing.T) {
 	defer f.Close()
 	defer os.Remove(path)
 
-	h := defaultHeader(0)
+	h := defaultHeader(0, 0)
 	h.CDPStatus = 1
 	h.ErrorCode = 42
 	h.WorkMode = 1
@@ -1986,7 +1986,7 @@ func TestWriteReadHeader(t *testing.T) {
 func TestManyDevicesGrowRegion(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2063,7 +2063,7 @@ func TestManyDevicesGrowRegion(t *testing.T) {
 func TestRecordGrowthDoesNotCorruptOtherRegions(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2156,7 +2156,7 @@ func TestRecordGrowthDoesNotCorruptOtherRegions(t *testing.T) {
 func TestRemoveDeviceShrinksRegionAndZeroesTail(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2235,7 +2235,7 @@ func TestRemoveDeviceShrinksRegionAndZeroesTail(t *testing.T) {
 func TestRemoveAllDevicesEmptiesRegion(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2314,7 +2314,7 @@ func TestMD5Consistency(t *testing.T) {
 	f.Close()
 	os.Remove(path)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2446,7 +2446,7 @@ func md5HashFromExtents(extents []DiskExtent) (string, error) {
 func TestResolveBitmapExtentsDevicePath(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2494,7 +2494,7 @@ func TestResolveBitmapExtentsDevicePath(t *testing.T) {
 func TestResolveBitmapExtentsMultipleDevices(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2541,7 +2541,7 @@ func TestResolveBitmapExtentsMultipleDevices(t *testing.T) {
 func TestResolveBitmapExtentsMultiExtentDevice(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2590,7 +2590,7 @@ func TestResolveBitmapExtentsMultiExtentDevice(t *testing.T) {
 func TestResolveBitmapExtentsFlushRoundTrip(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2653,7 +2653,7 @@ func TestResolveBitmapExtentsFlushRoundTrip(t *testing.T) {
 func TestResolveBitmapExtentsBoundary(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2699,7 +2699,7 @@ func TestResolveBitmapExtentsBoundary(t *testing.T) {
 func TestResolveBitmapExtentsAllUnitsInRange(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -2757,7 +2757,7 @@ func TestResolveBitmapExtentsAllUnitsInRange(t *testing.T) {
 func TestResolveBitmapExtentsNoDevices(t *testing.T) {
 	path := tempFile(t)
 
-	bm, err := Create(path, 0, 0)
+	bm, err := Create(path, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}

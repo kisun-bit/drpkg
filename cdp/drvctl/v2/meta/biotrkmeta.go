@@ -30,8 +30,9 @@ import (
 //
 // offset 必须是 AlignSize（4096）的整数倍。
 // totalBitmapUnits 指定位图单元总数，传 0 则使用 DefaultTotalBitmapUnits（8192）。
+// bitIndexSpace 指定每个 Bitmap Bit 对应的磁盘空间大小，传 0 则使用 DefaultBitIndexSpace（512 KiB）。
 //
-// 位图单元数量决定了可索引的最大受保护磁盘空间：
+// 位图单元数量与 bitIndexSpace 决定了可索引的最大受保护磁盘空间（默认 512 KiB 时）：
 //
 //	总空间 = totalBitmapUnits × BitmapClusterSize × 8 × BitIndexSpace
 //	       = totalBitmapUnits × 4096 × 8 × 512 KiB
@@ -40,7 +41,7 @@ import (
 // 调用方需要自行保证 offset + Size() 落在可用空间内：
 // 记录区后面没有其他区域，增长不会破坏本格式的其他数据，
 // 但在裸设备上可能超出调用方预留的范围。
-func Create(file string, offset int64, totalBitmapUnits uint64) (*BioTrkMetadata, error) {
+func Create(file string, offset int64, totalBitmapUnits uint64, bitIndexSpace uint64) (*BioTrkMetadata, error) {
 	if offset%AlignSize != 0 {
 		return nil, errors.Errorf("offset %d is not aligned to %d", offset, AlignSize)
 	}
@@ -54,7 +55,7 @@ func Create(file string, offset int64, totalBitmapUnits uint64) (*BioTrkMetadata
 		return nil, errors.Wrap(err, "failed to create metadata file")
 	}
 
-	h := defaultHeader(totalBitmapUnits)
+	h := defaultHeader(totalBitmapUnits, bitIndexSpace)
 	h.ProtectedRegionSize = 0
 	h.ProtectedDeviceCount = 0
 	h.HeaderCRC32 = calcCRC32(&h)
@@ -720,14 +721,18 @@ func mapLinearToExtent(des []DiskExtent, logicalOff uint64) (extIdx int, offInEx
 // defaultHeader 创建默认 Header，并推导好与记录内容无关的区域布局。
 //
 // totalBitmapUnits 指定位图单元总数，传 0 则使用 DefaultTotalBitmapUnits。
-func defaultHeader(totalBitmapUnits uint64) Header {
+// bitIndexSpace 指定每个 Bitmap Bit 对应的磁盘空间大小，传 0 则使用 DefaultBitIndexSpace。
+func defaultHeader(totalBitmapUnits, bitIndexSpace uint64) Header {
 	if totalBitmapUnits == 0 {
 		totalBitmapUnits = DefaultTotalBitmapUnits
+	}
+	if bitIndexSpace == 0 {
+		bitIndexSpace = DefaultBitIndexSpace
 	}
 
 	h := Header{
 		Version:           Versionv1_0,
-		BitIndexSpace:     DefaultBitIndexSpace,
+		BitIndexSpace:     bitIndexSpace,
 		BitmapClusterSize: DefaultBitmapClusterSize,
 		TotalBitmapUnits:  uint32(totalBitmapUnits),
 	}
