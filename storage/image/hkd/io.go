@@ -375,6 +375,25 @@ func (h *HKD) readClusterRaw(i uint64) (raw []byte, found bool, err error) {
 // readCluster 读取第 i 个 Cluster 的二进制结构（不解码）。
 func (h *HKD) readCluster(i uint64) (*Cluster, error) {
 	entry := h.index.EntryAt(i)
+
+	// 目标 Cluster 若位于当前正在写入的分卷，则其数据仍在本地写缓冲里
+	// （如 S3 的临时文件尚未上传），通过 OpenFile 读不到；改为直接从缓冲
+	// 句柄读取，读完后恢复到追加位置，避免打断后续写入。
+	if h.volFile != nil && entry.VolID == h.curVol {
+		if _, err := h.volFile.Seek(int64(entry.Offset), io.SeekStart); err != nil {
+			return nil, err
+		}
+		c, err := ReadCluster(h.volFile)
+		if err != nil {
+			return nil, fmt.Errorf("hkd: read cluster %d from vol %d offset %d: %w",
+				i, entry.VolID, entry.Offset, err)
+		}
+		if _, err := h.volFile.Seek(int64(h.volOff), io.SeekStart); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}
+
 	reader, ok := h.acc.(backend.OpenFile)
 	if !ok {
 		return nil, fmt.Errorf("hkd: accessor %s does not support reading", h.acc.Type())
