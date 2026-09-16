@@ -10,21 +10,28 @@ import (
 
 // platformState 持有 Windows 平台特定的资源。
 type platformState struct {
-	eventHandle windows.Handle // 由驱动创建的共享内存事件句柄
+	eventHandle windows.Handle // 由用户层创建的共享内存事件句柄
 }
 
 // NewShmRing 创建并初始化共享内存环形缓冲区。
 //
 // size 为请求的共享内存大小（字节），maxReadLen 为单次读取的最大字节数。
 //
-// 内部调用 CreateShm 向驱动请求创建共享内存，驱动返回映射地址和事件句柄。
+// 内部先创建事件对象，再调用 CreateShm 向驱动请求创建共享内存并返回映射地址。
 func NewShmRing(size uint32, maxReadLen uint64) (*ShmRing, error) {
-	cfg, err := CreateShm(size)
+	h, err := windows.CreateEvent(nil, 0, 0, nil)
 	if err != nil {
+		return nil, errors.Wrapf(err, "CreateEvent")
+	}
+
+	cfg, err := CreateShm(size, uint64(h))
+	if err != nil {
+		windows.CloseHandle(h)
 		return nil, errors.Wrapf(err, "CreateShm")
 	}
 
 	if cfg.Address == 0 {
+		windows.CloseHandle(h)
 		return nil, errors.New("SHMAddress is 0 from driver")
 	}
 
@@ -41,7 +48,7 @@ func NewShmRing(size uint32, maxReadLen uint64) (*ShmRing, error) {
 		nextReadPos: -1,
 		maxReadLen:  maxReadLen,
 		platform: platformState{
-			eventHandle: windows.Handle(cfg.EventHandle),
+			eventHandle: h,
 		},
 	}
 

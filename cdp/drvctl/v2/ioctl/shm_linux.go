@@ -31,8 +31,15 @@ func NewShmRing(size uint32, maxReadLen uint64) (*ShmRing, error) {
 	}
 	devFd := int(f.Fd())
 
-	cfg, err := CreateShm(size)
+	eventFd, err := unix.Eventfd(0, unix.EFD_CLOEXEC)
 	if err != nil {
+		f.Close()
+		return nil, errors.Wrapf(err, "eventfd")
+	}
+
+	cfg, err := CreateShm(size, uint64(eventFd))
+	if err != nil {
+		unix.Close(eventFd)
 		f.Close()
 		return nil, errors.Wrapf(err, "CreateShm")
 	}
@@ -59,7 +66,7 @@ func NewShmRing(size uint32, maxReadLen uint64) (*ShmRing, error) {
 		nextReadPos: -1,
 		maxReadLen:  maxReadLen,
 		platform: platformState{
-			eventFd:  int(cfg.EventHandle),
+			eventFd:  eventFd,
 			devFd:    devFd,
 			mmapAddr: unsafe.Pointer(&addr[0]),
 			mmapSize: mmapSize,

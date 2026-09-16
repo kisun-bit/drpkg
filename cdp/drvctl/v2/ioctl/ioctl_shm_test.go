@@ -74,8 +74,8 @@ func TestShmConfigDefaults(t *testing.T) {
 	if cfg.Size != 0 {
 		t.Error("default Size should be 0")
 	}
-	if cfg.EventHandle != 0 {
-		t.Error("default EventHandle should be 0")
+	if cfg.Event != 0 {
+		t.Error("default Event should be 0")
 	}
 	if cfg.Address != 0 {
 		t.Error("default Address should be 0")

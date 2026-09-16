@@ -168,9 +168,9 @@ func TestTaskErrorStringSizeof(t *testing.T) {
 
 func TestShmConfigPackUnpack(t *testing.T) {
 	orig := &ShmConfig{
-		Size:        4096,
-		EventHandle: 0x12345678,
-		Address:     0xABCDEF00,
+		Size:    4096,
+		Event:   0x12345678,
+		Address: 0xABCDEF00,
 	}
 
 	packed, err := pack(orig)
@@ -186,8 +186,8 @@ func TestShmConfigPackUnpack(t *testing.T) {
 	if decoded.Size != orig.Size {
 		t.Errorf("Size: got %d, want %d", decoded.Size, orig.Size)
 	}
-	if decoded.EventHandle != orig.EventHandle {
-		t.Errorf("EventHandle: got %d, want %d", decoded.EventHandle, orig.EventHandle)
+	if decoded.Event != orig.Event {
+		t.Errorf("Event: got %d, want %d", decoded.Event, orig.Event)
 	}
 	if decoded.Address != orig.Address {
 		t.Errorf("Address: got %d, want %d", decoded.Address, orig.Address)
@@ -195,7 +195,7 @@ func TestShmConfigPackUnpack(t *testing.T) {
 }
 
 func TestShmConfigSizeof(t *testing.T) {
-	// ShmConfig: Size(4) + EventHandle(8) + Address(8) = 20
+	// ShmConfig: Size(4) + Event(8) + Address(8) = 20
 	sz := sizeof(&ShmConfig{})
 	if sz != 20 {
 		t.Errorf("sizeof(ShmConfig): got %d, want 20", sz)

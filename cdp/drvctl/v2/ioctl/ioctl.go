@@ -301,9 +301,10 @@ func ClearBitmapReference(req *ClearBitmapReferenceRequest) error {
 
 // CreateShm 向驱动请求创建共享内存。
 //
-// size 为共享内存大小（字节）。返回值包含驱动分配的共享内存地址和事件句柄。
-func CreateShm(size uint32) (*ShmConfig, error) {
-	req := &ShmConfig{Size: size}
+// size 为共享内存大小（字节），event 为用户层创建的读写事件对象句柄。
+// 返回值包含驱动映射的共享内存地址。
+func CreateShm(size uint32, event uint64) (*ShmConfig, error) {
+	req := &ShmConfig{Size: size, Event: event}
 	inBuf, err := pack(req)
 	if err != nil {
 		return nil, err

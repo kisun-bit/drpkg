@@ -20,8 +20,8 @@ type ShmConfig struct {
 	// Size 为请求创建的共享缓存大小（字节）（请求参数）。
 	Size uint32
 
-	// EventHandle 为共享缓存的读写事件对象句柄（响应参数）。
-	EventHandle uint64
+	// Event 为共享缓存的读写事件对象句柄，由用户层创建并传入（请求参数）。
+	Event uint64
 
 	// Address 为共享缓存的映射内存地址（响应参数）。
 	Address uint64
