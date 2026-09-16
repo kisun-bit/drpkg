@@ -2490,6 +2490,10 @@ func (fixer *linuxSystemFixer) initrdAddModuleByMkinitrd(
 		return nil
 	}
 
+	if err := fixer.ensureModulesDep(k); err != nil {
+		return err
+	}
+
 	majVer := 0
 	if fixer.offsys.initrdTlVer != "" {
 		verItems := strings.Split(
@@ -2639,6 +2643,10 @@ func (fixer *linuxSystemFixer) generateInitrdByUpdateInitramfs(
 ) error {
 	logger.Debugf("generateInitrdByUpdateInitramfs: ++")
 	defer logger.Debugf("generateInitrdByUpdateInitramfs: --")
+
+	if err := fixer.ensureModulesDep(k); err != nil {
+		return err
+	}
 
 	// 重建指定 kernel 的 initramfs
 	cmdline := fmt.Sprintf(
@@ -2850,11 +2858,41 @@ func (fixer *linuxSystemFixer) addDracutModulesToDracutConf(modules ...string) e
 	return fixer.mergeDracutConfKey("add_dracutmodules", modules...)
 }
 
+// ensureModulesDep 确保指定内核的 modules.dep 存在；若缺失则用 depmod 重建。
+//
+// 部分离线系统在迁移后 /lib/modules/<kernel>/modules.dep 缺失，dracut/mkinitrd
+// 生成 initramfs 时无法解析模块依赖，导致 virtio 等驱动注入失败或生成中断。
+func (fixer *linuxSystemFixer) ensureModulesDep(k kernel) error {
+	depFile := filepath.Join(
+		fixer.offsys.root,
+		"lib/modules",
+		k.Name,
+		"modules.dep",
+	)
+
+	if xutil.IsExisted(depFile) {
+		return nil
+	}
+
+	logger.Debugf("ensureModulesDep: %s missing, run depmod for %s", depFile, k.Name)
+
+	cmdline := fmt.Sprintf(`depmod -a %s`, k.Name)
+	if _, _, err := fixer.executeWithChroot(cmdline); err != nil {
+		return errors.Wrapf(err, "depmod %s failed", k.Name)
+	}
+
+	return nil
+}
+
 func (fixer *linuxSystemFixer) generateInitrdByDracut(
 	k kernel,
 ) error {
 	logger.Debugf("generateInitrdByDracut: ++")
 	defer logger.Debugf("generateInitrdByDracut: --")
+
+	if err := fixer.ensureModulesDep(k); err != nil {
+		return err
+	}
 
 	// 重建 initramfs
 	cmdline := fmt.Sprintf(
