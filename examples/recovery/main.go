@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"github.com/kisun-bit/drpkg/defs"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/info"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
+	"github.com/kisun-bit/drpkg/xutil"
 )
 
 func main() {
@@ -22,46 +22,6 @@ func main() {
 	}
 
 	fixer, err := x2xcore.NewSysFixer(context.Background(),
-		//&x2xcore.FixerCreateOptions{
-		//	OfflineSysDisks: offlineDisks,
-		//	RecoveryParam: x2xcore.RecoveryParameter{
-		//		Source: x2xcore.Platform{
-		//			Arch: "amd64",
-		//			Base: "virtual",
-		//			Virt: "none",
-		//		},
-		//		Target: x2xcore.Platform{
-		//			Arch: "amd64",
-		//			Base: "virtual",
-		//			Virt: "kvm",
-		//		},
-		//		X2xLibrary:         "/root/library",
-		//		LuksGlobalPassword: "Jrsa1234/",
-		//		Network: x2xcore.NetworkConfig{
-		//			Interfaces: []x2xcore.InterfaceConfig{
-		//				{
-		//					MAC: "00:0c:29:b7:23:41", // vmware 张凯加密系统
-		//					//MAC:     "00:0c:29:ed:76:c2", // vmware 张凯suse12sp4
-		//					//MAC:     "00:50:56:ac:30:ca", // vmwaer 罗潇centos6.5uefi
-		//					//MAC:     "00:50:56:ac:84:14", // vmware 罗潇ubuntu22
-		//					//MAC:     "00:50:56:ac:66:16", // vmware centos4_oracle
-		//					//MAC:     "00:50:56:ac:a0:5b", // vmware 罗潇最新centos-123测试
-		//					Name:    "zktestif01",
-		//					Enabled: true,
-		//					MTU:     1500,
-		//					DHCP:    false,
-		//					IPAddr: []x2xcore.IPConfig{
-		//						{"192.168.1.43/24"},
-		//					},
-		//					DNS:     []string{"8.8.4.4"},
-		//					Gateway: "192.168.1.1",
-		//				},
-		//			},
-		//			GlobalDNS: []string{"8.8.4.4", "8.8.8.8"},
-		//			Routes:    nil,
-		//		},
-		//	},
-
 		&x2xcore.FixerCreateOptions{
 			OfflineSysDisks: offlineDisks,
 			RecoveryParam: x2xcore.RecoveryParameter{
@@ -79,8 +39,9 @@ func main() {
 					Virt:      "kvm",
 					PciList:   nil,
 				},
+				OSType: "linux",
 				Network: x2xcore.NetworkConfig{
-					Enable: true,
+					Enable: false,
 					Interfaces: []x2xcore.InterfaceConfig{
 						{
 							MAC:     "52:54:00:3c:50:bd",

@@ -16,9 +16,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kisun-bit/drpkg/defs"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/lunixbochs/struc"
 	"github.com/pkg/errors"
 )
@@ -338,7 +338,7 @@ func (vm *Vm) addStorage() {
 		}
 
 		vm.cmdArgs = append(vm.cmdArgs,
-			"-blockdev", fmt.Sprintf("node-name=boot-disk,driver=%s,file.driver=file,file.filename=%s",
+			"-blockdev", fmt.Sprintf("node-name=boot-disk,driver=%s,file.driver=file,file.filename=%s,cache=unsafe,aio=threads",
 				format, vm.vmBootDisk),
 			"-device", "virtio-blk-pci,drive=boot-disk,bootindex=1",
 		)
@@ -360,7 +360,7 @@ func (vm *Vm) addStorage() {
 			driveID := fmt.Sprintf("scsi-disk%d", scsiIndex)
 
 			vm.cmdArgs = append(vm.cmdArgs,
-				"-drive", fmt.Sprintf("id=%s,if=none,file=%s,format=%s,file.locking=on",
+				"-drive", fmt.Sprintf("id=%s,if=none,file=%s,format=%s,file.locking=on,cache=none,aio=threads",
 					driveID, d.Path, format),
 				"-device", fmt.Sprintf("scsi-hd,drive=%s,bus=scsi0.0",
 					driveID),
@@ -405,7 +405,7 @@ func (vm *Vm) addCDROM() {
 			vm.cmdArgs,
 
 			"-drive", fmt.Sprintf(
-				"id=tmpos,if=none,media=cdrom,file=%s",
+				"id=tmpos,if=none,media=cdrom,file=%s,cache=writeback",
 				vm.vmBootImage,
 			),
 		)
@@ -430,7 +430,7 @@ func (vm *Vm) addCDROM() {
 			vm.cmdArgs,
 
 			"-drive", fmt.Sprintf(
-				"id=driver,if=none,media=cdrom,file=%s",
+				"id=driver,if=none,media=cdrom,file=%s,cache=writeback",
 				vm.opt.DriverDBImageFile,
 			),
 		)

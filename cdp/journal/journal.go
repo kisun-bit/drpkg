@@ -10,8 +10,8 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/kisun-bit/drpkg/cdp/drvctl/v2/ioctl"
 	biotrkmeta "github.com/kisun-bit/drpkg/cdp/drvctl/v2/meta"
-	"github.com/kisun-bit/drpkg/disk/image/hkc"
 	"github.com/kisun-bit/drpkg/rpc/aio/proto"
+	"github.com/kisun-bit/drpkg/storage/image/hkd"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -112,7 +112,7 @@ func NewCdpJournalBuilder(opt *CdpJournalOption) (*CdpJournalBuilder, error) {
 	}
 
 	if opt.EnableEncrypt {
-		if err := hkc.SetEncryptionKey([]byte(opt.EncryptionKey)); err != nil {
+		if err := hkd.SetEncryptionKey([]byte(opt.EncryptionKey)); err != nil {
 			return nil, err
 		}
 	}
@@ -396,7 +396,7 @@ func (b *CdpJournalBuilder) append(records ...*CdpRecord) error {
 			return err
 		}
 
-		b.rawTotalBytes += record.Header.BinaryStructSize() + hkc.ClusterHeaderSize + record.Data.RawSize
+		b.rawTotalBytes += record.Header.BinaryStructSize() + hkd.ClusterHeaderSize + record.Data.RawSize
 	}
 
 	return nil
@@ -413,7 +413,7 @@ func (b *CdpJournalBuilder) generateRecord(
 		return nil, errors.New("empty data")
 	}
 
-	cluster, err := hkc.CreateCluster(
+	cluster, err := hkd.CreateCluster(
 		offset,
 		data,
 		b.enableCompress,

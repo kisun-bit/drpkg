@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/kisun-bit/drpkg/disk/image/hkc"
 	"github.com/kisun-bit/drpkg/rpc/aio/proto"
+	"github.com/kisun-bit/drpkg/storage/image/hkd"
 	"github.com/lunixbochs/struc"
 )
 
@@ -16,7 +16,7 @@ type CdpRecord struct {
 }
 
 // IOContent 表示IO的数据内容。
-type IOContent = hkc.Cluster
+type IOContent = hkd.Cluster
 
 // IOHeader 表示 CDP 日志记录的头部信息。
 type IOHeader struct {

@@ -7,8 +7,8 @@ import (
 
 	"github.com/kisun-bit/drpkg/cdp/drvctl/v2/ioctl"
 	biotrkmeta "github.com/kisun-bit/drpkg/cdp/drvctl/v2/meta"
-	"github.com/kisun-bit/drpkg/disk/image/hkc"
 	"github.com/kisun-bit/drpkg/rpc/aio/proto"
+	"github.com/kisun-bit/drpkg/storage/image/hkd"
 	"github.com/lunixbochs/struc"
 )
 
@@ -359,7 +359,7 @@ func TestCdpRecordPackUnpack(t *testing.T) {
 			Timestamp:   1234567890,
 			Sequence:    42,
 		},
-		Data: hkc.Cluster{}, // 空集群数据（测试基本序列化）
+		Data: hkd.Cluster{}, // 空集群数据（测试基本序列化）
 	}
 
 	var buf bytes.Buffer

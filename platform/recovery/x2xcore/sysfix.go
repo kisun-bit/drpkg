@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/kisun-bit/drpkg/defs"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 )
 
@@ -25,6 +25,9 @@ type SysFixer interface {
 
 	// GetLog 获取日志
 	GetLog() (LogEntry, bool)
+
+	// GetSystemInfo 获取系统基础信息
+	GetSystemInfo() SystemInfo
 
 	// GetPreferHostConfig 获取推荐配置
 	GetPreferHostConfig(defs.HPVirtType) (PreferConfig, error)
@@ -49,6 +52,12 @@ type PreferConfig struct {
 	NetworkType string `json:"networkType"` // 网卡类型
 
 	// TODO 更多
+}
+
+type SystemInfo struct {
+	Distro         string   `json:"distro"`
+	NtVersion      int      `json:"ntVersion"`      // 仅Windows有效
+	KernelVersions []string `json:"kernelVersions"` // 仅Linux有效
 }
 
 func CheckAndFillFixerCreateOptions(opts *FixerCreateOptions) error {
@@ -85,7 +94,7 @@ func CheckAndFillRecoveryParameter(rp *RecoveryParameter) error {
 		rp.Target.Virt = defs.HPVTNone
 	}
 
-	for _, platform := range []Platform{rp.Source, rp.Target} {
+	for i, platform := range []Platform{rp.Source, rp.Target} {
 		//if platform.Arch != runtime.GOARCH {
 		//	return errors.New("FixerCreateOptions Arch is invalid")
 		//}
@@ -101,7 +110,8 @@ func CheckAndFillRecoveryParameter(rp *RecoveryParameter) error {
 			platform.Virt != defs.HPVTHyperV {
 			return errors.New("FixerCreateOptions Virt is invalid")
 		}
-		if platform.Base == defs.HPBareMetal &&
+		if i != 0 &&
+			platform.Base == defs.HPBareMetal &&
 			len(platform.PciList) == 0 {
 			return errors.New("FixerCreateOptions PciList is empty")
 		}

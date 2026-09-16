@@ -1,4 +1,4 @@
-package hkc
+package hkd
 
 import (
 	"bytes"
@@ -132,27 +132,27 @@ func TestClusterString(t *testing.T) {
 		{
 			name:    "no flags",
 			cluster: Cluster{Offset: 0, Size: 10, RawSize: 10},
-			want:    "[Cluster<off=0,size=10,rawsize=10>()]",
+			want:    "CLUSTER#OFF_0&LEN_10",
 		},
 		{
 			name:    "compressed only",
 			cluster: Cluster{Flags: 0x02, Offset: 1, Size: 5, RawSize: 10},
-			want:    "[Cluster<off=1,size=5,rawsize=10>(compressed)]",
+			want:    "CLUSTER#OFF_1&LEN_5&RLEN_10(COMPRESSED)",
 		},
 		{
 			name:    "checked only",
 			cluster: Cluster{Flags: 0x04, Offset: 2, Size: 10, RawSize: 10},
-			want:    "[Cluster<off=2,size=10,rawsize=10>(checked)]",
+			want:    "CLUSTER#OFF_2&LEN_10(CHECKED)",
 		},
 		{
 			name:    "encrypted only",
 			cluster: Cluster{Flags: 0x01, Offset: 3, Size: 38, RawSize: 10},
-			want:    "[Cluster<off=3,size=38,rawsize=10>(encrypted)]",
+			want:    "CLUSTER#OFF_3&LEN_38&RLEN_10(ENCRYPTED)",
 		},
 		{
 			name:    "all flags in fixed order compressed,checked,encrypted",
 			cluster: Cluster{Flags: 0x07, Offset: 100, Size: 20, RawSize: 40},
-			want:    "[Cluster<off=100,size=20,rawsize=40>(compressed,checked,encrypted)]",
+			want:    "CLUSTER#OFF_100&LEN_20&RLEN_40(COMPRESSED,CHECKED,ENCRYPTED)",
 		},
 	}
 	for _, tc := range cases {

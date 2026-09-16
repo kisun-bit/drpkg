@@ -329,6 +329,12 @@ func (fixer *windowsSystemFixer) GetPreferHostConfig(virtual defs.HPVirtType) (c
 	}
 }
 
+func (fixer *windowsSystemFixer) GetSystemInfo() (info SystemInfo) {
+	info.Distro = fixer.offsys.windowsVersion
+	info.NtVersion, _ = fixer.ntVersion()
+	return info
+}
+
 func (fixer *windowsSystemFixer) importForeignDisk() error {
 	logger.Debugf("importForeignDisk: ++")
 	defer logger.Debugf("importForeignDisk: --")

@@ -4,15 +4,13 @@ import (
 	"runtime"
 
 	"github.com/kisun-bit/drpkg/cdp/drvctl/v1/ioctl"
-
-	ioctl2 "github.com/kisun-bit/drpkg/cdp/drvctl/v1/ioctl"
 	"github.com/kisun-bit/drpkg/xutil"
 )
 
 func LogRead() (log *ioctl.DRVRespGetLog, err error, status LogStatus) {
 	var req ioctl.DRVReqGetLog
 
-	resp, err := ioctl2.ReqDrvGetLog(&req)
+	resp, err := ioctl.ReqDrvGetLog(&req)
 	if err != nil {
 		return nil, err, LogError
 	}
@@ -32,7 +30,7 @@ func LogGetErrStr(errCode int32) (str string, err error) {
 	var req ioctl.DRVReqGetErrStr
 
 	req.ErrCode = errCode
-	resp, err := ioctl2.ReqDrvGetErrStr(&req)
+	resp, err := ioctl.ReqDrvGetErrStr(&req)
 	if err != nil {
 		return "", err
 	}

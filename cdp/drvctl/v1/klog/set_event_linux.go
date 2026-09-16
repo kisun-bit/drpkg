@@ -3,8 +3,6 @@ package klog
 import (
 	"github.com/kisun-bit/drpkg/cdp/drvctl/v1/ioctl"
 
-	ioctl2 "github.com/kisun-bit/drpkg/cdp/drvctl/v1/ioctl"
-
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
@@ -21,7 +19,7 @@ func LogSetEvent() (err error) {
 
 	request.Handle = uint64(eventHandle)
 
-	err = ioctl2.ReqDrvSetLogEvent(&request)
+	err = ioctl.ReqDrvSetLogEvent(&request)
 	if err != nil {
 		return errors.Wrapf(err, "failed to set log event")
 	}

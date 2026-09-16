@@ -1,4 +1,4 @@
-package hkc
+package hkd
 
 import (
 	"bytes"

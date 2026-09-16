@@ -54,6 +54,11 @@ type offlineSystem struct {
 	devUsr   string   // /usr 文件系统设备
 	devSwaps []string // swap 设备列表
 
+	// 离线系统使用的存储栈（用于 initramfs 中强制包含对应 dracut 模块/内核驱动）
+	useLvm    bool
+	useMdraid bool
+	useBtrfs  bool
+
 	// KVM 硬件配置
 	kvmChipset     string // 主板芯片组（i440fx、q35）
 	kvmVideo       string // 显卡类型（bochs、vga、virtio、ramfb）
@@ -170,6 +175,10 @@ func (fixer *linuxSystemFixer) Prepare() error {
 
 	if err := fixer.detectSysDevice(); err != nil {
 		return errors.Wrap(err, "failed to identify the system device")
+	}
+
+	if err := fixer.detectStorage(); err != nil {
+		return errors.Wrap(err, "failed to detect storage stack")
 	}
 
 	if err := fixer.mountSys(); err != nil {
@@ -358,6 +367,14 @@ func (fixer *linuxSystemFixer) GetPreferHostConfig(virtual defs.HPVirtType) (cfg
 	default:
 		return cfg, errors.New("GetPreferHostConfig: unsupported virtual type")
 	}
+}
+
+func (fixer *linuxSystemFixer) GetSystemInfo() (info SystemInfo) {
+	info.Distro = fixer.offsys.distro.ID
+	for _, k := range fixer.offsys.kernels {
+		info.KernelVersions = append(info.KernelVersions, k.Name)
+	}
+	return info
 }
 
 // mountSys 挂载离线系统
@@ -640,6 +657,47 @@ func (fixer *linuxSystemFixer) detectSysDevice() error {
 	}
 
 	return nil
+}
+
+// detectStorage 探测离线系统使用的存储栈。dracut 在 chroot 中运行时无法通过
+// hostonly 检测识别存储在 LVM/MD RAID 等虚拟设备上，因此必须按探测结果显式
+// 把对应的 dracut 框架模块/内核驱动打进 initramfs，否则启动时无法组装存储栈、
+// 找不到根设备 UUID 而启动失败。
+func (fixer *linuxSystemFixer) detectStorage() error {
+	logger.Debugf("detectStorage: ++")
+	defer logger.Debugf("detectStorage: --")
+
+	fixer.offsys.useLvm = false
+	fixer.offsys.useMdraid = false
+	fixer.offsys.useBtrfs = false
+
+	for _, dev := range fixer.offsys.fsList {
+		if isLvmLogicalVolume(dev.Device) {
+			logger.Debugf("detectStorage: lvm logical volume detected: %s", dev.Device)
+			fixer.offsys.useLvm = true
+		} else if strings.HasPrefix(dev.Device, "/dev/md") {
+			logger.Debugf("detectStorage: mdraid device detected: %s", dev.Device)
+			fixer.offsys.useMdraid = true
+		}
+
+		// btrfs 是文件系统层，可能叠加在 LVM/MD 之上，需独立检测。
+		if dev.FsType == defs.FsTypeBtrfs {
+			logger.Debugf("detectStorage: btrfs filesystem detected: %s", dev.Device)
+			fixer.offsys.useBtrfs = true
+		}
+	}
+
+	return nil
+}
+
+// isLvmLogicalVolume 判断设备是否为 LVM 逻辑卷
+func isLvmLogicalVolume(device string) bool {
+	if !strings.HasPrefix(device, "/dev/") {
+		return false
+	}
+
+	exit, _, _ := command.Execute("lvdisplay " + device)
+	return exit == 0
 }
 
 type initrdTool struct {
@@ -2280,6 +2338,8 @@ func (fixer *linuxSystemFixer) initrdAddModule(k kernel, modules ...string) erro
 		return nil
 	}
 
+	modules = fixer.addBuiltinModules(k, modules...)
+
 	switch fixer.offsys.initrdTl {
 	case defs.InitrdToolMkinitrd:
 		return fixer.initrdAddModuleByMkinitrd(k, modules...)
@@ -2287,7 +2347,11 @@ func (fixer *linuxSystemFixer) initrdAddModule(k kernel, modules ...string) erro
 		if err := fixer.addModulesToDracutConf(modules...); err != nil {
 			return err
 		}
+		if err := fixer.configureDracutStorage(); err != nil {
+			return err
+		}
 		return fixer.generateInitrdByDracut(k)
+		//return fixer.generateInitrdByDracutCmdline(k, modules...)
 	case defs.InitrdToolUpdateInitramfs:
 		if err := fixer.addModulesToInitramfsConf(modules...); err != nil {
 			return err
@@ -2296,6 +2360,17 @@ func (fixer *linuxSystemFixer) initrdAddModule(k kernel, modules ...string) erro
 	}
 
 	return nil
+}
+
+func (fixer *linuxSystemFixer) addBuiltinModules(k kernel, modules ...string) (newModules []string) {
+	_ = k
+
+	for _, module := range modules {
+		newModules = append(newModules, module)
+	}
+
+	//newModules = append(newModules, "lvm")
+	return newModules
 }
 
 func (fixer *linuxSystemFixer) addModulesToSysconfig(modules ...string) error {
@@ -2591,6 +2666,12 @@ func (fixer *linuxSystemFixer) addModulesToDracutConf(modules ...string) error {
 	logger.Debugf("addModulesToDracutConf: ++")
 	defer logger.Debugf("addModulesToDracutConf: --")
 
+	return fixer.mergeDracutConfKey("add_drivers", modules...)
+}
+
+// mergeDracutConfKey 把一组模块/驱动按 key 合并进 dracut 配置文件，去重后写回。
+// key 形如 "add_drivers" 或 "add_dracutmodules"，最终写为 `key+=" ... "` 行。
+func (fixer *linuxSystemFixer) mergeDracutConfKey(key string, modules ...string) error {
 	if len(modules) == 0 {
 		return nil
 	}
@@ -2613,6 +2694,13 @@ func (fixer *linuxSystemFixer) addModulesToDracutConf(modules ...string) error {
 		)
 	}
 
+	parseRe := regexp.MustCompile(
+		fmt.Sprintf(`(?m)%s\+\s*=\s*"([^"]*)"`, regexp.QuoteMeta(key)),
+	)
+	replaceRe := regexp.MustCompile(
+		fmt.Sprintf(`(?m)^.*%s\+\s*=.*$`, regexp.QuoteMeta(key)),
+	)
+
 	// 已存在模块
 	existSet := map[string]struct{}{}
 
@@ -2622,14 +2710,7 @@ func (fixer *linuxSystemFixer) addModulesToDracutConf(modules ...string) error {
 	if bs, err := os.ReadFile(confFile); err == nil {
 		content := string(bs)
 
-		// 解析已有 add_drivers
-		re := regexp.MustCompile(
-			`(?m)add_drivers\+\s*=\s*"([^"]*)"`,
-		)
-
-		matches := re.FindAllStringSubmatch(content, -1)
-
-		for _, m := range matches {
+		for _, m := range parseRe.FindAllStringSubmatch(content, -1) {
 			if len(m) < 2 {
 				continue
 			}
@@ -2649,7 +2730,6 @@ func (fixer *linuxSystemFixer) addModulesToDracutConf(modules ...string) error {
 
 	added := false
 
-	// 追加模块
 	for _, mod := range modules {
 		mod = strings.TrimSpace(mod)
 		if mod == "" {
@@ -2664,8 +2744,9 @@ func (fixer *linuxSystemFixer) addModulesToDracutConf(modules ...string) error {
 		added = true
 
 		logger.Debugf(
-			"addModulesToDracutConf: add module `%s`",
+			"mergeDracutConfKey: add `%s` to %s",
 			mod,
+			key,
 		)
 	}
 
@@ -2680,18 +2761,15 @@ func (fixer *linuxSystemFixer) addModulesToDracutConf(modules ...string) error {
 		sort.Strings(finalMods)
 
 		newLine := fmt.Sprintf(
-			`add_drivers+=" %s "`,
+			`%s+=" %s "`,
+			key,
 			strings.Join(finalMods, " "),
 		)
 
 		replaced := false
 
-		re := regexp.MustCompile(
-			`(?m)^.*add_drivers\+\s*=.*$`,
-		)
-
 		for i, line := range lines {
-			if re.MatchString(line) {
+			if replaceRe.MatchString(line) {
 				lines[i] = newLine
 				replaced = true
 			}
@@ -2706,12 +2784,7 @@ func (fixer *linuxSystemFixer) addModulesToDracutConf(modules ...string) error {
 			content += "\n"
 		}
 
-		err := os.WriteFile(
-			confFile,
-			[]byte(content),
-			0644,
-		)
-		if err != nil {
+		if err := os.WriteFile(confFile, []byte(content), 0644); err != nil {
 			return errors.Wrapf(
 				err,
 				"write `%s` failed",
@@ -2721,6 +2794,60 @@ func (fixer *linuxSystemFixer) addModulesToDracutConf(modules ...string) error {
 	}
 
 	return nil
+}
+
+// configureDracutStorage 根据离线系统使用的存储栈，向 dracut 配置追加必需的
+// 框架模块（add_dracutmodules）与内核驱动（add_drivers）。
+//
+// 为什么按需探测而不是默认全加：crypt/mdraid 等框架模块在目标系统缺少对应
+// 用户态工具（cryptsetup/mdadm）时，dracut 会因安装工具失败而整体失败，进而
+// 让 virtio 注入回退到 SATA。因此只对确实使用了某存储栈的系统注入。
+func (fixer *linuxSystemFixer) configureDracutStorage() error {
+	logger.Debugf("configureDracutStorage: ++")
+	defer logger.Debugf("configureDracutStorage: --")
+
+	// 框架模块：负责开机时组装/激活存储栈（LVM 卷组、LUKS、MD RAID）。
+	frameworkMods := make([]string, 0)
+
+	if fixer.offsys.useLvm {
+		frameworkMods = append(frameworkMods, "lvm")
+	}
+	if len(fixer.offsys.luksDeviceList) > 0 {
+		frameworkMods = append(frameworkMods, "crypt")
+	}
+	if fixer.offsys.useMdraid {
+		frameworkMods = append(frameworkMods, "mdraid")
+	}
+
+	if len(frameworkMods) > 0 {
+		if err := fixer.addDracutModulesToDracutConf(frameworkMods...); err != nil {
+			return err
+		}
+	}
+
+	// 内核驱动：btrfs 是文件系统驱动而非激活层框架模块，走 add_drivers。
+	driverMods := make([]string, 0)
+
+	if fixer.offsys.useBtrfs {
+		driverMods = append(driverMods, "btrfs")
+	}
+
+	if len(driverMods) > 0 {
+		if err := fixer.addModulesToDracutConf(driverMods...); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// addDracutModulesToDracutConf 向 dracut 配置中强制追加框架模块
+// （add_dracutmodules+=），与 add_drivers+=（内核驱动）不同。
+func (fixer *linuxSystemFixer) addDracutModulesToDracutConf(modules ...string) error {
+	logger.Debugf("addDracutModulesToDracutConf: ++")
+	defer logger.Debugf("addDracutModulesToDracutConf: --")
+
+	return fixer.mergeDracutConfKey("add_dracutmodules", modules...)
 }
 
 func (fixer *linuxSystemFixer) generateInitrdByDracut(
@@ -2747,6 +2874,51 @@ func (fixer *linuxSystemFixer) generateInitrdByDracut(
 			err,
 			"execute dracut failed",
 		)
+	}
+
+	return nil
+}
+
+func (fixer *linuxSystemFixer) generateInitrdByDracutCmdline(
+	k kernel,
+	modules ...string,
+) error {
+	logger.Debugf("generateInitrdByDracutCmdline: ++")
+	defer logger.Debugf("generateInitrdByDracutCmdline: --")
+
+	args := []string{
+		"dracut",
+		"-v",
+		"-f",
+		fmt.Sprintf("/boot/%s", k.Initrd),
+		k.Name,
+	}
+
+	if len(modules) > 0 {
+		args = append(
+			[]string{
+				"dracut",
+				"-v",
+				"--add-drivers",
+				"\"" + strings.Join(modules, " ") + "\"",
+				"-f",
+				fmt.Sprintf("/boot/%s", k.Initrd),
+				k.Name,
+			},
+			// ...
+		)
+	}
+
+	cmdline := strings.Join(args, " ")
+
+	logger.Debugf(
+		"generateInitrdByDracutCmdline: cmd=`%s`",
+		cmdline,
+	)
+
+	_, _, err := fixer.executeWithChroot(cmdline)
+	if err != nil {
+		return errors.Wrap(err, "execute dracut failed")
 	}
 
 	return nil
