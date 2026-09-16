@@ -182,6 +182,10 @@ func (vm *Vm) prepareSimulator() error {
 		)
 	}
 
+	if _, err = exec.LookPath(sim); err != nil {
+		return err
+	}
+
 	vm.arch = arch
 	vm.simulator = sim
 	vm.cmdCaller = sim
@@ -338,7 +342,7 @@ func (vm *Vm) addStorage() {
 		}
 
 		vm.cmdArgs = append(vm.cmdArgs,
-			"-blockdev", fmt.Sprintf("node-name=boot-disk,driver=%s,file.driver=file,file.filename=%s,cache=unsafe,aio=threads",
+			"-blockdev", fmt.Sprintf("node-name=boot-disk,driver=%s,file.driver=file,file.filename=%s,file.aio=threads,cache.direct=off,cache.no-flush=on",
 				format, vm.vmBootDisk),
 			"-device", "virtio-blk-pci,drive=boot-disk,bootindex=1",
 		)
