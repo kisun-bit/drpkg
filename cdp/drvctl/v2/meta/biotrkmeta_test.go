@@ -2413,7 +2413,10 @@ func md5HashFromExtents(extents []DiskExtent) (string, error) {
 	buf := make([]byte, 64<<10)
 
 	for _, e := range extents {
-		diskPath := e.DiskID.String()
+		diskPath, err := e.DiskID.DevicePath()
+		if err != nil {
+			return "", fmt.Errorf("resolve disk path for %s: %w", e.DiskID.String(), err)
+		}
 		f, err := os.OpenFile(diskPath, os.O_RDONLY, 0)
 		if err != nil {
 			return "", fmt.Errorf("open disk %s: %w", diskPath, err)

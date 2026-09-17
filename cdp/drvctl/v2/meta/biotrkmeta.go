@@ -546,8 +546,8 @@ func (bm *BioTrkMetadata) Size() int64 {
 // 对于普通文件，通过文件系统查询文件所占的物理磁盘区间，截取 [offset, offset+size) 范围。
 // 对于设备路径（如 \\.\PHYSICALDRIVE0），直接返回设备上 offset 处的单一区间。
 //
-// DiskID 的 ID 字段存放原始路径（设备路径或卷路径），
-// 不是 PNPDeviceID——调用方如需打开，直接取 ID.String() 即可。
+// DiskID 的 ID 字段存放磁盘的 PNPDeviceID（与 DiskID 的契约一致）——
+// 调用方如需打开设备，取 DiskID.DevicePath() 即可。
 func (bm *BioTrkMetadata) PhysicalExtents() ([]DiskExtent, error) {
 	size := bm.Size()
 
@@ -556,7 +556,11 @@ func (bm *BioTrkMetadata) PhysicalExtents() ([]DiskExtent, error) {
 		var d DiskExtent
 		d.Start = uint64(bm.offset)
 		d.Size = uint64(size)
-		copy(d.DiskID.ID[:], bm.filePath)
+		diskId, err := getPhysicalDiskID(bm.filePath)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to resolve disk id")
+		}
+		copy(d.DiskID.ID[:], diskId)
 		return []DiskExtent{d}, nil
 	}
 
@@ -597,8 +601,12 @@ func (bm *BioTrkMetadata) PhysicalExtents() ([]DiskExtent, error) {
 
 		// 物理磁盘偏移 = extent 物理起始 + (交集起始 - extent 文件起始)
 		physStart := e.Start + (clipStart - extFileStart)
+		diskId, err := getPhysicalDiskID(e.Disk)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to resolve disk id")
+		}
 		result = append(result, DiskExtent{
-			DiskID: func() DiskID { var id DiskID; copy(id.ID[:], e.Disk); return id }(),
+			DiskID: func() DiskID { var id DiskID; copy(id.ID[:], diskId); return id }(),
 			Start:  uint64(physStart),
 			Size:   uint64(clipEnd - clipStart),
 		})
