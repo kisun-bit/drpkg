@@ -65,7 +65,9 @@ func (fixer *windowsSystemFixer) configKvm() error {
 		}
 
 		logger.Debugf("configKvm: all drivers existed")
-		return nil
+		//return nil
+
+		// NOTE: 即使存在驱动，也给他重新注入，防止已存在的驱动本身是不可用的
 	}
 
 	ds, e := fixer.x2xLib.SelectWindowsBestVirtualDriver(
