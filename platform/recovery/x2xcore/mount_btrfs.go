@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/kisun-bit/drpkg/command"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
+	"github.com/kisun-bit/drpkg/xutil"
 )
 
 // ======================================================================
@@ -120,7 +120,7 @@ func MountBtrfsFull(
 		ctx,
 		device,
 		topLevelDir,
-		"subvolid=5,rescue=usebackuproot",
+		"subvolid=5",
 		readonly,
 	) {
 		return false, fmt.Errorf(
@@ -196,7 +196,7 @@ func MountBtrfsFull(
 		)
 
 		opts := fmt.Sprintf(
-			"subvolid=%d,rescue=usebackuproot",
+			"subvolid=%d",
 			rootSubvol.ID,
 		)
 
@@ -249,7 +249,7 @@ func MountBtrfsFull(
 		ctx,
 		device,
 		mountpoint,
-		"subvolid=5,rescue=usebackuproot",
+		"subvolid=5",
 		readonly,
 	) {
 		return false, fmt.Errorf(
@@ -394,7 +394,7 @@ func mountRemainingSubvolumes(
 		}
 
 		opts := fmt.Sprintf("subvolid=%d", task.subvol.ID)
-		if !tryMountBtrfsSubvolume(ctx, device, fullTarget, opts+",rescue=usebackuproot", readonly) {
+		if !tryMountBtrfsSubvolume(ctx, device, fullTarget, opts, readonly) {
 			logger.Warnf(
 				"mountRemainingSubvolumes() mount failed: id=%d path=%s target=%s",
 				task.subvol.ID, task.subvol.Path, fullTarget,
@@ -644,6 +644,34 @@ func prioritizeRootSubvolumes(subvolumes []btrfsSubvolume) []btrfsSubvolume {
 }
 
 func tryMountBtrfsSubvolume(
+	ctx context.Context,
+	device, mountpoint, option string,
+	readonly bool,
+) bool {
+	// 先按普通方式挂载；rescue 选项组（rescue=usebackuproot 等）需要内核 >= 5.9，
+	// 无条件使用会让旧内核上完好的文件系统也挂载失败，因此普通挂载必须优先尝试。
+	attempts := []string{option}
+
+	// 救援选项只能用于只读挂载（内核对 rescue 强制要求 ro），
+	// 且需要内核 >= 5.9，因此仅在只读探测阶段按序 fallback：
+	//   1) 备份根树；2) 跳过日志回放（目标系统迁移时可能处于 dirty 状态）。
+	if readonly {
+		attempts = append(attempts,
+			option+",rescue=usebackuproot",
+			option+",rescue=nologreplay",
+		)
+	}
+
+	for _, opt := range attempts {
+		if mountBtrfsOnce(ctx, device, mountpoint, opt, readonly) {
+			return true
+		}
+	}
+	return false
+}
+
+// mountBtrfsOnce 执行一次 Btrfs 挂载尝试。
+func mountBtrfsOnce(
 	ctx context.Context,
 	device, mountpoint, option string,
 	readonly bool,

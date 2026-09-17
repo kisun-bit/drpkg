@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xlib"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
@@ -419,11 +419,6 @@ func tryMount(
 	var options []string
 
 	switch {
-	case strings.EqualFold(fsType, "btrfs"):
-		// Btrfs 修复/恢复场景：
-		// 优先使用 backup root。
-		options = append(options, "rescue=usebackuproot")
-
 	case strings.EqualFold(fsType, "xfs"):
 		// 离线恢复/迁移场景下允许 UUID 重复。
 		options = append(options, "nouuid")
