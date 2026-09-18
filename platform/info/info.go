@@ -26,6 +26,8 @@ type PublicInfo struct {
 	Generic
 	Dmi DmiInfo `json:"dmi"`
 
+	// HardwareFingerprint 硬件指纹
+	HardwareFingerprint MachineFingerprint `json:"hardwareFingerprint"`
 	// IsMemoryOS 是否是内存操作系统
 	IsMemoryOS bool `json:"isMemoryOS"`
 	// IsVirtualHost 是否是虚拟机
@@ -156,6 +158,13 @@ func (p *PsInfo) DeviceBootable(device string) bool {
 	return false
 }
 
+func (p *PsInfo) HardwareFingerprintChanged(other *PsInfo) bool {
+	if other == nil {
+		return false
+	}
+	return p.Public.HardwareFingerprint.Equals(&other.Public.HardwareFingerprint)
+}
+
 func (p *PsInfo) fillPublicInfo() (err error) {
 	if p.Public.Generic, err = QueryGeneric(); err != nil {
 		return errors.Wrap(err, "query generic info")
@@ -181,6 +190,12 @@ func (p *PsInfo) fillPublicInfo() (err error) {
 	if p.Public.Disks, err = QueryDisks(); err != nil {
 		return errors.Wrap(err, "query disks")
 	}
+
+	mf, err := MachineFingerprintFromPsInfo(p)
+	if err != nil {
+		return errors.Wrap(err, "query machine fingerprint")
+	}
+	p.Public.HardwareFingerprint = *mf
 	return nil
 }
 

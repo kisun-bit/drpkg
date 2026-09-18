@@ -1,21 +1,20 @@
-package machineid
+package info
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"testing"
 
-	"github.com/kisun-bit/drpkg/platform/info"
 	"github.com/kisun-bit/drpkg/xutil"
 )
 
-func newTestPsInfo(dmi info.DmiInfo, cpuModels []string, disks []info.Disk, bootDevices ...string) *info.PsInfo {
-	pi := &info.PsInfo{}
+func newTestPsInfo(dmi DmiInfo, cpuModels []string, disks []Disk, bootDevices ...string) *PsInfo {
+	pi := &PsInfo{}
 	pi.Public.Dmi = dmi
 	pi.Public.Cpu.Models = cpuModels
 	pi.Public.Disks = disks
 	for _, dev := range bootDevices {
-		pi.Public.Volumes = append(pi.Public.Volumes, info.Volume{
+		pi.Public.Volumes = append(pi.Public.Volumes, Volume{
 			IsBootable: true,
 			Segments:   []xutil.Segment{{Device: dev}},
 		})
@@ -23,7 +22,7 @@ func newTestPsInfo(dmi info.DmiInfo, cpuModels []string, disks []info.Disk, boot
 	return pi
 }
 
-func TestNormalize(t *testing.T) {
+func TestNormalizeFingerprintValue(t *testing.T) {
 	cases := []struct {
 		in   string
 		want string
@@ -40,14 +39,14 @@ func TestNormalize(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if got := normalize(c.in); got != c.want {
-			t.Errorf("normalize(%q) = %q, want %q", c.in, got, c.want)
+		if got := normalizeFingerprintValue(c.in); got != c.want {
+			t.Errorf("normalizeFingerprintValue(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
 
-func TestRawString(t *testing.T) {
-	fp := &Fingerprint{
+func TestMachineFingerprintRawString(t *testing.T) {
+	fp := &MachineFingerprint{
 		ProductUUID:        "UUID-1",
 		BoardSerial:        "BOARD-1",
 		CpuID:              "CPU-1",
@@ -61,18 +60,18 @@ func TestRawString(t *testing.T) {
 	}
 
 	// 空值字段仍保留键名，保证不同源头（哪个字段为空）能区分。
-	empty := &Fingerprint{BoardSerial: "BOARD-1"}
+	empty := &MachineFingerprint{BoardSerial: "BOARD-1"}
 	if got, want := empty.RawString(), "productuuid_&boardserial_BOARD-1&cpuid_"; got != want {
 		t.Fatalf("RawString() = %q, want %q", got, want)
 	}
 
-	if got := (*Fingerprint)(nil).RawString(); got != "" {
+	if got := (*MachineFingerprint)(nil).RawString(); got != "" {
 		t.Fatalf("nil RawString() = %q, want empty", got)
 	}
 }
 
-func TestString(t *testing.T) {
-	fp := &Fingerprint{
+func TestMachineFingerprintString(t *testing.T) {
+	fp := &MachineFingerprint{
 		ProductUUID:        "UUID-1",
 		BoardSerial:        "BOARD-1",
 		CpuID:              "CPU-1",
@@ -88,13 +87,13 @@ func TestString(t *testing.T) {
 	if len(fp.String()) != 64 {
 		t.Fatalf("String() length = %d, want 64", len(fp.String()))
 	}
-	if got := (*Fingerprint)(nil).String(); got != "" {
+	if got := (*MachineFingerprint)(nil).String(); got != "" {
 		t.Fatalf("nil String() = %q, want empty", got)
 	}
 }
 
-func TestEquals(t *testing.T) {
-	fp := &Fingerprint{
+func TestMachineFingerprintEquals(t *testing.T) {
+	fp := &MachineFingerprint{
 		ProductUUID:        "UUID-1",
 		BoardSerial:        "BOARD-1",
 		CpuID:              "CPU-1",
@@ -107,7 +106,7 @@ func TestEquals(t *testing.T) {
 	if fp.Equals(nil) {
 		t.Fatal("must not equal nil")
 	}
-	if fp.Equals(&Fingerprint{ProductUUID: "UUID-2"}) {
+	if fp.Equals(&MachineFingerprint{ProductUUID: "UUID-2"}) {
 		t.Fatal("must not equal a different fingerprint")
 	}
 
@@ -119,35 +118,35 @@ func TestEquals(t *testing.T) {
 	}
 }
 
-func TestDiskHardwareID(t *testing.T) {
+func TestFingerprintDiskHardwareID(t *testing.T) {
 	// 物理序列号优先。
-	if got := diskHardwareID(info.Disk{Device: "/dev/sda", PathId: "pci-1", SerialNumber: "DISK-1"}); got != "DISK-1" {
+	if got := fingerprintDiskHardwareID(Disk{Device: "/dev/sda", PathId: "pci-1", SerialNumber: "DISK-1"}); got != "DISK-1" {
 		t.Fatalf("want serial, got %q", got)
 	}
 
 	// 无序列号时回退到稳定路径名。
-	if got := diskHardwareID(info.Disk{Device: "/dev/sda", PathId: "pci-0000:03:00.0-scsi-0:0:0:0"}); got != "PCI-0000:03:00.0-SCSI-0:0:0:0" {
+	if got := fingerprintDiskHardwareID(Disk{Device: "/dev/sda", PathId: "pci-0000:03:00.0-scsi-0:0:0:0"}); got != "PCI-0000:03:00.0-SCSI-0:0:0:0" {
 		t.Fatalf("want path id, got %q", got)
 	}
 
 	// 路径名退化为裸设备名（"sda"）时不具备区分度，忽略。
-	if got := diskHardwareID(info.Disk{Device: "/dev/sda", PathId: "sda"}); got != "" {
+	if got := fingerprintDiskHardwareID(Disk{Device: "/dev/sda", PathId: "sda"}); got != "" {
 		t.Fatalf("want empty for bare device name, got %q", got)
 	}
 
 	// 分区表标识属于“内容”，不得参与硬件身份。
-	d := info.Disk{Device: "/dev/sda"}
+	d := Disk{Device: "/dev/sda"}
 	d.Table.Identifier = "some-gpt-guid"
-	if got := diskHardwareID(d); got != "" {
+	if got := fingerprintDiskHardwareID(d); got != "" {
 		t.Fatalf("partition table identifier must be ignored, got %q", got)
 	}
 }
 
-func TestBootDiskIDs(t *testing.T) {
+func TestFingerprintBootDiskIDs(t *testing.T) {
 	pi := newTestPsInfo(
-		info.DmiInfo{},
+		DmiInfo{},
 		nil,
-		[]info.Disk{
+		[]Disk{
 			{Device: "/dev/sda", SerialNumber: "DISK-A"},
 			{Device: "/dev/sdb", SerialNumber: "DISK-B"},
 			{Device: "/dev/sdc", SerialNumber: "DISK-C"}, // 非启动盘
@@ -155,7 +154,7 @@ func TestBootDiskIDs(t *testing.T) {
 		"/dev/sdb", "/dev/sda", "/dev/sda", // sda 重复出现，应去重
 	)
 
-	got := bootDiskIDs(pi)
+	got := fingerprintBootDiskIDs(pi)
 	want := []string{"DISK-A", "DISK-B"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
@@ -167,19 +166,19 @@ func TestBootDiskIDs(t *testing.T) {
 	}
 }
 
-func TestGetByPsInfo_stable(t *testing.T) {
+func TestMachineFingerprintFromPsInfo_stable(t *testing.T) {
 	pi := newTestPsInfo(
-		info.DmiInfo{SystemUUID: "uuid-1", BaseBoardSerialNumber: "SERIAL-1"},
+		DmiInfo{SystemUUID: "uuid-1", BaseBoardSerialNumber: "SERIAL-1"},
 		[]string{"Some CPU"},
-		[]info.Disk{{Device: "/dev/sda", SerialNumber: "DISK-1"}},
+		[]Disk{{Device: "/dev/sda", SerialNumber: "DISK-1"}},
 		"/dev/sda",
 	)
 
-	a, err := GetByPsInfo(pi)
+	a, err := MachineFingerprintFromPsInfo(pi)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := GetByPsInfo(pi)
+	b, err := MachineFingerprintFromPsInfo(pi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,22 +187,22 @@ func TestGetByPsInfo_stable(t *testing.T) {
 	}
 }
 
-func TestGetByPsInfo_distinctAfterClone(t *testing.T) {
+func TestMachineFingerprintFromPsInfo_distinctAfterClone(t *testing.T) {
 	// 只重新生成 SMBIOS UUID，其余硬件一致（虚拟机克隆的最小变化）。
-	build := func(uuid string) *info.PsInfo {
+	build := func(uuid string) *PsInfo {
 		return newTestPsInfo(
-			info.DmiInfo{SystemUUID: uuid, BaseBoardSerialNumber: "SERIAL-1"},
+			DmiInfo{SystemUUID: uuid, BaseBoardSerialNumber: "SERIAL-1"},
 			[]string{"Some CPU"},
-			[]info.Disk{{Device: "/dev/sda", SerialNumber: "DISK-1"}},
+			[]Disk{{Device: "/dev/sda", SerialNumber: "DISK-1"}},
 			"/dev/sda",
 		)
 	}
 
-	src, err := GetByPsInfo(build("uuid-src"))
+	src, err := MachineFingerprintFromPsInfo(build("uuid-src"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	clone, err := GetByPsInfo(build("uuid-clone"))
+	clone, err := MachineFingerprintFromPsInfo(build("uuid-clone"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,26 +211,26 @@ func TestGetByPsInfo_distinctAfterClone(t *testing.T) {
 	}
 }
 
-func TestGetByPsInfo_distinctAfterBareMetalRestore(t *testing.T) {
+func TestMachineFingerprintFromPsInfo_distinctAfterBareMetalRestore(t *testing.T) {
 	// 异机恢复：目标机的主板序列号、系统序列号、启动盘均不同（硬件身份变化）。
 	src := newTestPsInfo(
-		info.DmiInfo{SystemUUID: "uuid-1", BaseBoardSerialNumber: "SRC-BOARD", SystemSerial: "SRC-SYS"},
+		DmiInfo{SystemUUID: "uuid-1", BaseBoardSerialNumber: "SRC-BOARD", SystemSerial: "SRC-SYS"},
 		[]string{"Some CPU"},
-		[]info.Disk{{Device: "/dev/sda", SerialNumber: "SRC-DISK"}},
+		[]Disk{{Device: "/dev/sda", SerialNumber: "SRC-DISK"}},
 		"/dev/sda",
 	)
 	dst := newTestPsInfo(
-		info.DmiInfo{SystemUUID: "uuid-2", BaseBoardSerialNumber: "DST-BOARD", SystemSerial: "DST-SYS"},
+		DmiInfo{SystemUUID: "uuid-2", BaseBoardSerialNumber: "DST-BOARD", SystemSerial: "DST-SYS"},
 		[]string{"Some CPU"},
-		[]info.Disk{{Device: "/dev/sda", SerialNumber: "DST-DISK"}},
+		[]Disk{{Device: "/dev/sda", SerialNumber: "DST-DISK"}},
 		"/dev/sda",
 	)
 
-	s, err := GetByPsInfo(src)
+	s, err := MachineFingerprintFromPsInfo(src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := GetByPsInfo(dst)
+	d, err := MachineFingerprintFromPsInfo(dst)
 	if err != nil {
 		t.Fatal(err)
 	}
