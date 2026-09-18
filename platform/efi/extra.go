@@ -1,41 +1,25 @@
 package efi
 
 import (
-	"bytes"
 	"fmt"
 	"log"
 	"regexp"
 	"unicode/utf16"
-	"unicode/utf8"
-
-	"github.com/pkg/errors"
 )
 
-// DecodeUTF16 decodes the input as a utf16 string.
-// Code from https://github.com/u-root/u-root/blob/master/pkg/uefivars/vars.go
-// https://gist.github.com/bradleypeabody/185b1d7ed6c0c2ab6cec
-func DecodeUTF16(b []byte) (string, error) {
-	if len(b)%2 != 0 {
-		return "", errors.New("must have even length byte slice")
+// DecodeUTF16 将输入按 little-endian UTF-16 解码为字符串。
+//
+// UEFI 变量数据不保证偶数长度：Linux 上 efivarfs 返回的是「4 字节属性 + 载荷」，
+// 而 BootXXXX 这类启动项本身又是「属性 + 路径长度 + 描述串(UTF-16) + 设备路径 + 可选数据」
+// 的变长布局，可选数据长度任意，部分固件还会以单个 0x00 或不带 NULL 结尾，
+// 因而末尾可能残留不成对的单个字节。这里按 2 字节一组成对解码，忽略末尾不成对的
+// 半个码元，避免因奇数字节长度报错。
+func DecodeUTF16(b []byte) string {
+	u16s := make([]uint16, 0, (len(b)+1)/2)
+	for i := 0; i+1 < len(b); i += 2 {
+		u16s = append(u16s, uint16(b[i])|uint16(b[i+1])<<8)
 	}
-
-	u16s := make([]uint16, 1)
-	ret := &bytes.Buffer{}
-	b8buf := make([]byte, 4)
-
-	lb := len(b)
-	for i := 0; i < lb; i += 2 {
-		v, e := BytesToU16(b[i : i+2])
-		if e != nil {
-			return "", e
-		}
-		u16s[0] = v
-		r := utf16.Decode(u16s)
-		n := utf8.EncodeRune(b8buf, r[0])
-		ret.Write(b8buf[:n])
-	}
-
-	return ret.String(), nil
+	return string(utf16.Decode(u16s))
 }
 
 // BytesToU16 converts a []byte of length 2 to a uint16.
