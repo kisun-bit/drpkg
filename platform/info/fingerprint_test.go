@@ -47,10 +47,12 @@ func TestNormalizeFingerprintValue(t *testing.T) {
 
 func TestMachineFingerprintRawString(t *testing.T) {
 	fp := &MachineFingerprint{
-		ProductUUID:        "UUID-1",
-		BoardSerial:        "BOARD-1",
-		CpuID:              "CPU-1",
-		BootableDiskIDList: []string{"DISK-B", "DISK-A"},
+		Detail: MachineFingerprintDetail{
+			ProductUUID:        "UUID-1",
+			BoardSerial:        "BOARD-1",
+			CpuID:              "CPU-1",
+			BootableDiskIDList: []string{"DISK-B", "DISK-A"},
+		},
 	}
 
 	// 字段顺序固定，启动盘按字典序编号输出，与入参顺序无关。
@@ -60,9 +62,20 @@ func TestMachineFingerprintRawString(t *testing.T) {
 	}
 
 	// 空值字段仍保留键名，保证不同源头（哪个字段为空）能区分。
-	empty := &MachineFingerprint{BoardSerial: "BOARD-1"}
+	empty := &MachineFingerprint{Detail: MachineFingerprintDetail{BoardSerial: "BOARD-1"}}
 	if got, want := empty.RawString(), "productuuid_&boardserial_BOARD-1&cpuid_"; got != want {
 		t.Fatalf("RawString() = %q, want %q", got, want)
+	}
+
+	// 启动盘顺序不影响原始串（内部排序）。
+	reordered := &MachineFingerprint{Detail: MachineFingerprintDetail{
+		ProductUUID:        "UUID-1",
+		BoardSerial:        "BOARD-1",
+		CpuID:              "CPU-1",
+		BootableDiskIDList: []string{"DISK-A", "DISK-B"},
+	}}
+	if got := reordered.RawString(); got != want {
+		t.Fatalf("reordered RawString() = %q, want %q", got, want)
 	}
 
 	if got := (*MachineFingerprint)(nil).RawString(); got != "" {
@@ -71,21 +84,27 @@ func TestMachineFingerprintRawString(t *testing.T) {
 }
 
 func TestMachineFingerprintString(t *testing.T) {
-	fp := &MachineFingerprint{
-		ProductUUID:        "UUID-1",
-		BoardSerial:        "BOARD-1",
-		CpuID:              "CPU-1",
-		BootableDiskIDList: []string{"DISK-A"},
+	pi := newTestPsInfo(
+		DmiInfo{SystemUUID: "uuid-1", BaseBoardSerialNumber: "SERIAL-1"},
+		[]string{"Some CPU"},
+		[]Disk{{Device: "/dev/sda", SerialNumber: "DISK-1"}},
+		"/dev/sda",
+	)
+
+	fp, err := MachineFingerprintFromPsInfo(pi)
+	if err != nil {
+		t.Fatal(err)
 	}
 
+	// ID 即明细原始串的 sha256，String() 返回它。
 	sum := sha256.Sum256([]byte(fp.RawString()))
 	want := hex.EncodeToString(sum[:])
 
+	if got := fp.ID; got != want {
+		t.Fatalf("ID = %q, want %q", got, want)
+	}
 	if got := fp.String(); got != want {
 		t.Fatalf("String() = %q, want %q", got, want)
-	}
-	if len(fp.String()) != 64 {
-		t.Fatalf("String() length = %d, want 64", len(fp.String()))
 	}
 	if got := (*MachineFingerprint)(nil).String(); got != "" {
 		t.Fatalf("nil String() = %q, want empty", got)
@@ -93,12 +112,7 @@ func TestMachineFingerprintString(t *testing.T) {
 }
 
 func TestMachineFingerprintEquals(t *testing.T) {
-	fp := &MachineFingerprint{
-		ProductUUID:        "UUID-1",
-		BoardSerial:        "BOARD-1",
-		CpuID:              "CPU-1",
-		BootableDiskIDList: []string{"DISK-A", "DISK-B"},
-	}
+	fp := &MachineFingerprint{ID: "id-1"}
 
 	if !fp.Equals(fp) {
 		t.Fatal("must equal itself")
@@ -106,15 +120,8 @@ func TestMachineFingerprintEquals(t *testing.T) {
 	if fp.Equals(nil) {
 		t.Fatal("must not equal nil")
 	}
-	if fp.Equals(&MachineFingerprint{ProductUUID: "UUID-2"}) {
+	if fp.Equals(&MachineFingerprint{ID: "id-2"}) {
 		t.Fatal("must not equal a different fingerprint")
-	}
-
-	// 启动盘列表顺序不影响等价性（RawString 会先排序）。
-	same := *fp
-	same.BootableDiskIDList = []string{"DISK-B", "DISK-A"}
-	if !fp.Equals(&same) {
-		t.Fatal("boot disk order must not affect equality")
 	}
 }
 

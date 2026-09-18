@@ -21,30 +21,32 @@ import (
 // 刻意排除 GPT/MBR 分区标识等“内容”信号——它们会随磁盘镜像一起被克隆/恢复，
 // 属于同一个镜像，无法区分源机与目标机。
 type MachineFingerprint struct {
+	ID     string                   `json:"id"` // sha256
+	Detail MachineFingerprintDetail `json:"detail"`
+}
+
+// MachineFingerprintDetail 机器硬件身份明细。
+type MachineFingerprintDetail struct {
 	ProductUUID        string   `json:"product_uuid"`
 	BoardSerial        string   `json:"board_serial"`
 	CpuID              string   `json:"cpu_id"`
 	BootableDiskIDList []string `json:"boot_disk_id_list"` // 启动磁盘的硬件身份标识
 }
 
-// RawString 返回指纹的规范化原始串。
+// rawString 返回明细的规范化原始串。
 //
 // 固定字段顺序、键值之间以 & 分隔；即使值为空也保留键名，保证每种硬件身份
 // 组合对应唯一的串。启动磁盘按字典序输出并编号，与入参顺序无关。
 // 形如：productuuid_%s&boardserial_%s&cpuid_%s&bootdisk001_%s&bootdisk002_%s
-func (fp *MachineFingerprint) RawString() string {
-	if fp == nil {
-		return ""
-	}
-
-	disks := append([]string(nil), fp.BootableDiskIDList...)
+func (d MachineFingerprintDetail) rawString() string {
+	disks := append([]string(nil), d.BootableDiskIDList...)
 	sort.Strings(disks)
 
 	parts := make([]string, 0, 3+len(disks))
 	parts = append(parts,
-		"productuuid_"+fp.ProductUUID,
-		"boardserial_"+fp.BoardSerial,
-		"cpuid_"+fp.CpuID,
+		"productuuid_"+d.ProductUUID,
+		"boardserial_"+d.BoardSerial,
+		"cpuid_"+d.CpuID,
 	)
 
 	for i, disk := range disks {
@@ -54,14 +56,28 @@ func (fp *MachineFingerprint) RawString() string {
 	return strings.Join(parts, "&")
 }
 
-// String 返回指纹的 sha256 摘要（十六进制），即机器的稳定 ID。
+// id 返回明细的机器 ID，即原始串（rawString）的 sha256 摘要。
+func (d MachineFingerprintDetail) id() string {
+	sum := sha256.Sum256([]byte(d.rawString()))
+	return hex.EncodeToString(sum[:])
+}
+
+// RawString 返回指纹明细的规范化原始串。
+func (fp *MachineFingerprint) RawString() string {
+	if fp == nil {
+		return ""
+	}
+
+	return fp.Detail.rawString()
+}
+
+// String 返回机器稳定 ID（sha256 摘要）。
 func (fp *MachineFingerprint) String() string {
 	if fp == nil {
 		return ""
 	}
 
-	sum := sha256.Sum256([]byte(fp.RawString()))
-	return hex.EncodeToString(sum[:])
+	return fp.ID
 }
 
 // Equals 判断两份指纹是否属于同一台机器。
@@ -70,7 +86,7 @@ func (fp *MachineFingerprint) Equals(other *MachineFingerprint) bool {
 		return fp == other
 	}
 
-	return fp.String() == other.String()
+	return fp.ID == other.ID
 }
 
 // QueryMachineFingerprint 查询本机信息并计算机器指纹。
@@ -94,11 +110,16 @@ func MachineFingerprintFromPsInfo(psInfo *PsInfo) (*MachineFingerprint, error) {
 		}
 	}
 
-	return &MachineFingerprint{
+	detail := MachineFingerprintDetail{
 		ProductUUID:        normalizeFingerprintValue(psInfo.Public.Dmi.SystemUUID),
 		BoardSerial:        fingerprintBoardSerial(psInfo),
 		CpuID:              fingerprintCpuID(psInfo),
 		BootableDiskIDList: fingerprintBootDiskIDs(psInfo),
+	}
+
+	return &MachineFingerprint{
+		ID:     detail.id(),
+		Detail: detail,
 	}, nil
 }
 

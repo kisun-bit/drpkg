@@ -26,7 +26,7 @@ type PublicInfo struct {
 	Generic
 	Dmi DmiInfo `json:"dmi"`
 
-	// HardwareFingerprint 硬件指纹
+	// HardwareFingerprint 硬件指纹（详情）
 	HardwareFingerprint MachineFingerprint `json:"hardwareFingerprint"`
 	// IsMemoryOS 是否是内存操作系统
 	IsMemoryOS bool `json:"isMemoryOS"`
