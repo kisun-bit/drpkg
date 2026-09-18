@@ -356,7 +356,17 @@ func GetDiskSerialNumber(disk string) (string, error) {
 	if linkTarget, err := filepath.EvalSymlinks(disk); err == nil {
 		base = filepath.Base(linkTarget)
 	}
-	path := filepath.Join("/sys/class/block", base, "device/wwid")
+	devDir := filepath.Join("/sys/class/block", base, "device")
+
+	// NVMe 等设备直接以 device/serial 暴露序列号（无头部前缀），优先读取。
+	if ret, err := os.ReadFile(filepath.Join(devDir, "serial")); err == nil {
+		if s := strings.TrimSpace(string(ret)); s != "" {
+			return s, nil
+		}
+	}
+
+	// SCSI/SATA：wwid 通常带 naa./t10. 等 4 字节前缀，去掉后作为序列号。
+	path := filepath.Join(devDir, "wwid")
 	ret, err := os.ReadFile(path)
 	if err == nil && len(ret) > 4 {
 		return strings.TrimSpace(string(ret[4:])), nil
@@ -365,8 +375,8 @@ func GetDiskSerialNumber(disk string) (string, error) {
 		return "", nil
 	}
 	if errors.Is(err, syscall.ENXIO) || os.IsNotExist(err) {
-		// 获取vpd_80序列号
-		vpdret, vpderr := os.ReadFile(filepath.Join("/sys/class/block", filepath.Base(disk), "device/vpd_pg80"))
+		// SCSI：VPD 0x80 页存放单元序列号，前 4 字节为页头。
+		vpdret, vpderr := os.ReadFile(filepath.Join(devDir, "vpd_pg80"))
 		if vpderr == nil && len(vpdret) > 4 {
 			return strings.TrimSpace(string(vpdret[4:])), nil
 		}
