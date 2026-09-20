@@ -1,4 +1,4 @@
-package drerror
+package drerr
 
 import (
 	"errors"
@@ -114,7 +114,7 @@ func (e *Error) Format(s fmt.State, verb rune) {
 	case 'q':
 		fmt.Fprintf(s, "%q", e.Error())
 	default:
-		fmt.Fprintf(s, "%%!%c(drerror.Error=%s)", verb, e.Error())
+		fmt.Fprintf(s, "%%!%c(drerr.Error=%s)", verb, e.Error())
 	}
 }
 
@@ -149,7 +149,7 @@ func FromError(err error) (*Error, bool) {
 }
 
 // AsError 把任意 error 规整为 *Error：nil 返回 nil；本身已是 *Error 则原样
-// 返回；普通 error 被包装为 code=DRErrorInternal 的灾备异常。
+// 返回；普通 error 被包装为 code=Internal 的灾备异常。
 func AsError(err error) *Error {
 	if err == nil {
 		return nil
@@ -157,7 +157,7 @@ func AsError(err error) *Error {
 	if e, ok := FromError(err); ok {
 		return e
 	}
-	return &Error{code: DRErrorInternal, msg: err.Error(), cause: err}
+	return &Error{code: Internal, msg: err.Error(), cause: err}
 }
 
 // CodeOf 返回 err 链中第一个 *Error 的 code；未找到返回 0。

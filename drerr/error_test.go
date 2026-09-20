@@ -1,4 +1,4 @@
-package drerror
+package drerr
 
 import (
 	"errors"
@@ -13,17 +13,17 @@ func TestErrorFormatConsistent(t *testing.T) {
 		got  func() *Error
 		want string
 	}{
-		{"New", func() *Error { return New(DRErrorNotFound, "snapshot gone") },
+		{"New", func() *Error { return New(NotFound, "snapshot gone") },
 			"NotFound[0x210601]: snapshot gone"},
-		{"Newf", func() *Error { return Newf(DRErrorStorage, "read vol %d", 3) },
+		{"Newf", func() *Error { return Newf(Storage, "read vol %d", 3) },
 			"StorageException[0x210301]: read vol 3"},
-		{"New-no-msg", func() *Error { return New(DRErrorCanceled, "") },
+		{"New-no-msg", func() *Error { return New(Canceled, "") },
 			"Canceled[0x210401]"},
-		{"Wrap", func() *Error { return Wrap(errors.New("EIO"), DRErrorStorage, "read vol") },
+		{"Wrap", func() *Error { return Wrap(errors.New("EIO"), Storage, "read vol") },
 			"StorageException[0x210301]: read vol: EIO"},
-		{"Wrapf", func() *Error { return Wrapf(errors.New("EIO"), DRErrorStorage, "read vol %d", 3) },
+		{"Wrapf", func() *Error { return Wrapf(errors.New("EIO"), Storage, "read vol %d", 3) },
 			"StorageException[0x210301]: read vol 3: EIO"},
-		{"Wrapf-no-msg", func() *Error { return Wrapf(errors.New("EIO"), DRErrorStorage, "") },
+		{"Wrapf-no-msg", func() *Error { return Wrapf(errors.New("EIO"), Storage, "") },
 			"StorageException[0x210301]: EIO"},
 	}
 
@@ -44,7 +44,7 @@ func TestErrorFormatConsistent(t *testing.T) {
 }
 
 func TestCodeStringNameHex(t *testing.T) {
-	c := DRErrorSnapshotNotFound
+	c := SnapshotNotFound
 	if got := c.Name(); got != "SnapshotNotFound" {
 		t.Fatalf("Name() = %q, want %q", got, "SnapshotNotFound")
 	}
@@ -77,21 +77,21 @@ func TestCategoryDerivation(t *testing.T) {
 		code Code
 		cat  Category
 	}{
-		{DRErrorInternal, CategoryInternal},
-		{DRErrorNetwork, CategoryNetwork},
-		{DRErrorNetworkTimeout, CategoryNetwork},
-		{DRErrorStorage, CategoryStorage},
-		{DRErrorCanceled, CategoryCanceled},
-		{DRErrorTimeout, CategoryTimeout},
-		{DRErrorNotFound, CategoryNotFound},
-		{DRErrorAlreadyExists, CategoryAlreadyExists},
-		{DRErrorPermissionDenied, CategoryPermission},
-		{DRErrorOutOfSpace, CategoryQuota},
-		{DRErrorBusy, CategoryBusy},
-		{DRErrorCorrupted, CategoryCorrupted},
-		{DRErrorVersionMismatch, CategoryVersion},
-		{DRErrorInvalidState, CategoryState},
-		{DRErrorInvalidArgument, CategoryArgument},
+		{Internal, CategoryInternal},
+		{Network, CategoryNetwork},
+		{NetworkTimeout, CategoryNetwork},
+		{Storage, CategoryStorage},
+		{Canceled, CategoryCanceled},
+		{Timeout, CategoryTimeout},
+		{NotFound, CategoryNotFound},
+		{AlreadyExists, CategoryAlreadyExists},
+		{PermissionDenied, CategoryPermission},
+		{OutOfSpace, CategoryQuota},
+		{Busy, CategoryBusy},
+		{Corrupted, CategoryCorrupted},
+		{VersionMismatch, CategoryVersion},
+		{InvalidState, CategoryState},
+		{InvalidArgument, CategoryArgument},
 	}
 	for _, tc := range cases {
 		if got := tc.code.Category(); got != tc.cat {
@@ -102,37 +102,37 @@ func TestCategoryDerivation(t *testing.T) {
 
 func TestSemanticPredicates(t *testing.T) {
 	// 语义方法由分类派生，逐类验证。
-	if !New(DRErrorNotFound, "").IsNotFound() {
+	if !New(NotFound, "").IsNotFound() {
 		t.Error("NotFound 应命中 IsNotFound")
 	}
-	if New(DRErrorNotFound, "").IsTimeout() {
+	if New(NotFound, "").IsTimeout() {
 		t.Error("NotFound 不应命中 IsTimeout")
 	}
 	// 网络超时属于 Network 分类而非 Timeout 分类。
-	if !New(DRErrorNetworkTimeout, "").IsNetwork() {
+	if !New(NetworkTimeout, "").IsNetwork() {
 		t.Error("NetworkTimeout 应命中 IsNetwork")
 	}
-	if New(DRErrorNetworkTimeout, "").IsTimeout() {
+	if New(NetworkTimeout, "").IsTimeout() {
 		t.Error("NetworkTimeout 不应命中 IsTimeout（分类为 Network）")
 	}
-	if !New(DRErrorTimeout, "").IsTimeout() {
+	if !New(Timeout, "").IsTimeout() {
 		t.Error("Timeout 应命中 IsTimeout")
 	}
-	if !New(DRErrorOutOfSpace, "").IsQuota() {
+	if !New(OutOfSpace, "").IsQuota() {
 		t.Error("OutOfSpace 应命中 IsQuota")
 	}
-	if !New(DRErrorNotConsistent, "").IsInvalidState() {
+	if !New(NotConsistent, "").IsInvalidState() {
 		t.Error("NotConsistent 应命中 IsInvalidState")
 	}
-	if !New(DRErrorChecksumMismatch, "").IsCorrupted() {
+	if !New(ChecksumMismatch, "").IsCorrupted() {
 		t.Error("ChecksumMismatch 应命中 IsCorrupted")
 	}
 }
 
 func TestRetryable(t *testing.T) {
 	retryable := []Code{
-		DRErrorNetwork, DRErrorNetworkTimeout, DRErrorNetworkUnreachable,
-		DRErrorTimeout, DRErrorBusy,
+		Network, NetworkTimeout, NetworkUnreachable,
+		Timeout, Busy,
 	}
 	for _, c := range retryable {
 		if !c.Retryable() {
@@ -144,9 +144,9 @@ func TestRetryable(t *testing.T) {
 	}
 
 	notRetryable := []Code{
-		DRErrorInternal, DRErrorCanceled, DRErrorNotFound, DRErrorAlreadyExists,
-		DRErrorPermissionDenied, DRErrorOutOfSpace, DRErrorCorrupted,
-		DRErrorVersionMismatch, DRErrorInvalidState, DRErrorInvalidArgument,
+		Internal, Canceled, NotFound, AlreadyExists,
+		PermissionDenied, OutOfSpace, Corrupted,
+		VersionMismatch, InvalidState, InvalidArgument,
 	}
 	for _, c := range notRetryable {
 		if c.Retryable() {
@@ -157,7 +157,7 @@ func TestRetryable(t *testing.T) {
 
 func TestUnwrapAndErrorsIs(t *testing.T) {
 	root := errors.New("root cause")
-	e := Wrap(root, DRErrorStorage, "read vol")
+	e := Wrap(root, Storage, "read vol")
 
 	if got := errors.Unwrap(e); got != root {
 		t.Fatalf("Unwrap() = %v, want root cause", got)
@@ -170,15 +170,15 @@ func TestUnwrapAndErrorsIs(t *testing.T) {
 	if !errors.As(e, &target) {
 		t.Fatal("errors.As 应能提取 *Error")
 	}
-	if target.Code() != DRErrorStorage {
-		t.Fatalf("extracted code = %s, want %s", target.Code().Hex(), DRErrorStorage.Hex())
+	if target.Code() != Storage {
+		t.Fatalf("extracted code = %s, want %s", target.Code().Hex(), Storage.Hex())
 	}
 }
 
 func TestErrorsIsMatchesByCode(t *testing.T) {
-	a := New(DRErrorNotFound, "msg a")
-	b := New(DRErrorNotFound, "msg b")
-	c := New(DRErrorAlreadyExists, "msg c")
+	a := New(NotFound, "msg a")
+	b := New(NotFound, "msg b")
+	c := New(AlreadyExists, "msg c")
 
 	if !errors.Is(a, b) {
 		t.Error("相同 code 的两个异常应按 code 判定相等")
@@ -190,15 +190,15 @@ func TestErrorsIsMatchesByCode(t *testing.T) {
 
 func TestCodeOfAndHelpers(t *testing.T) {
 	root := errors.New("plain")
-	w := Wrap(root, DRErrorStorage, "read vol")
+	w := Wrap(root, Storage, "read vol")
 
-	if got := CodeOf(w); got != DRErrorStorage {
-		t.Fatalf("CodeOf(wrapped) = %s, want %s", got.Hex(), DRErrorStorage.Hex())
+	if got := CodeOf(w); got != Storage {
+		t.Fatalf("CodeOf(wrapped) = %s, want %s", got.Hex(), Storage.Hex())
 	}
-	if !IsCode(w, DRErrorStorage) {
+	if !IsCode(w, Storage) {
 		t.Error("IsCode 应命中")
 	}
-	if IsCode(w, DRErrorNotFound) {
+	if IsCode(w, NotFound) {
 		t.Error("IsCode 不应误命中其他 code")
 	}
 	if got := CodeOf(root); got != 0 {
@@ -209,12 +209,12 @@ func TestCodeOfAndHelpers(t *testing.T) {
 	if ok {
 		t.Error("FromError(plain) 不应成功")
 	}
-	if e, ok := FromError(w); !ok || e.Code() != DRErrorStorage {
+	if e, ok := FromError(w); !ok || e.Code() != Storage {
 		t.Errorf("FromError(wrapped) = %v, %v", e, ok)
 	}
 
-	if e := AsError(root); e.Code() != DRErrorInternal {
-		t.Fatalf("AsError(plain).Code() = %s, want %s", e.Code().Hex(), DRErrorInternal.Hex())
+	if e := AsError(root); e.Code() != Internal {
+		t.Fatalf("AsError(plain).Code() = %s, want %s", e.Code().Hex(), Internal.Hex())
 	}
 	if got := AsError(w); got != w {
 		t.Error("AsError(已有*Error) 应原样返回")
@@ -225,18 +225,18 @@ func TestCodeOfAndHelpers(t *testing.T) {
 }
 
 func TestStackTrace(t *testing.T) {
-	e := NewWithStack(DRErrorInternalPanic, "boom")
+	e := NewWithStack(InternalPanic, "boom")
 	if got := e.StackTrace(); got == "" {
 		t.Fatal("NewWithStack 应捕获堆栈")
 	}
-	if got := fmt.Sprintf("%+v", e); !strings.Contains(got, "drerror") {
+	if got := fmt.Sprintf("%+v", e); !strings.Contains(got, "drerr") {
 		t.Fatalf("%%+v 应包含堆栈帧, got %q", got)
 	}
 	if got := fmt.Sprintf("%v", e); strings.Contains(got, "goroutine") {
 		t.Fatalf("%%v 不应包含堆栈, got %q", got)
 	}
 
-	plain := New(DRErrorInternal, "no stack")
+	plain := New(Internal, "no stack")
 	if got := plain.StackTrace(); got != "" {
 		t.Fatal("普通 New 不应捕获堆栈")
 	}

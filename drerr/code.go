@@ -1,4 +1,4 @@
-package drerror
+package drerr
 
 import "fmt"
 
@@ -65,90 +65,90 @@ type Code uint64
 
 const (
 	// 内部异常
-	DRErrorInternal      Code = 0x210101 // 内部/未知异常
-	DRErrorInternalPanic Code = 0x210102 // panic / 未捕获异常
+	Internal      Code = 0x210101 // 内部/未知异常
+	InternalPanic Code = 0x210102 // panic / 未捕获异常
 
 	// 网络通信异常
-	DRErrorNetwork            Code = 0x210201 // 网络通信失败
-	DRErrorNetworkTimeout     Code = 0x210202 // 网络超时
-	DRErrorNetworkUnreachable Code = 0x210203 // 网络不可达
+	Network            Code = 0x210201 // 网络通信失败
+	NetworkTimeout     Code = 0x210202 // 网络超时
+	NetworkUnreachable Code = 0x210203 // 网络不可达
 
 	// 存储介质异常
-	DRErrorStorage Code = 0x210301 // 存储介质读写失败
+	Storage Code = 0x210301 // 存储介质读写失败
 
 	// 取消/中断
-	DRErrorCanceled Code = 0x210401 // 任务被取消
+	Canceled Code = 0x210401 // 任务被取消
 
 	// 超时
-	DRErrorTimeout Code = 0x210501 // 操作超时
+	Timeout Code = 0x210501 // 操作超时
 
 	// 不存在
-	DRErrorNotFound         Code = 0x210601 // 目标不存在
-	DRErrorSnapshotNotFound Code = 0x210602 // 快照不存在
-	DRErrorBackupNotFound   Code = 0x210603 // 备份不存在
-	DRErrorVolumeNotFound   Code = 0x210604 // 卷不存在
+	NotFound         Code = 0x210601 // 目标不存在
+	SnapshotNotFound Code = 0x210602 // 快照不存在
+	BackupNotFound   Code = 0x210603 // 备份不存在
+	VolumeNotFound   Code = 0x210604 // 卷不存在
 
 	// 已存在
-	DRErrorAlreadyExists  Code = 0x210701 // 目标已存在
-	DRErrorBackupExists   Code = 0x210702 // 备份已存在
-	DRErrorSnapshotExists Code = 0x210703 // 快照已存在
+	AlreadyExists  Code = 0x210701 // 目标已存在
+	BackupExists   Code = 0x210702 // 备份已存在
+	SnapshotExists Code = 0x210703 // 快照已存在
 
 	// 权限
-	DRErrorPermissionDenied Code = 0x210801 // 权限不足
+	PermissionDenied Code = 0x210801 // 权限不足
 
 	// 空间/配额/授权
-	DRErrorOutOfSpace     Code = 0x210901 // 存储空间不足
-	DRErrorQuotaExceeded  Code = 0x210902 // 配额超限
-	DRErrorLicenseExpired Code = 0x210903 // 授权/许可过期
+	OutOfSpace     Code = 0x210901 // 存储空间不足
+	QuotaExceeded  Code = 0x210902 // 配额超限
+	LicenseExpired Code = 0x210903 // 授权/许可过期
 
 	// 资源占用
-	DRErrorBusy Code = 0x210A01 // 资源被占用
+	Busy Code = 0x210A01 // 资源被占用
 
 	// 数据损坏/校验
-	DRErrorCorrupted        Code = 0x210B01 // 数据损坏
-	DRErrorChecksumMismatch Code = 0x210B02 // 校验和不匹配
+	Corrupted        Code = 0x210B01 // 数据损坏
+	ChecksumMismatch Code = 0x210B02 // 校验和不匹配
 
 	// 版本不兼容/不支持
-	DRErrorVersionMismatch Code = 0x210C01 // 版本不兼容
-	DRErrorUnsupported     Code = 0x210C02 // 不支持的版本/特性
+	VersionMismatch Code = 0x210C01 // 版本不兼容
+	Unsupported     Code = 0x210C02 // 不支持的版本/特性
 
 	// 状态不合法/不一致
-	DRErrorInvalidState  Code = 0x210D01 // 状态不合法
-	DRErrorNotConsistent Code = 0x210D02 // 数据不一致（不可用于恢复）
+	InvalidState  Code = 0x210D01 // 状态不合法
+	NotConsistent Code = 0x210D02 // 数据不一致（不可用于恢复）
 
 	// 参数不合法
-	DRErrorInvalidArgument Code = 0x210E01 // 参数不合法
+	InvalidArgument Code = 0x210E01 // 参数不合法
 )
 
 // codeNames 是 code 到稳定异常名的映射，用于保证 Error 输出中的名称一致。
 var codeNames = map[Code]string{
-	DRErrorInternal:           "InternalException",
-	DRErrorInternalPanic:      "InternalPanic",
-	DRErrorNetwork:            "NetworkException",
-	DRErrorNetworkTimeout:     "NetworkTimeout",
-	DRErrorNetworkUnreachable: "NetworkUnreachable",
-	DRErrorStorage:            "StorageException",
-	DRErrorCanceled:           "Canceled",
-	DRErrorTimeout:            "Timeout",
-	DRErrorNotFound:           "NotFound",
-	DRErrorSnapshotNotFound:   "SnapshotNotFound",
-	DRErrorBackupNotFound:     "BackupNotFound",
-	DRErrorVolumeNotFound:     "VolumeNotFound",
-	DRErrorAlreadyExists:      "AlreadyExists",
-	DRErrorBackupExists:       "BackupExists",
-	DRErrorSnapshotExists:     "SnapshotExists",
-	DRErrorPermissionDenied:   "PermissionDenied",
-	DRErrorOutOfSpace:         "OutOfSpace",
-	DRErrorQuotaExceeded:      "QuotaExceeded",
-	DRErrorLicenseExpired:     "LicenseExpired",
-	DRErrorBusy:               "Busy",
-	DRErrorCorrupted:          "Corrupted",
-	DRErrorChecksumMismatch:   "ChecksumMismatch",
-	DRErrorVersionMismatch:    "VersionMismatch",
-	DRErrorUnsupported:        "Unsupported",
-	DRErrorInvalidState:       "InvalidState",
-	DRErrorNotConsistent:      "NotConsistent",
-	DRErrorInvalidArgument:    "InvalidArgument",
+	Internal:           "InternalException",
+	InternalPanic:      "InternalPanic",
+	Network:            "NetworkException",
+	NetworkTimeout:     "NetworkTimeout",
+	NetworkUnreachable: "NetworkUnreachable",
+	Storage:            "StorageException",
+	Canceled:           "Canceled",
+	Timeout:            "Timeout",
+	NotFound:           "NotFound",
+	SnapshotNotFound:   "SnapshotNotFound",
+	BackupNotFound:     "BackupNotFound",
+	VolumeNotFound:     "VolumeNotFound",
+	AlreadyExists:      "AlreadyExists",
+	BackupExists:       "BackupExists",
+	SnapshotExists:     "SnapshotExists",
+	PermissionDenied:   "PermissionDenied",
+	OutOfSpace:         "OutOfSpace",
+	QuotaExceeded:      "QuotaExceeded",
+	LicenseExpired:     "LicenseExpired",
+	Busy:               "Busy",
+	Corrupted:          "Corrupted",
+	ChecksumMismatch:   "ChecksumMismatch",
+	VersionMismatch:    "VersionMismatch",
+	Unsupported:        "Unsupported",
+	InvalidState:       "InvalidState",
+	NotConsistent:      "NotConsistent",
+	InvalidArgument:    "InvalidArgument",
 }
 
 // category 返回 code 编码中的分类字节对应的 Category。

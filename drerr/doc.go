@@ -1,4 +1,4 @@
-// Package drerror 定义灾备（disaster recovery）场景下的错误码与错误类型。
+// Package drerr 定义灾备（disaster recovery）场景下的错误码与错误类型。
 //
 // 设计的核心是 Code：Code 是灾备异常唯一、机器可读的标识，其上关联着异常分类、
 // 可重试性等语义，并可由它派生出一系列判断方法（IsNotFound、IsTimeout、Retryable
@@ -18,4 +18,4 @@
 //	*Error 实现了 Unwrap，因此 errors.Is / errors.As 可以沿 cause 链遍历；
 //	*Error 实现了 Is，errors.Is(err, 另一个*Error) 按 code 相等判定（而非指针相等）；
 //	CodeOf / IsCode / AsError / FromError 用于在任意 error 链上按 code 提取或判断。
-package drerror
+package drerr
