@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kisun-bit/drpkg/logger"
+	"github.com/kisun-bit/drpkg/xutil/filelock"
 )
 
 // RunMode controls how many engines may run concurrently.
@@ -101,7 +102,7 @@ type Engine struct {
 	workerSem    chan struct{}
 	wg           sync.WaitGroup
 
-	lock     fileLock
+	lock     filelock.Lock
 	procHeld bool
 	released bool
 }
@@ -141,8 +142,11 @@ func New(opts ...Option) (*Engine, error) {
 		if o.lockPath == "" {
 			return nil, ErrLockPathRequired
 		}
-		lk, err := acquireFileLock(o.lockPath)
+		lk, err := filelock.Acquire(o.lockPath)
 		if err != nil {
+			if errors.Is(err, filelock.ErrLocked) {
+				return nil, ErrEngineAlreadyRunning
+			}
 			return nil, err
 		}
 		e.lock = lk

@@ -1,6 +1,6 @@
 //go:build windows
 
-package taskflow
+package filelock
 
 import (
 	"fmt"
@@ -15,10 +15,10 @@ type windowsFileLock struct {
 	h windows.Handle
 }
 
-// acquireFileLock takes an exclusive non-blocking LockFileEx lock on the
-// file at path (creating it if needed). It returns
-// ErrEngineAlreadyRunning when another process holds the lock.
-func acquireFileLock(path string) (fileLock, error) {
+// acquire takes an exclusive non-blocking LockFileEx lock on the file at
+// path (creating it if needed). It returns ErrLocked when another process
+// holds the lock.
+func acquire(path string) (Lock, error) {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
@@ -33,7 +33,7 @@ func acquireFileLock(path string) (fileLock, error) {
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 		nil, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, 0)
 	if err != nil {
-		return nil, fmt.Errorf("backup: open lock file: %v", err)
+		return nil, fmt.Errorf("filelock: open lock file: %v", err)
 	}
 
 	var ol windows.Overlapped
@@ -43,9 +43,9 @@ func acquireFileLock(path string) (fileLock, error) {
 	if err != nil {
 		windows.CloseHandle(h)
 		if err == windows.ERROR_LOCK_VIOLATION {
-			return nil, ErrEngineAlreadyRunning
+			return nil, ErrLocked
 		}
-		return nil, fmt.Errorf("backup: lock file: %v", err)
+		return nil, fmt.Errorf("filelock: lock file: %v", err)
 	}
 
 	// Record the holder's pid for diagnostics.

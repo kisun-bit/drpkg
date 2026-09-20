@@ -1,6 +1,6 @@
 //go:build !windows
 
-package taskflow
+package filelock
 
 import (
 	"errors"
@@ -15,10 +15,10 @@ type unixFileLock struct {
 	f *os.File
 }
 
-// acquireFileLock takes an exclusive non-blocking flock on the file at
-// path (creating it if needed). It returns ErrEngineAlreadyRunning when
-// another process holds the lock.
-func acquireFileLock(path string) (fileLock, error) {
+// acquire takes an exclusive non-blocking flock on the file at path
+// (creating it if needed). It returns ErrLocked when another process
+// holds the lock.
+func acquire(path string) (Lock, error) {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
@@ -26,14 +26,14 @@ func acquireFileLock(path string) (fileLock, error) {
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("backup: open lock file: %v", err)
+		return nil, fmt.Errorf("filelock: open lock file: %v", err)
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return nil, ErrEngineAlreadyRunning
+			return nil, ErrLocked
 		}
-		return nil, fmt.Errorf("backup: lock file: %v", err)
+		return nil, fmt.Errorf("filelock: lock file: %v", err)
 	}
 
 	// Record the holder's pid for diagnostics.
