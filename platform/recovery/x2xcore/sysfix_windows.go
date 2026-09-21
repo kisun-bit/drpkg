@@ -1077,7 +1077,7 @@ func (fixer *windowsSystemFixer) injectDriversByDism(ds *x2xlib.DriverResource) 
 			"/Add-Driver",
 			fmt.Sprintf("/Driver:%s", ds.Dir),
 			"/Recurse",
-			// "/ForceUnsigned",
+			"/ForceUnsigned",
 		},
 		command.WithDebug(),
 	)
