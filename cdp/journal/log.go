@@ -98,7 +98,7 @@ func (h *IOHeader) BinaryStructSize() uint64 {
 }
 
 func (r *CdpRecord) String() string {
-	return fmt.Sprintf("RECORD[%s]SEQ%d\\TS%d\\DEV%s<%s>",
+	return fmt.Sprintf("RECORD[%s]SEQ%d\\TS%d\\DEV%s<%v>",
 		MaskString(r.Header.Mask),
 		r.Header.Sequence,
 		r.Header.Timestamp,

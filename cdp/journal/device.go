@@ -58,10 +58,10 @@ func deviceContainsRange(dev biotrkmeta.ProtectedDevice, diskID biotrkmeta.DiskI
 	}
 
 	for _, ext := range dev.Extents {
-		if !diskIDEqual(ext.Extent.DiskID, diskID) {
+		if !diskIDEqual(ext.DiskID, diskID) {
 			continue
 		}
-		if isRangeInExtent(ext.Extent, off, length) {
+		if isRangeInExtent(ext, off, length) {
 			return true
 		}
 	}
@@ -136,8 +136,8 @@ func protectedExtentsForDisk(devices []biotrkmeta.ProtectedDevice, diskID biotrk
 	var result []biotrkmeta.DiskExtent
 	for _, dev := range devices {
 		for _, ext := range dev.Extents {
-			if diskIDEqual(ext.Extent.DiskID, diskID) {
-				result = append(result, ext.Extent)
+			if diskIDEqual(ext.DiskID, diskID) {
+				result = append(result, ext)
 			}
 		}
 	}

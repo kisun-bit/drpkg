@@ -28,7 +28,7 @@ func makeDiskExtent(diskID string, start, size uint64) biotrkmeta.DiskExtent {
 	return biotrkmeta.DiskExtent{DiskID: dkID, Start: start, Size: size}
 }
 
-func makeProtectedDevice(typ biotrkmeta.DeviceType, name string, extents ...biotrkmeta.ProtectedExtent) biotrkmeta.ProtectedDevice {
+func makeProtectedDevice(typ biotrkmeta.DeviceType, name string, extents ...biotrkmeta.DiskExtent) biotrkmeta.ProtectedDevice {
 	dev := biotrkmeta.ProtectedDevice{
 		Type:    typ,
 		Extents: extents,
@@ -38,14 +38,10 @@ func makeProtectedDevice(typ biotrkmeta.DeviceType, name string, extents ...biot
 	return dev
 }
 
-func makeProtectedExtent(extent biotrkmeta.DiskExtent, bitmapStart, bitmapCount uint64) biotrkmeta.ProtectedExtent {
-	pe := biotrkmeta.ProtectedExtent{
-		Extent:          extent,
-		BitmapUnitStart: bitmapStart,
-		BitmapUnitCount: bitmapCount,
-	}
-	pe.BitmapExtentCount = 0
-	return pe
+func makeProtectedExtent(extent biotrkmeta.DiskExtent, _, _ uint64) biotrkmeta.DiskExtent {
+	// 位图已提升为磁盘级别，受保护区间本身不再携带 Bitmap Unit 范围，
+	// 此处仅透传 extent，忽略历史遗留的 bitmap 参数以保持调用方不变。
+	return extent
 }
 
 func makeIoRecord(diskID string, offset, length uint64, ioType, consistency uint8) *ioctl.IoRecord {
