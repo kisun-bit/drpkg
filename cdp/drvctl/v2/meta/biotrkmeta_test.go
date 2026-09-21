@@ -482,31 +482,32 @@ func TestDiskExtentPackUnpack(t *testing.T) {
 	}
 }
 
-func TestProtectedExtentPackUnpack(t *testing.T) {
-	orig := ProtectedExtent{
+func TestDiskBitmapPackUnpack(t *testing.T) {
+	orig := DiskBitmap{
 		BitmapUnitStart: 100,
 		BitmapUnitCount: 6,
 	}
-	orig.Extent.Start = 4096
-	orig.Extent.Size = 8192
-	copy(orig.Extent.DiskID.ID[:], "extent-disk")
+	copy(orig.DiskID.ID[:], "bitmap-disk")
 	orig.BitmapExtents = []DiskExtent{
 		makeDiskExtent("phys0", 1<<20, 4096),
 		makeDiskExtent("phys0", 2<<20, 8192),
 	}
 	orig.BitmapExtentCount = uint32(len(orig.BitmapExtents))
 
-	buf, err := packProtectedExtent(&orig)
+	buf, err := packDiskBitmap(&orig)
 	if err != nil {
-		t.Fatalf("packProtectedExtent failed: %v", err)
+		t.Fatalf("packDiskBitmap failed: %v", err)
 	}
-	if len(buf) != calcProtectedExtentBinSize(&orig) {
-		t.Errorf("packed size: got %d, want %d", len(buf), calcProtectedExtentBinSize(&orig))
+	if len(buf) != calcDiskBitmapBinSize(&orig) {
+		t.Errorf("packed size: got %d, want %d", len(buf), calcDiskBitmapBinSize(&orig))
+	}
+	if got := binary.LittleEndian.Uint32(buf); int(got) != len(buf) {
+		t.Errorf("TotalSize prefix: got %d, want %d", got, len(buf))
 	}
 
-	var decoded ProtectedExtent
-	if err := unpackProtectedExtent(buf, &decoded); err != nil {
-		t.Fatalf("unpackProtectedExtent failed: %v", err)
+	var decoded DiskBitmap
+	if err := unpackDiskBitmap(buf, &decoded); err != nil {
+		t.Fatalf("unpackDiskBitmap failed: %v", err)
 	}
 
 	if decoded.BitmapUnitStart != orig.BitmapUnitStart {
@@ -515,47 +516,38 @@ func TestProtectedExtentPackUnpack(t *testing.T) {
 	if decoded.BitmapUnitCount != orig.BitmapUnitCount {
 		t.Error("BitmapUnitCount mismatch")
 	}
-	if decoded.Extent.Start != orig.Extent.Start {
-		t.Error("Extent.Start mismatch")
-	}
-	if decoded.Extent.Size != orig.Extent.Size {
-		t.Error("Extent.Size mismatch")
+	if decoded.DiskID.String() != orig.DiskID.String() {
+		t.Error("DiskID mismatch")
 	}
 	if len(decoded.BitmapExtents) != len(orig.BitmapExtents) {
 		t.Fatalf("BitmapExtents count: got %d, want %d", len(decoded.BitmapExtents), len(orig.BitmapExtents))
 	}
-	if decoded.BitmapExtentCount != orig.BitmapExtentCount {
-		t.Errorf("BitmapExtentCount: got %d, want %d", decoded.BitmapExtentCount, orig.BitmapExtentCount)
-	}
 	for i := range orig.BitmapExtents {
-		if decoded.BitmapExtents[i].Start != orig.BitmapExtents[i].Start {
-			t.Errorf("BitmapExtents[%d].Start mismatch", i)
-		}
-		if decoded.BitmapExtents[i].Size != orig.BitmapExtents[i].Size {
-			t.Errorf("BitmapExtents[%d].Size mismatch", i)
-		}
-		if decoded.BitmapExtents[i].DiskID.String() != orig.BitmapExtents[i].DiskID.String() {
-			t.Errorf("BitmapExtents[%d].DiskID mismatch", i)
+		if decoded.BitmapExtents[i].Start != orig.BitmapExtents[i].Start ||
+			decoded.BitmapExtents[i].Size != orig.BitmapExtents[i].Size ||
+			decoded.BitmapExtents[i].DiskID.String() != orig.BitmapExtents[i].DiskID.String() {
+			t.Errorf("BitmapExtents[%d] mismatch", i)
 		}
 	}
 }
 
-// TestProtectedExtentSizeGrowsWithBitmapExtents 验证 ProtectedExtent 的编码大小
+// TestDiskBitmapSizeGrowsWithBitmapExtents 验证 DiskBitmap 的编码大小
 // 严格等于 固定部分 + BitmapExtents 数量 × DiskExtent 大小，没有预留槽位。
-func TestProtectedExtentSizeGrowsWithBitmapExtents(t *testing.T) {
+func TestDiskBitmapSizeGrowsWithBitmapExtents(t *testing.T) {
 	for _, n := range []int{0, 1, 2, 24, 1000} {
-		pe := ProtectedExtent{Extent: makeDiskExtent("disk0", 0, 4096), BitmapUnitCount: 1}
-		pe.BitmapExtents = make([]DiskExtent, n)
-		for i := range pe.BitmapExtents {
-			pe.BitmapExtents[i] = makeDiskExtent("disk0", uint64(i)*4096, 4096)
+		db := DiskBitmap{BitmapUnitStart: 0, BitmapUnitCount: 1}
+		copy(db.DiskID.ID[:], "disk0")
+		db.BitmapExtents = make([]DiskExtent, n)
+		for i := range db.BitmapExtents {
+			db.BitmapExtents[i] = makeDiskExtent("disk0", uint64(i)*4096, 4096)
 		}
 
-		want := ProtectedExtentFixedBinSize + n*DiskExtentBinSize
-		if got := calcProtectedExtentBinSize(&pe); got != want {
-			t.Errorf("n=%d: calcProtectedExtentBinSize = %d, want %d", n, got, want)
+		want := DiskBitmapMinBinSize + n*DiskExtentBinSize
+		if got := calcDiskBitmapBinSize(&db); got != want {
+			t.Errorf("n=%d: calcDiskBitmapBinSize = %d, want %d", n, got, want)
 		}
 
-		buf, err := packProtectedExtent(&pe)
+		buf, err := packDiskBitmap(&db)
 		if err != nil {
 			t.Fatalf("n=%d: pack failed: %v", n, err)
 		}
@@ -563,8 +555,8 @@ func TestProtectedExtentSizeGrowsWithBitmapExtents(t *testing.T) {
 			t.Errorf("n=%d: packed size = %d, want %d", n, len(buf), want)
 		}
 
-		var decoded ProtectedExtent
-		if err := unpackProtectedExtent(buf, &decoded); err != nil {
+		var decoded DiskBitmap
+		if err := unpackDiskBitmap(buf, &decoded); err != nil {
 			t.Fatalf("n=%d: unpack failed: %v", n, err)
 		}
 		if len(decoded.BitmapExtents) != n {
@@ -576,19 +568,11 @@ func TestProtectedExtentSizeGrowsWithBitmapExtents(t *testing.T) {
 func TestProtectedDevicePackUnpack(t *testing.T) {
 	orig := ProtectedDevice{
 		Type:    DeviceTypeVolume,
-		Extents: make([]ProtectedExtent, 2),
+		Extents: make([]DiskExtent, 2),
 	}
 	copy(orig.DeviceID[:], "volume-001")
-	orig.Extents[0] = ProtectedExtent{
-		BitmapUnitStart: 0,
-		BitmapUnitCount: 4,
-	}
-	orig.Extents[0].Extent = makeDiskExtent("diskA", 0, 4096)
-	orig.Extents[1] = ProtectedExtent{
-		BitmapUnitStart: 4,
-		BitmapUnitCount: 2,
-	}
-	orig.Extents[1].Extent = makeDiskExtent("diskB", 1048576, 2048)
+	orig.Extents[0] = makeDiskExtent("diskA", 0, 4096)
+	orig.Extents[1] = makeDiskExtent("diskB", 1048576, 2048)
 	orig.ExtentCount = uint32(len(orig.Extents))
 
 	buf, err := packProtectedDevice(&orig)
@@ -598,7 +582,6 @@ func TestProtectedDevicePackUnpack(t *testing.T) {
 	if len(buf) != calcProtectedDeviceBinSize(&orig) {
 		t.Errorf("packed size: got %d, want %d", len(buf), calcProtectedDeviceBinSize(&orig))
 	}
-	// TotalSize 前缀必须等于记录自身长度，顺序扫描全靠它
 	if got := binary.LittleEndian.Uint32(buf); int(got) != len(buf) {
 		t.Errorf("TotalSize prefix: got %d, want %d", got, len(buf))
 	}
@@ -621,56 +604,29 @@ func TestProtectedDevicePackUnpack(t *testing.T) {
 		t.Errorf("Extents count: got %d, want %d", len(decoded.Extents), len(orig.Extents))
 	}
 	for i := range orig.Extents {
-		if decoded.Extents[i].BitmapUnitStart != orig.Extents[i].BitmapUnitStart {
-			t.Errorf("Extents[%d].BitmapUnitStart mismatch", i)
-		}
-		if decoded.Extents[i].BitmapUnitCount != orig.Extents[i].BitmapUnitCount {
-			t.Errorf("Extents[%d].BitmapUnitCount mismatch", i)
-		}
-		if decoded.Extents[i].Extent.DiskID.String() != orig.Extents[i].Extent.DiskID.String() {
-			t.Errorf("Extents[%d].Extent.DiskID mismatch", i)
+		if decoded.Extents[i].DiskID.String() != orig.Extents[i].DiskID.String() ||
+			decoded.Extents[i].Start != orig.Extents[i].Start ||
+			decoded.Extents[i].Size != orig.Extents[i].Size {
+			t.Errorf("Extents[%d] mismatch", i)
 		}
 	}
 }
 
-// TestProtectedDeviceSizeGrowsWithContent 验证记录大小随内容变化且严格可算，
-// 大量 Extents / BitmapExtents 也不会被任何容量上限拦住。
+// TestProtectedDeviceSizeGrowsWithContent 验证记录大小随内容变化且严格可算。
 func TestProtectedDeviceSizeGrowsWithContent(t *testing.T) {
-	sparse := ProtectedDevice{Type: DeviceTypeDisk, Extents: make([]ProtectedExtent, 1)}
-	copy(sparse.DeviceID[:], "sparse")
-	sparse.Extents[0] = ProtectedExtent{Extent: makeDiskExtent("disk0", 0, 4096), BitmapUnitCount: 1}
-
 	const numExtents = 500
-	const numBitmapExtents = 200
-	dense := ProtectedDevice{Type: DeviceTypeDisk, Extents: make([]ProtectedExtent, numExtents)}
+	dense := ProtectedDevice{Type: DeviceTypeDisk, Extents: make([]DiskExtent, numExtents)}
 	copy(dense.DeviceID[:], "dense")
 	for i := range dense.Extents {
-		dense.Extents[i] = ProtectedExtent{
-			Extent:          makeDiskExtent("disk0", uint64(i)*4096, 4096),
-			BitmapUnitCount: 1,
-			BitmapExtents:   make([]DiskExtent, numBitmapExtents),
-		}
-		for j := range dense.Extents[i].BitmapExtents {
-			dense.Extents[i].BitmapExtents[j] = makeDiskExtent("disk0", uint64(j)*4096, 4096)
-		}
+		dense.Extents[i] = makeDiskExtent("disk0", uint64(i)*4096, 4096)
 	}
 
-	sparseBuf, err := packProtectedDevice(&sparse)
-	if err != nil {
-		t.Fatalf("pack sparse failed: %v", err)
-	}
 	denseBuf, err := packProtectedDevice(&dense)
 	if err != nil {
 		t.Fatalf("pack dense failed: %v", err)
 	}
 
-	if len(sparseBuf) != ProtectedDeviceMinBinSize+ProtectedExtentFixedBinSize {
-		t.Errorf("sparse record size: got %d, want %d",
-			len(sparseBuf), ProtectedDeviceMinBinSize+ProtectedExtentFixedBinSize)
-	}
-
-	wantDense := ProtectedDeviceMinBinSize +
-		numExtents*(ProtectedExtentFixedBinSize+numBitmapExtents*DiskExtentBinSize)
+	wantDense := ProtectedDeviceMinBinSize + numExtents*DiskExtentBinSize
 	if len(denseBuf) != wantDense {
 		t.Errorf("dense record size: got %d, want %d", len(denseBuf), wantDense)
 	}
@@ -682,12 +638,6 @@ func TestProtectedDeviceSizeGrowsWithContent(t *testing.T) {
 	if len(decoded.Extents) != numExtents {
 		t.Fatalf("dense Extents count: got %d, want %d", len(decoded.Extents), numExtents)
 	}
-	for i := range decoded.Extents {
-		if len(decoded.Extents[i].BitmapExtents) != numBitmapExtents {
-			t.Fatalf("dense Extents[%d].BitmapExtents count: got %d, want %d",
-				i, len(decoded.Extents[i].BitmapExtents), numBitmapExtents)
-		}
-	}
 }
 
 // TestParseProtectedRegion 验证多条变长记录能在一个区域里顺序解析出来。
@@ -696,14 +646,11 @@ func TestParseProtectedRegion(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		pd := ProtectedDevice{
 			Type:    DeviceTypeDisk,
-			Extents: make([]ProtectedExtent, i+1),
+			Extents: make([]DiskExtent, i+1),
 		}
 		copy(pd.DeviceID[:], fmt.Sprintf("dev-%d", i))
 		for j := range pd.Extents {
-			pd.Extents[j] = ProtectedExtent{
-				Extent:          makeDiskExtent("disk0", uint64(j)*4096, 4096),
-				BitmapUnitCount: 1,
-			}
+			pd.Extents[j] = makeDiskExtent("disk0", uint64(j)*4096, 4096)
 		}
 		buf, err := packProtectedDevice(&pd)
 		if err != nil {
@@ -751,8 +698,6 @@ func TestParseProtectedRegion(t *testing.T) {
 func TestUnpackRejectsCorruptRecord(t *testing.T) {
 	const (
 		extentCountOff = ProtectedDeviceMinBinSize - 4
-		firstExtentOff = ProtectedDeviceMinBinSize
-		bitmapCountOff = firstExtentOff + ProtectedExtentFixedBinSize - 4
 	)
 
 	tests := []struct {
@@ -784,12 +729,6 @@ func TestUnpackRejectsCorruptRecord(t *testing.T) {
 			},
 		},
 		{
-			name: "BitmapExtentCount 超出记录大小",
-			mutate: func(buf []byte) {
-				binary.LittleEndian.PutUint32(buf[bitmapCountOff:], 0xFFFFFFFF)
-			},
-		},
-		{
 			name: "记录尾部有多余字节",
 			mutate: func(buf []byte) {
 				// TotalSize 声称比实际解码出来的多 4 字节
@@ -800,9 +739,9 @@ func TestUnpackRejectsCorruptRecord(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pd := ProtectedDevice{Type: DeviceTypeDisk, Extents: make([]ProtectedExtent, 1)}
+			pd := ProtectedDevice{Type: DeviceTypeDisk, Extents: make([]DiskExtent, 1)}
 			copy(pd.DeviceID[:], "corrupt")
-			pd.Extents[0] = ProtectedExtent{Extent: makeDiskExtent("disk0", 0, 4096), BitmapUnitCount: 1}
+			pd.Extents[0] = makeDiskExtent("disk0", 0, 4096)
 
 			packed, err := packProtectedDevice(&pd)
 			if err != nil {
@@ -821,19 +760,47 @@ func TestUnpackRejectsCorruptRecord(t *testing.T) {
 	}
 }
 
+// TestPackDiskBitmapRejectsCorruptRecord 验证损坏的磁盘位图记录返回错误而不是 panic。
+func TestPackDiskBitmapRejectsCorruptRecord(t *testing.T) {
+	db := DiskBitmap{BitmapUnitStart: 0, BitmapUnitCount: 1}
+	copy(db.DiskID.ID[:], "corrupt-disk")
+	db.BitmapExtents = []DiskExtent{makeDiskExtent("phys0", 0, 4096)}
+
+	packed, err := packDiskBitmap(&db)
+	if err != nil {
+		t.Fatalf("packDiskBitmap failed: %v", err)
+	}
+
+	t.Run("BitmapExtentCount 超出记录大小", func(t *testing.T) {
+		// BitmapExtentCount 位于 TotalSize(4) + DiskID(520) + BitmapUnitStart(8) + BitmapUnitCount(8) 之后
+		bitmapCountOff := 4 + DiskIDBinSize + 8 + 8
+		buf := make([]byte, len(packed))
+		copy(buf, packed)
+		binary.LittleEndian.PutUint32(buf[bitmapCountOff:], 0xFFFFFFFF)
+		var decoded DiskBitmap
+		if err := unpackDiskBitmap(buf, &decoded); err == nil {
+			t.Error("expected error for corrupt BitmapExtentCount, got nil")
+		}
+	})
+}
+
 func TestUnpackRejectsShortBuffer(t *testing.T) {
 	var decoded ProtectedDevice
 	if err := unpackProtectedDevice(make([]byte, 16), &decoded); err == nil {
 		t.Error("expected error for short buffer, got nil")
 	}
 
-	var pe ProtectedExtent
-	if err := unpackProtectedExtent(make([]byte, 16), &pe); err == nil {
-		t.Error("expected error for short buffer, got nil")
+	var db DiskBitmap
+	if err := unpackDiskBitmap(make([]byte, 16), &db); err == nil {
+		t.Error("expected error for short DiskBitmap buffer, got nil")
 	}
 
 	if _, err := parseProtectedRegion(make([]byte, 16), 1); err == nil {
 		t.Error("expected error for short region, got nil")
+	}
+
+	if _, err := parseDiskBitmapRegion(make([]byte, 16), 1); err == nil {
+		t.Error("expected error for short disk bitmap region, got nil")
 	}
 }
 
@@ -1032,10 +999,9 @@ func TestMetadataRegionFitsPhysicalTail(t *testing.T) {
 		h.TotalSize(), float64(h.TotalSize())/(1024*1024),
 		reserveBytes/(1024*1024),
 		float64(reserveBytes-h.TotalSize())/(1024*1024))
-	t.Logf("single record: min %d bytes, one extent %d bytes, one extent + one bitmap extent %d bytes",
+	t.Logf("single record: min %d bytes, one extent %d bytes",
 		ProtectedDeviceMinBinSize,
-		ProtectedDeviceMinBinSize+ProtectedExtentFixedBinSize,
-		ProtectedDeviceMinBinSize+ProtectedExtentFixedBinSize+DiskExtentBinSize)
+		ProtectedDeviceMinBinSize+DiskExtentBinSize)
 }
 
 func TestCreateWithOffset(t *testing.T) {
@@ -1140,10 +1106,14 @@ func TestAddProtectDevice(t *testing.T) {
 	if len(pd.Extents) != 1 {
 		t.Errorf("expected 1 extent, got %d", len(pd.Extents))
 	}
-	for _, pe := range pd.Extents {
-		if pe.BitmapUnitCount == 0 {
-			t.Error("BitmapUnitCount should not be 0")
-		}
+
+	// 位图以磁盘为单位分配：一个受保护磁盘应有一条位图记录
+	disks := bm.ListDiskBitmaps()
+	if len(disks) != 1 {
+		t.Fatalf("expected 1 disk bitmap, got %d", len(disks))
+	}
+	if disks[0].BitmapUnitCount == 0 {
+		t.Error("BitmapUnitCount should not be 0")
 	}
 }
 
@@ -1197,7 +1167,7 @@ func TestAddProtectDeviceManyExtents(t *testing.T) {
 	}
 
 	// 变长记录下记录大小随 Extents 数量线性增长
-	wantSize := ProtectedDeviceMinBinSize + numExtents*ProtectedExtentFixedBinSize
+	wantSize := ProtectedDeviceMinBinSize + numExtents*DiskExtentBinSize
 	if got := calcProtectedDeviceBinSize(pds[0]); got != wantSize {
 		t.Errorf("record size: got %d, want %d", got, wantSize)
 	}
@@ -1426,30 +1396,29 @@ func TestFlushAndReload(t *testing.T) {
 		t.Errorf("expected 2 extents, got %d", len(pd.Extents))
 	}
 	for _, pe := range pd.Extents {
-		if pe.Extent.Size == 0 {
+		if pe.Size == 0 {
 			t.Error("extent size should not be 0")
 		}
 	}
 }
 
 // ============================================================================
-// ReadDeviceBitmap
+// ReadDiskBitmap
 // ============================================================================
 
-func TestReadDeviceBitmap(t *testing.T) {
+func TestReadDiskBitmap(t *testing.T) {
 	bm := newMeta(t)
 
 	bitIndexSpace := uint64(bm.header.BitIndexSpace)
 	extSize := bitIndexSpace * 10 // 10 bits worth of data (40 MiB)
-	extents := []DiskExtent{
+	addDevice(t, bm, DeviceTypeDisk, "disk-001", []DiskExtent{
 		makeDiskExtent("disk0", 0, extSize),
-	}
-	addDevice(t, bm, DeviceTypeDisk, "disk-001", extents)
+	})
 
-	// Initially all bits should be 0
-	bitCount, bitmapData, err := bm.ReadDeviceBitmap(makeID("disk-001"))
+	// 位图以磁盘为单位，应读取磁盘 "disk0" 的位图
+	bitCount, bitmapData, err := bm.ReadDiskBitmap(makeID("disk0"))
 	if err != nil {
-		t.Fatalf("ReadDeviceBitmap failed: %v", err)
+		t.Fatalf("ReadDiskBitmap failed: %v", err)
 	}
 	if bitCount != 10 {
 		t.Errorf("bitCount: got %d, want 10", bitCount)
@@ -1459,7 +1428,6 @@ func TestReadDeviceBitmap(t *testing.T) {
 		t.Errorf("bitmapData length: got %d, want %d", len(bitmapData), expectedBytes)
 	}
 
-	// All bits should be 0
 	for i := uint32(0); i < bitCount; i++ {
 		if bitTest(bitmapData, uint64(i)) {
 			t.Errorf("bit %d should be 0 initially", i)
@@ -1467,30 +1435,27 @@ func TestReadDeviceBitmap(t *testing.T) {
 	}
 }
 
-func TestReadDeviceBitmapNonExistent(t *testing.T) {
+func TestReadDiskBitmapNonExistent(t *testing.T) {
 	bm := newMeta(t)
 
-	_, _, err := bm.ReadDeviceBitmap(makeID("nonexistent"))
+	_, _, err := bm.ReadDiskBitmap(makeID("nonexistent"))
 	if err == nil {
-		t.Error("expected error for non-existent device")
+		t.Error("expected error for non-existent disk")
 	}
 }
 
-func TestReadDeviceBitmapPartialLastUnit(t *testing.T) {
+func TestReadDiskBitmapPartialLastUnit(t *testing.T) {
 	bm := newMeta(t)
 
 	bitIndexSpace := uint64(bm.header.BitIndexSpace)
-	// 1001 bits: 125 full bytes + 1 bit
-	// This ensures the last byte has only 1 valid bit
 	extSize := bitIndexSpace * 1001
-	extents := []DiskExtent{
+	addDevice(t, bm, DeviceTypeDisk, "disk-001", []DiskExtent{
 		makeDiskExtent("disk0", 0, extSize),
-	}
-	addDevice(t, bm, DeviceTypeDisk, "disk-001", extents)
+	})
 
-	bitCount, bitmapData, err := bm.ReadDeviceBitmap(makeID("disk-001"))
+	bitCount, bitmapData, err := bm.ReadDiskBitmap(makeID("disk0"))
 	if err != nil {
-		t.Fatalf("ReadDeviceBitmap failed: %v", err)
+		t.Fatalf("ReadDiskBitmap failed: %v", err)
 	}
 	if bitCount != 1001 {
 		t.Errorf("bitCount: got %d, want 1001", bitCount)
@@ -1501,47 +1466,72 @@ func TestReadDeviceBitmapPartialLastUnit(t *testing.T) {
 	}
 }
 
-func TestReadDeviceBitmapMultiExtent(t *testing.T) {
+// TestReadDiskBitmapMultiExtentSameDisk 验证同一磁盘上的多个受保护区间
+// （无论来自同一设备还是多个设备）按记录顺序拼接为一张磁盘位图。
+func TestReadDiskBitmapMultiExtentSameDisk(t *testing.T) {
 	bm := newMeta(t)
 
 	bitIndexSpace := uint64(bm.header.BitIndexSpace)
-	extents := []DiskExtent{
-		makeDiskExtent("diskA", 0, bitIndexSpace*5), // 5 bits
-		makeDiskExtent("diskB", 0, bitIndexSpace*7), // 7 bits
-		makeDiskExtent("diskC", 0, bitIndexSpace*3), // 3 bits
-	}
-	addDevice(t, bm, DeviceTypeDisk, "disk-001", extents)
 
-	bitCount, bitmapData, err := bm.ReadDeviceBitmap(makeID("disk-001"))
+	// 两个设备落在同一磁盘 disk0 上：5 bits + 7 bits = 12 bits
+	addDevice(t, bm, DeviceTypeDisk, "dev-1", []DiskExtent{
+		makeDiskExtent("disk0", 0, bitIndexSpace*5),
+	})
+	addDevice(t, bm, DeviceTypeVolume, "vol-2", []DiskExtent{
+		makeDiskExtent("disk0", bitIndexSpace*5, bitIndexSpace*7),
+	})
+
+	bitCount, _, err := bm.ReadDiskBitmap(makeID("disk0"))
 	if err != nil {
-		t.Fatalf("ReadDeviceBitmap failed: %v", err)
+		t.Fatalf("ReadDiskBitmap failed: %v", err)
 	}
-	if bitCount != 15 {
-		t.Errorf("bitCount: got %d, want 15", bitCount)
+	if bitCount != 12 {
+		t.Errorf("bitCount: got %d, want 12", bitCount)
 	}
-	expectedBytes := (15 + 7) / 8
-	if len(bitmapData) != int(expectedBytes) {
-		t.Errorf("bitmapData length: got %d, want %d", len(bitmapData), expectedBytes)
+
+	// 不同磁盘各有一张位图
+	diskBitmaps := bm.ListDiskBitmaps()
+	if len(diskBitmaps) != 1 {
+		t.Errorf("expected 1 disk bitmap, got %d", len(diskBitmaps))
 	}
 }
 
-func TestReadDeviceBitmapWithDirtyBits(t *testing.T) {
+// TestReadDiskBitmapSeparateDisks 验证不同磁盘各自有意外的分裂位图。
+func TestReadDiskBitmapSeparateDisks(t *testing.T) {
 	bm := newMeta(t)
 
 	bitIndexSpace := uint64(bm.header.BitIndexSpace)
-	extSize := bitIndexSpace * 100 // 100 bits = 12.5 bytes
-	extents := []DiskExtent{
-		makeDiskExtent("disk0", 0, extSize),
+	addDevice(t, bm, DeviceTypeDisk, "dev-1", []DiskExtent{
+		makeDiskExtent("diskA", 0, bitIndexSpace*5),
+		makeDiskExtent("diskB", 0, bitIndexSpace*7),
+	})
+
+	if n := len(bm.ListDiskBitmaps()); n != 2 {
+		t.Fatalf("expected 2 disk bitmaps, got %d", n)
 	}
-	addDevice(t, bm, DeviceTypeDisk, "disk-001", extents)
 
-	// Manually set some dirty bits in the bitmap unit data
-	// The device has 1 extent, and the bitmap unit is at BitmapUnitStart
-	pds, _ := bm.ListValidProtectDevice()
-	pd := pds[0]
-	unitIdx := pd.Extents[0].BitmapUnitStart
+	bcA, _, err := bm.ReadDiskBitmap(makeID("diskA"))
+	if err != nil || bcA != 5 {
+		t.Errorf("diskA: bitCount=%d err=%v, want 5", bcA, err)
+	}
+	bcB, _, err := bm.ReadDiskBitmap(makeID("diskB"))
+	if err != nil || bcB != 7 {
+		t.Errorf("diskB: bitCount=%d err=%v, want 7", bcB, err)
+	}
+}
 
-	// Write known pattern to bitmap unit
+func TestReadDiskBitmapWithDirtyBits(t *testing.T) {
+	bm := newMeta(t)
+
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+	extSize := bitIndexSpace * 100 // 100 bits
+	addDevice(t, bm, DeviceTypeDisk, "disk-001", []DiskExtent{
+		makeDiskExtent("disk0", 0, extSize),
+	})
+
+	disks := bm.ListDiskBitmaps()
+	unitIdx := disks[0].BitmapUnitStart
+
 	unitOff := bm.offset + int64(bm.header.BitmapDataOffset) + int64(unitIdx)*int64(bm.header.BitmapClusterSize)
 	pattern := make([]byte, bm.header.BitmapClusterSize)
 	pattern[0] = 0x55 // 01010101
@@ -1550,15 +1540,14 @@ func TestReadDeviceBitmapWithDirtyBits(t *testing.T) {
 		t.Fatalf("write pattern failed: %v", err)
 	}
 
-	bitCount, bitmapData, err := bm.ReadDeviceBitmap(makeID("disk-001"))
+	bitCount, bitmapData, err := bm.ReadDiskBitmap(makeID("disk0"))
 	if err != nil {
-		t.Fatalf("ReadDeviceBitmap failed: %v", err)
+		t.Fatalf("ReadDiskBitmap failed: %v", err)
 	}
 	if bitCount != 100 {
 		t.Errorf("bitCount: got %d, want 100", bitCount)
 	}
 
-	// Verify pattern
 	// byte 0: 0x55 = bits 0,2,4,6 set
 	if !bitTest(bitmapData, 0) {
 		t.Error("bit 0 should be set (0x55)")
@@ -1662,21 +1651,14 @@ func TestValidateProtectedDeviceEmptyID(t *testing.T) {
 
 func TestValidateProtectedDeviceExtentSizeZero(t *testing.T) {
 	h := defaultHeader(0, 0)
-	h.TotalBitmapUnits = 100
 	allocMap := make([]byte, 1024)
-	// Mark unit 0 as allocated
-	setBitmapUnitAllocated(allocMap, 0, true)
 
 	pd := ProtectedDevice{
 		Type:    DeviceTypeDisk,
-		Extents: make([]ProtectedExtent, 1),
+		Extents: make([]DiskExtent, 1),
 	}
 	copy(pd.DeviceID[:], "test")
-	pd.Extents[0] = ProtectedExtent{
-		BitmapUnitStart: 0,
-		BitmapUnitCount: 1,
-		Extent:          makeDiskExtent("disk0", 0, 0), // Size = 0
-	}
+	pd.Extents[0] = makeDiskExtent("disk0", 0, 0) // Size = 0
 
 	err := validateProtectedDevice(&pd, &h, allocMap)
 	if err == nil {
@@ -1684,74 +1666,59 @@ func TestValidateProtectedDeviceExtentSizeZero(t *testing.T) {
 	}
 }
 
-func TestValidateProtectedDeviceBitmapUnitStartOutOfRange(t *testing.T) {
+func TestValidateProtectedDeviceEmptyExtentDiskID(t *testing.T) {
 	h := defaultHeader(0, 0)
-	h.TotalBitmapUnits = 10
 	allocMap := make([]byte, 1024)
 
 	pd := ProtectedDevice{
 		Type:    DeviceTypeDisk,
-		Extents: make([]ProtectedExtent, 1),
+		Extents: make([]DiskExtent, 1),
 	}
 	copy(pd.DeviceID[:], "test")
-	pd.Extents[0] = ProtectedExtent{
-		BitmapUnitStart: 10, // == TotalBitmapUnits (out of range)
-		BitmapUnitCount: 1,
-		Extent:          makeDiskExtent("disk0", 0, 4096),
-	}
+	pd.Extents[0] = DiskExtent{Start: 0, Size: 4096} // DiskID empty
 
 	err := validateProtectedDevice(&pd, &h, allocMap)
+	if err == nil {
+		t.Error("expected error for empty extent DiskID")
+	}
+}
+
+// ============================================================================
+// ValidateDiskBitmap
+// ============================================================================
+
+func TestValidateDiskBitmapUnitStartOutOfRange(t *testing.T) {
+	h := defaultHeader(0, 0)
+	h.TotalBitmapUnits = 10
+	allocMap := make([]byte, 1024)
+
+	db := DiskBitmap{
+		BitmapUnitStart: 10, // == TotalBitmapUnits (out of range)
+		BitmapUnitCount: 1,
+	}
+	copy(db.DiskID.ID[:], "disk0")
+
+	err := validateDiskBitmap(&db, &h, allocMap)
 	if err == nil {
 		t.Error("expected error for BitmapUnitStart out of range")
 	}
 }
 
-func TestValidateProtectedDeviceUnallocatedBitmapUnit(t *testing.T) {
+func TestValidateDiskBitmapUnallocatedUnit(t *testing.T) {
 	h := defaultHeader(0, 0)
 	h.TotalBitmapUnits = 100
 	allocMap := make([]byte, 1024)
 	// Unit 0 is NOT allocated
 
-	pd := ProtectedDevice{
-		Type:    DeviceTypeDisk,
-		Extents: make([]ProtectedExtent, 1),
-	}
-	copy(pd.DeviceID[:], "test")
-	pd.Extents[0] = ProtectedExtent{
+	db := DiskBitmap{
 		BitmapUnitStart: 0,
 		BitmapUnitCount: 1,
-		Extent:          makeDiskExtent("disk0", 0, 4096),
 	}
+	copy(db.DiskID.ID[:], "disk0")
 
-	err := validateProtectedDevice(&pd, &h, allocMap)
+	err := validateDiskBitmap(&db, &h, allocMap)
 	if err == nil {
 		t.Error("expected error for unallocated bitmap unit")
-	}
-}
-
-func TestValidateProtectedDeviceCapacityInsufficient(t *testing.T) {
-	h := defaultHeader(0, 0)
-	h.TotalBitmapUnits = 100
-	h.BitmapClusterSize = 4096
-	h.BitIndexSpace = 4 * 1024 * 1024 // 4 MiB
-	allocMap := make([]byte, 1024)
-	setBitmapUnitAllocated(allocMap, 0, true)
-
-	// 1 bitmap unit covers 128 GiB, but extent claims 200 GiB
-	pd := ProtectedDevice{
-		Type:    DeviceTypeDisk,
-		Extents: make([]ProtectedExtent, 1),
-	}
-	copy(pd.DeviceID[:], "test")
-	pd.Extents[0] = ProtectedExtent{
-		BitmapUnitStart: 0,
-		BitmapUnitCount: 1,
-		Extent:          makeDiskExtent("disk0", 0, 200*1024*1024*1024), // 200 GiB
-	}
-
-	err := validateProtectedDevice(&pd, &h, allocMap)
-	if err == nil {
-		t.Error("expected error for insufficient capacity")
 	}
 }
 
@@ -1760,54 +1727,36 @@ func TestValidateProtectedDeviceCapacityInsufficient(t *testing.T) {
 // ============================================================================
 
 func TestValidateBitmapUnitNoOverlapValid(t *testing.T) {
-	devices := []ProtectedDevice{
-		{
-			Type: DeviceTypeDisk,
-			Extents: []ProtectedExtent{
-				{BitmapUnitStart: 0, BitmapUnitCount: 10},
-				{BitmapUnitStart: 10, BitmapUnitCount: 5},
-				{BitmapUnitStart: 20, BitmapUnitCount: 1},
-			},
-		},
+	disks := []DiskBitmap{
+		{BitmapUnitStart: 0, BitmapUnitCount: 10},
+		{BitmapUnitStart: 10, BitmapUnitCount: 5},
+		{BitmapUnitStart: 20, BitmapUnitCount: 1},
 	}
-	copy(devices[0].DeviceID[:], "test1")
 
-	if err := validateBitmapUnitNoOverlap(devices); err != nil {
+	if err := validateBitmapUnitNoOverlap(disks); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateBitmapUnitNoOverlapInvalid(t *testing.T) {
-	devices := []ProtectedDevice{
-		{
-			Type: DeviceTypeDisk,
-			Extents: []ProtectedExtent{
-				{BitmapUnitStart: 0, BitmapUnitCount: 10},
-				{BitmapUnitStart: 5, BitmapUnitCount: 10}, // overlaps [0,10)
-			},
-		},
+	disks := []DiskBitmap{
+		{BitmapUnitStart: 0, BitmapUnitCount: 10},
+		{BitmapUnitStart: 5, BitmapUnitCount: 10}, // overlaps [0,10)
 	}
-	copy(devices[0].DeviceID[:], "test1")
 
-	if err := validateBitmapUnitNoOverlap(devices); err == nil {
+	if err := validateBitmapUnitNoOverlap(disks); err == nil {
 		t.Error("expected error for overlapping bitmap units")
 	}
 }
 
 func TestValidateBitmapUnitNoOverlapAdjacent(t *testing.T) {
 	// Adjacent ranges should be OK
-	devices := []ProtectedDevice{
-		{
-			Type: DeviceTypeDisk,
-			Extents: []ProtectedExtent{
-				{BitmapUnitStart: 0, BitmapUnitCount: 10},
-				{BitmapUnitStart: 10, BitmapUnitCount: 10}, // adjacent
-			},
-		},
+	disks := []DiskBitmap{
+		{BitmapUnitStart: 0, BitmapUnitCount: 10},
+		{BitmapUnitStart: 10, BitmapUnitCount: 10}, // adjacent
 	}
-	copy(devices[0].DeviceID[:], "test1")
 
-	if err := validateBitmapUnitNoOverlap(devices); err != nil {
+	if err := validateBitmapUnitNoOverlap(disks); err != nil {
 		t.Errorf("adjacent ranges should be valid: %v", err)
 	}
 }
@@ -1876,9 +1825,8 @@ func TestBitmapUnitReuseAfterRemove(t *testing.T) {
 	}
 	addDevice(t, bm, DeviceTypeDisk, "disk-001", extents)
 
-	// Record allocated bitmap unit
-	pds, _ := bm.ListValidProtectDevice()
-	firstUnit := pds[0].Extents[0].BitmapUnitStart
+	// Record allocated bitmap unit（位图以磁盘为单位）
+	firstUnit := bm.ListDiskBitmaps()[0].BitmapUnitStart
 
 	// Remove device
 	if err := bm.RemoveProtectDevice(makeID("disk-001")); err != nil {
@@ -1887,12 +1835,488 @@ func TestBitmapUnitReuseAfterRemove(t *testing.T) {
 
 	// Add again — should reuse the same unit
 	addDevice(t, bm, DeviceTypeDisk, "disk-002", extents)
-	pds, _ = bm.ListValidProtectDevice()
-	reusedUnit := pds[0].Extents[0].BitmapUnitStart
+	reusedUnit := bm.ListDiskBitmaps()[0].BitmapUnitStart
 
 	if reusedUnit != firstUnit {
 		t.Errorf("expected reused unit %d, got %d", firstUnit, reusedUnit)
 	}
+}
+
+// ============================================================================
+// 磁盘扩容：位图 unit 的复用 / 原地增长 / 整体搬迁
+// ============================================================================
+
+// TestDiskBitmapReuseUnchangedCapacity 验证磁盘容量不变（总 bit 数未跨 unit）时，
+// 沿用已有位图区间，不重新分配、不迁移。不同 ProtectedDevice 引用同一磁盘时，
+// 磁盘去重后只维护一条位图记录。
+func TestDiskBitmapReuseUnchangedCapacity(t *testing.T) {
+	bm := newMeta(t)
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+
+	// disk0 上 20000 bits（1 unit）
+	addDevice(t, bm, DeviceTypeDisk, "dev1", []DiskExtent{
+		makeDiskExtent("disk0", 0, bitIndexSpace*20000),
+	})
+
+	db0 := bm.findDiskBitmap(makeID("disk0"))
+	if db0 == nil {
+		t.Fatal("disk0 bitmap not found")
+	}
+	startBefore := db0.BitmapUnitStart
+	countBefore := db0.BitmapUnitCount
+
+	// 另一个设备引用 disk0 的另一段，总 bits = 30000 < 32768（1 unit），容量未跨 unit
+	addDevice(t, bm, DeviceTypeDisk, "dev2", []DiskExtent{
+		makeDiskExtent("disk0", bitIndexSpace*20000, bitIndexSpace*10000),
+	})
+
+	db1 := bm.findDiskBitmap(makeID("disk0"))
+	if db1 == nil {
+		t.Fatal("disk0 bitmap lost")
+	}
+	if db1.BitmapUnitStart != startBefore {
+		t.Errorf("BitmapUnitStart changed on reuse: %d -> %d", startBefore, db1.BitmapUnitStart)
+	}
+	if db1.BitmapUnitCount != countBefore {
+		t.Errorf("BitmapUnitCount changed on reuse: %d -> %d", countBefore, db1.BitmapUnitCount)
+	}
+	if len(bm.diskBitmaps) != 1 {
+		t.Errorf("expected 1 disk bitmap, got %d", len(bm.diskBitmaps))
+	}
+}
+
+// TestDiskBitmapGrowInPlace 验证磁盘扩容且尾部连续空闲时，原地增长位图区间：
+// BitmapUnitStart 不变，BitmapUnitCount 增大。无需搬迁数据。
+func TestDiskBitmapGrowInPlace(t *testing.T) {
+	bm := newMeta(t)
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+
+	// disk0 上 20000 bits（1 unit）
+	addDevice(t, bm, DeviceTypeDisk, "dev1", []DiskExtent{
+		makeDiskExtent("disk0", 0, bitIndexSpace*20000),
+	})
+
+	db0 := bm.findDiskBitmap(makeID("disk0"))
+	startBefore := db0.BitmapUnitStart
+	if db0.BitmapUnitCount != 1 {
+		t.Fatalf("expected 1 unit initially, got %d", db0.BitmapUnitCount)
+	}
+
+	// 扩容：总 bits = 40000 > 32768（2 units），且尾部 unit 空闲 → 原地增长
+	addDevice(t, bm, DeviceTypeDisk, "dev2", []DiskExtent{
+		makeDiskExtent("disk0", bitIndexSpace*20000, bitIndexSpace*20000),
+	})
+
+	db1 := bm.findDiskBitmap(makeID("disk0"))
+	if db1.BitmapUnitStart != startBefore {
+		t.Errorf("expected in-place growth, start %d -> %d", startBefore, db1.BitmapUnitStart)
+	}
+	if db1.BitmapUnitCount != 2 {
+		t.Errorf("expected 2 units after growth, got %d", db1.BitmapUnitCount)
+	}
+}
+
+// TestDiskBitmapRelocateOnGrow 验证磁盘扩容但尾部被其他磁盘占用时，整体搬迁到
+// 新的更大连续区间，并保留幸存区间的位图值（脏 bit 不丢失）。
+func TestDiskBitmapRelocateOnGrow(t *testing.T) {
+	bm := newMeta(t)
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+	clusterSize := int64(bm.header.BitmapClusterSize)
+
+	// disk0 占 unit 0（1 unit）
+	addDevice(t, bm, DeviceTypeDisk, "dev1", []DiskExtent{
+		makeDiskExtent("disk0", 0, bitIndexSpace*20000),
+	})
+	db0 := bm.findDiskBitmap(makeID("disk0"))
+	startBefore := db0.BitmapUnitStart
+	if db0.BitmapUnitCount != 1 {
+		t.Fatalf("expected 1 unit, got %d", db0.BitmapUnitCount)
+	}
+
+	// 置脏 bit 0，用于验证搬迁后幸存
+	unitOff := bm.offset + int64(bm.header.BitmapDataOffset) + int64(startBefore)*clusterSize
+	pattern := make([]byte, clusterSize)
+	pattern[0] = 0x01 // bit 0 set
+	if _, err := bm.file.WriteAt(pattern, unitOff); err != nil {
+		t.Fatalf("write pattern failed: %v", err)
+	}
+
+	// disk1 占 unit 1，堵住 disk0 尾部的原地增长
+	addDevice(t, bm, DeviceTypeDisk, "dev2", []DiskExtent{
+		makeDiskExtent("disk1", 0, bitIndexSpace*20000),
+	})
+
+	// 扩容 disk0：需要 2 units，尾部 unit 1 已被 disk1 占用 → 整体搬迁
+	addDevice(t, bm, DeviceTypeDisk, "dev3", []DiskExtent{
+		makeDiskExtent("disk0", bitIndexSpace*20000, bitIndexSpace*20000),
+	})
+
+	db1 := bm.findDiskBitmap(makeID("disk0"))
+	if db1.BitmapUnitCount != 2 {
+		t.Fatalf("expected 2 units after growth, got %d", db1.BitmapUnitCount)
+	}
+	if db1.BitmapUnitStart == startBefore {
+		t.Errorf("expected relocation, start unchanged at %d", startBefore)
+	}
+
+	// 搬迁后幸存 bit 保留：bit 0 应仍为 1
+	_, bitmapData, err := bm.ReadDiskBitmap(makeID("disk0"))
+	if err != nil {
+		t.Fatalf("ReadDiskBitmap failed: %v", err)
+	}
+	if !bitTest(bitmapData, 0) {
+		t.Error("surviving bit 0 lost after relocation")
+	}
+}
+
+// TestDiskBitmapShrinkKeepsUnit 验证磁盘缩容（仍被引用）时复用已有区间，
+// 不收缩、不释放多余 unit——符合「只增长不收缩」的复用语义。
+func TestDiskBitmapShrinkKeepsUnit(t *testing.T) {
+	bm := newMeta(t)
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+
+	// disk0 两段：总 40000 bits → 2 units
+	addDevice(t, bm, DeviceTypeDisk, "dev1", []DiskExtent{
+		makeDiskExtent("disk0", 0, bitIndexSpace*20000),
+	})
+	addDevice(t, bm, DeviceTypeDisk, "dev2", []DiskExtent{
+		makeDiskExtent("disk0", bitIndexSpace*20000, bitIndexSpace*20000),
+	})
+
+	db0 := bm.findDiskBitmap(makeID("disk0"))
+	if db0 == nil {
+		t.Fatal("disk0 bitmap not found")
+	}
+	startBefore := db0.BitmapUnitStart
+	countBefore := db0.BitmapUnitCount
+	if countBefore != 2 {
+		t.Fatalf("expected 2 units before shrink, got %d", countBefore)
+	}
+
+	// 删除 dev2：disk0 降至 20000 bits（1 unit），但磁盘仍在 → 复用
+	if err := bm.RemoveProtectDevice(makeID("dev2")); err != nil {
+		t.Fatalf("RemoveProtectDevice failed: %v", err)
+	}
+
+	db1 := bm.findDiskBitmap(makeID("disk0"))
+	if db1 == nil {
+		t.Fatal("disk0 bitmap lost after shrink")
+	}
+	if db1.BitmapUnitStart != startBefore {
+		t.Errorf("BitmapUnitStart changed on shrink: %d -> %d", startBefore, db1.BitmapUnitStart)
+	}
+	if db1.BitmapUnitCount != countBefore {
+		t.Errorf("BitmapUnitCount changed on shrink: %d -> %d", countBefore, db1.BitmapUnitCount)
+	}
+}
+
+// TestDiskBitmapGrowPreservesOtherDisks 验证扩容某磁盘时，其他磁盘的记录区间不受影响，
+// 扩容磁盘整体搬迁到新的空闲区间。
+func TestDiskBitmapGrowPreservesOtherDisks(t *testing.T) {
+	bm := newMeta(t)
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+
+	addDevice(t, bm, DeviceTypeDisk, "devA", []DiskExtent{
+		makeDiskExtent("diskA", 0, bitIndexSpace*20000),
+	})
+	addDevice(t, bm, DeviceTypeDisk, "devB", []DiskExtent{
+		makeDiskExtent("diskB", 0, bitIndexSpace*20000),
+	})
+	addDevice(t, bm, DeviceTypeDisk, "devC", []DiskExtent{
+		makeDiskExtent("diskC", 0, bitIndexSpace*20000),
+	})
+
+	dbA0 := bm.findDiskBitmap(makeID("diskA"))
+	dbB0 := bm.findDiskBitmap(makeID("diskB"))
+	dbC0 := bm.findDiskBitmap(makeID("diskC"))
+	startA := dbA0.BitmapUnitStart
+	startB := dbB0.BitmapUnitStart
+	countB := dbB0.BitmapUnitCount
+	startC := dbC0.BitmapUnitStart
+	countC := dbC0.BitmapUnitCount
+
+	// 扩容 diskA：需要 2 units，尾部 unit1 被 diskB 占用 → 整体搬迁
+	addDevice(t, bm, DeviceTypeDisk, "devA2", []DiskExtent{
+		makeDiskExtent("diskA", bitIndexSpace*20000, bitIndexSpace*20000),
+	})
+
+	dbA1 := bm.findDiskBitmap(makeID("diskA"))
+	dbB1 := bm.findDiskBitmap(makeID("diskB"))
+	dbC1 := bm.findDiskBitmap(makeID("diskC"))
+
+	if dbA1.BitmapUnitCount != 2 {
+		t.Fatalf("expected diskA 2 units, got %d", dbA1.BitmapUnitCount)
+	}
+	if dbA1.BitmapUnitStart == startA {
+		t.Errorf("expected diskA relocation, start unchanged at %d", startA)
+	}
+	if dbB1.BitmapUnitStart != startB || dbB1.BitmapUnitCount != countB {
+		t.Errorf("diskB changed: (%d,%d) -> (%d,%d)",
+			startB, countB, dbB1.BitmapUnitStart, dbB1.BitmapUnitCount)
+	}
+	if dbC1.BitmapUnitStart != startC || dbC1.BitmapUnitCount != countC {
+		t.Errorf("diskC changed: (%d,%d) -> (%d,%d)",
+			startC, countC, dbC1.BitmapUnitStart, dbC1.BitmapUnitCount)
+	}
+}
+
+// TestDiskBitmapRelocatePreservesMultipleExtents 验证整体搬迁时多个 extent 的脏 bit
+// 都能按新旧布局迁移到正确位置（覆盖 bitCopy 的多段边界）。
+func TestDiskBitmapRelocatePreservesMultipleExtents(t *testing.T) {
+	bm := newMeta(t)
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+	clusterSize := int64(bm.header.BitmapClusterSize)
+
+	// disk0 两个 extent：20000 + 10000 bits（1 unit）
+	addDevice(t, bm, DeviceTypeDisk, "dev1", []DiskExtent{
+		makeDiskExtent("disk0", 0, bitIndexSpace*20000),
+	})
+	addDevice(t, bm, DeviceTypeDisk, "dev2", []DiskExtent{
+		makeDiskExtent("disk0", bitIndexSpace*20000, bitIndexSpace*10000),
+	})
+
+	db0 := bm.findDiskBitmap(makeID("disk0"))
+	if db0.BitmapUnitCount != 1 {
+		t.Fatalf("expected 1 unit, got %d", db0.BitmapUnitCount)
+	}
+
+	// 置脏 extent1 的 bit 0（总 bit 0）与 extent2 的 bit 0（总 bit 20000）
+	unitOff := bm.offset + int64(bm.header.BitmapDataOffset) + int64(db0.BitmapUnitStart)*clusterSize
+	pattern := make([]byte, clusterSize)
+	pattern[0] = 0x01     // bit 0
+	pattern[2500] |= 0x01 // bit 20000（byte 2500 bit 0）
+	if _, err := bm.file.WriteAt(pattern, unitOff); err != nil {
+		t.Fatalf("write pattern failed: %v", err)
+	}
+
+	// disk1 占 unit1，堵住 tail
+	addDevice(t, bm, DeviceTypeDisk, "devD", []DiskExtent{
+		makeDiskExtent("disk1", 0, bitIndexSpace*20000),
+	})
+
+	// 扩容 disk0：+15000 bits，总 45000 → 2 units，尾部被占 → 搬迁
+	addDevice(t, bm, DeviceTypeDisk, "dev3", []DiskExtent{
+		makeDiskExtent("disk0", bitIndexSpace*30000, bitIndexSpace*15000),
+	})
+
+	_, bitmapData, err := bm.ReadDiskBitmap(makeID("disk0"))
+	if err != nil {
+		t.Fatalf("ReadDiskBitmap failed: %v", err)
+	}
+	if !bitTest(bitmapData, 0) {
+		t.Error("extent1 bit 0 lost after relocation")
+	}
+	if !bitTest(bitmapData, 20000) {
+		t.Error("extent2 bit 0 lost after relocation")
+	}
+	// 新增 extent 的 bit 必须为 0
+	if bitTest(bitmapData, 30000) {
+		t.Error("new extent bit 30000 should be 0")
+	}
+}
+
+// TestDiskBitmapGrowInPlacePreservesOldBits 验证原地增长时旧 bit 保留、新增 unit 归零。
+func TestDiskBitmapGrowInPlacePreservesOldBits(t *testing.T) {
+	bm := newMeta(t)
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+	clusterSize := int64(bm.header.BitmapClusterSize)
+
+	addDevice(t, bm, DeviceTypeDisk, "dev1", []DiskExtent{
+		makeDiskExtent("disk0", 0, bitIndexSpace*20000),
+	})
+	db0 := bm.findDiskBitmap(makeID("disk0"))
+
+	unitOff := bm.offset + int64(bm.header.BitmapDataOffset) + int64(db0.BitmapUnitStart)*clusterSize
+	pattern := make([]byte, clusterSize)
+	pattern[0] = 0x01 // bit 0
+	if _, err := bm.file.WriteAt(pattern, unitOff); err != nil {
+		t.Fatalf("write pattern failed: %v", err)
+	}
+
+	// 原地增长到 2 units
+	addDevice(t, bm, DeviceTypeDisk, "dev2", []DiskExtent{
+		makeDiskExtent("disk0", bitIndexSpace*20000, bitIndexSpace*20000),
+	})
+
+	db1 := bm.findDiskBitmap(makeID("disk0"))
+	if db1.BitmapUnitCount != 2 {
+		t.Fatalf("expected 2 units, got %d", db1.BitmapUnitCount)
+	}
+	if db1.BitmapUnitStart != db0.BitmapUnitStart {
+		t.Errorf("expected in-place growth, start changed %d -> %d", db0.BitmapUnitStart, db1.BitmapUnitStart)
+	}
+
+	_, bitmapData, err := bm.ReadDiskBitmap(makeID("disk0"))
+	if err != nil {
+		t.Fatalf("ReadDiskBitmap failed: %v", err)
+	}
+	if !bitTest(bitmapData, 0) {
+		t.Error("old bit 0 lost after in-place growth")
+	}
+	if bitTest(bitmapData, 20000) {
+		t.Error("newly grown bit 20000 should be 0")
+	}
+}
+
+// TestAddDeviceRollbackOnUnitExhaustion 验证部分分配失败时能完整回滚：
+// 已分配成功的磁盘记录保留，失败的设备回滚，allocMap 恢复一致。
+func TestAddDeviceRollbackOnUnitExhaustion(t *testing.T) {
+	bm, err := Create(tempFile(t), 0, 3, 0) // 仅 3 个 bitmap unit
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	defer bm.file.Close()
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+
+	// dev1 占 2 units
+	if err := bm.AddProtectDevice(DeviceTypeDisk, makeID("dev1"), []DiskExtent{
+		makeDiskExtent("disk0", 0, bitIndexSpace*40000),
+	}); err != nil {
+		t.Fatalf("AddProtectDevice dev1 failed: %v", err)
+	}
+
+	// dev2 需要 2 units，但只剩 1 个空闲 → 失败
+	if err := bm.AddProtectDevice(DeviceTypeDisk, makeID("dev2"), []DiskExtent{
+		makeDiskExtent("disk1", 0, bitIndexSpace*40000),
+	}); err == nil {
+		t.Fatal("expected AddProtectDevice dev2 to fail on unit exhaustion")
+	}
+
+	if len(bm.devices) != 1 {
+		t.Fatalf("expected 1 device after rollback, got %d", len(bm.devices))
+	}
+	db := bm.findDiskBitmap(makeID("disk0"))
+	if db == nil || db.BitmapUnitCount != 2 {
+		t.Fatalf("disk0 bitmap lost after rollback")
+	}
+	if bm.findDiskBitmap(makeID("disk1")) != nil {
+		t.Error("disk1 bitmap should not exist after rollback")
+	}
+
+	// allocMap：disk0 的 2 units 已分配，第 3 个 unit 空闲
+	if !isBitmapUnitAllocated(bm.allocMap, db.BitmapUnitStart) {
+		t.Error("disk0 first unit should be allocated")
+	}
+	if !isBitmapUnitAllocated(bm.allocMap, db.BitmapUnitStart+1) {
+		t.Error("disk0 second unit should be allocated")
+	}
+	if isBitmapUnitAllocated(bm.allocMap, db.BitmapUnitStart+2) {
+		t.Error("third unit should remain free after rollback")
+	}
+}
+
+// TestDiskBitmapGrowFlushReload 验证扩容后的磁盘位图记录能正确落盘、重载，
+// 且位图内容在 Flush 前后保持一致。
+func TestDiskBitmapGrowFlushReload(t *testing.T) {
+	path := tempFile(t)
+
+	bm, err := Create(path, 0, 0, 0)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	// 伪装成设备路径，避免 Flush 依赖卷句柄（普通文件需要管理员权限）
+	bm.filePath = `\\.\PHYSICALDRIVE0`
+	defer bm.file.Close()
+
+	bitIndexSpace := uint64(bm.header.BitIndexSpace)
+	clusterSize := int64(bm.header.BitmapClusterSize)
+
+	addDevice(t, bm, DeviceTypeDisk, "dev1", []DiskExtent{
+		makeDiskExtent("disk0", 0, bitIndexSpace*20000),
+	})
+	db0 := bm.findDiskBitmap(makeID("disk0"))
+	startBefore := db0.BitmapUnitStart
+
+	// 置脏 bit 0
+	unitOff := bm.offset + int64(bm.header.BitmapDataOffset) + int64(startBefore)*clusterSize
+	pattern := make([]byte, clusterSize)
+	pattern[0] = 0x01
+	if _, err := bm.file.WriteAt(pattern, unitOff); err != nil {
+		t.Fatalf("write pattern failed: %v", err)
+	}
+
+	// 原地增长到 2 units
+	addDevice(t, bm, DeviceTypeDisk, "dev2", []DiskExtent{
+		makeDiskExtent("disk0", bitIndexSpace*20000, bitIndexSpace*20000),
+	})
+	countBefore := bm.findDiskBitmap(makeID("disk0")).BitmapUnitCount
+	if countBefore != 2 {
+		t.Fatalf("expected 2 units before flush, got %d", countBefore)
+	}
+
+	if _, err := bm.Flush(); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+	bm.file.Close()
+
+	bm2, err := Load(path, 0)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	defer bm2.file.Close()
+
+	db := bm2.findDiskBitmap(makeID("disk0"))
+	if db == nil {
+		t.Fatal("disk0 bitmap lost after reload")
+	}
+	if db.BitmapUnitStart != startBefore || db.BitmapUnitCount != countBefore {
+		t.Errorf("disk bitmap mismatch after reload: (%d,%d) vs (%d,%d)",
+			db.BitmapUnitStart, db.BitmapUnitCount, startBefore, countBefore)
+	}
+	if db.BitmapExtentCount == 0 {
+		t.Error("BitmapExtents not resolved after Flush")
+	}
+
+	_, bitmapData, err := bm2.ReadDiskBitmap(makeID("disk0"))
+	if err != nil {
+		t.Fatalf("ReadDiskBitmap after reload failed: %v", err)
+	}
+	if !bitTest(bitmapData, 0) {
+		t.Error("bit 0 lost after flush + reload")
+	}
+	if bitTest(bitmapData, 20000) {
+		t.Error("grown bit 20000 should be 0 after reload")
+	}
+}
+
+// TestCanGrowInPlace 直接单测原地增长的边界判断：空闲、尾部越界、尾部被占、非零起点。
+func TestCanGrowInPlace(t *testing.T) {
+	h := &Header{TotalBitmapUnits: 16}
+
+	t.Run("tail free", func(t *testing.T) {
+		allocMap := make([]byte, 2)
+		old := &DiskBitmap{BitmapUnitStart: 0, BitmapUnitCount: 1}
+		if !canGrowInPlace(allocMap, h, old, 2) {
+			t.Error("expected true when tail is free")
+		}
+	})
+
+	t.Run("exceed total", func(t *testing.T) {
+		allocMap := make([]byte, 2)
+		old := &DiskBitmap{BitmapUnitStart: 0, BitmapUnitCount: 1}
+		if canGrowInPlace(allocMap, h, old, 17) {
+			t.Error("expected false when exceeding TotalBitmapUnits")
+		}
+	})
+
+	t.Run("tail occupied", func(t *testing.T) {
+		allocMap := make([]byte, 2)
+		old := &DiskBitmap{BitmapUnitStart: 0, BitmapUnitCount: 1}
+		setBitmapUnitAllocated(allocMap, 1, true)
+		if canGrowInPlace(allocMap, h, old, 2) {
+			t.Error("expected false when tail unit is occupied")
+		}
+	})
+
+	t.Run("non-zero start", func(t *testing.T) {
+		allocMap := make([]byte, 2)
+		old := &DiskBitmap{BitmapUnitStart: 5, BitmapUnitCount: 2}
+		setBitmapUnitAllocated(allocMap, 5, true)
+		setBitmapUnitAllocated(allocMap, 6, true)
+		if !canGrowInPlace(allocMap, h, old, 4) {
+			t.Error("expected true when growing from non-zero start")
+		}
+	})
 }
 
 // ============================================================================
@@ -2026,8 +2450,9 @@ func TestManyDevicesGrowRegion(t *testing.T) {
 		t.Errorf("ProtectedRegionSize: got %d, want %d",
 			bm.header.ProtectedRegionSize, alignUp(uint64(recordsSize)))
 	}
-	if bm.Size() != baseSize+int64(bm.header.ProtectedRegionSize) {
-		t.Errorf("Size: got %d, want %d", bm.Size(), baseSize+int64(bm.header.ProtectedRegionSize))
+	if bm.Size() != baseSize+int64(bm.header.DiskBitmapAllocRegionSize)+int64(bm.header.ProtectedRegionSize) {
+		t.Errorf("Size: got %d, want %d",
+			bm.Size(), baseSize+int64(bm.header.DiskBitmapAllocRegionSize)+int64(bm.header.ProtectedRegionSize))
 	}
 
 	bm.file.Close()
@@ -2128,8 +2553,9 @@ func TestRecordGrowthDoesNotCorruptOtherRegions(t *testing.T) {
 	if bm.header.BitmapDataOffset != HeaderSize+bm.header.BitmapAllocMapSize {
 		t.Error("BitmapDataOffset changed")
 	}
-	if bm.header.ProtectedRegionOffset != bitmapDataEnd {
-		t.Error("ProtectedRegionOffset changed")
+	if bm.header.ProtectedRegionOffset != bitmapDataEnd+bm.header.DiskBitmapAllocRegionSize {
+		t.Errorf("ProtectedRegionOffset changed: got %d, want %d",
+			bm.header.ProtectedRegionOffset, bitmapDataEnd+bm.header.DiskBitmapAllocRegionSize)
 	}
 
 	bm.file.Close()
@@ -2469,26 +2895,30 @@ func TestResolveBitmapExtentsDevicePath(t *testing.T) {
 		t.Fatalf("ResolveBitmapExtents failed: %v", err)
 	}
 
-	pd := bm.findDevice(makeID("test-disk"))
-	if pd == nil {
-		t.Fatal("device not found")
+	dbs := bm.ListDiskBitmaps()
+	if len(dbs) != 1 {
+		t.Fatalf("expected 1 disk bitmap, got %d", len(dbs))
 	}
-	pe := &pd.Extents[0]
-	if len(pe.BitmapExtents) != 1 {
-		t.Fatalf("expected 1 bitmap extent, got %d", len(pe.BitmapExtents))
-	}
-
-	be := pe.BitmapExtents[0]
-	if be.DiskID.String() != `\\.\PHYSICALDRIVE0` {
-		t.Errorf("DiskID mismatch: got %q", be.DiskID.String())
+	db := dbs[0]
+	if len(db.BitmapExtents) != 1 {
+		t.Fatalf("expected 1 bitmap extent, got %d", len(db.BitmapExtents))
 	}
 
-	expectedStart := uint64(bm.offset) + bm.header.BitmapDataOffset + pe.BitmapUnitStart*uint64(bm.header.BitmapClusterSize)
+	be := db.BitmapExtents[0]
+	wantDiskID, err := getPhysicalDiskID(`\\.\PHYSICALDRIVE0`)
+	if err != nil {
+		t.Skipf("cannot resolve PHYSICALDRIVE0: %v", err)
+	}
+	if be.DiskID.String() != wantDiskID {
+		t.Errorf("DiskID mismatch: got %q, want %q", be.DiskID.String(), wantDiskID)
+	}
+
+	expectedStart := uint64(bm.offset) + bm.header.BitmapDataOffset + db.BitmapUnitStart*uint64(bm.header.BitmapClusterSize)
 	if be.Start != expectedStart {
 		t.Errorf("Start mismatch: got %d, want %d", be.Start, expectedStart)
 	}
 
-	expectedSize := pe.BitmapUnitCount * uint64(bm.header.BitmapClusterSize)
+	expectedSize := db.BitmapUnitCount * uint64(bm.header.BitmapClusterSize)
 	if be.Size != expectedSize {
 		t.Errorf("Size mismatch: got %d, want %d", be.Size, expectedSize)
 	}
@@ -2520,24 +2950,26 @@ func TestResolveBitmapExtentsMultipleDevices(t *testing.T) {
 		t.Fatalf("ResolveBitmapExtents failed: %v", err)
 	}
 
-	pd1 := bm.findDevice(makeID("dev1"))
-	pd2 := bm.findDevice(makeID("dev2"))
-
-	pe1 := &pd1.Extents[0]
-	if len(pe1.BitmapExtents) != 1 {
-		t.Fatalf("dev1: expected 1 bitmap extent, got %d", len(pe1.BitmapExtents))
-	}
-	if pe1.BitmapExtents[0].Size != uint64(bm.header.BitmapClusterSize) {
-		t.Errorf("dev1: size mismatch")
+	dbs := bm.ListDiskBitmaps()
+	if len(dbs) != 2 {
+		t.Fatalf("expected 2 disk bitmaps, got %d", len(dbs))
 	}
 
-	pe2 := &pd2.Extents[0]
-	if len(pe2.BitmapExtents) != 1 {
-		t.Fatalf("dev2: expected 1 bitmap extent, got %d", len(pe2.BitmapExtents))
+	// 两个设备各自保护不同磁盘，各有一条位图记录
+	db1 := dbs[0]
+	if len(db1.BitmapExtents) != 1 {
+		t.Fatalf("disk0: expected 1 bitmap extent, got %d", len(db1.BitmapExtents))
 	}
-	expectedSize2 := pe2.BitmapUnitCount * uint64(bm.header.BitmapClusterSize)
-	if pe2.BitmapExtents[0].Size != expectedSize2 {
-		t.Errorf("dev2: size mismatch: got %d, want %d", pe2.BitmapExtents[0].Size, expectedSize2)
+	if db1.BitmapExtents[0].Size != db1.BitmapUnitCount*uint64(bm.header.BitmapClusterSize) {
+		t.Errorf("disk0: size mismatch")
+	}
+
+	db2 := dbs[1]
+	if len(db2.BitmapExtents) != 1 {
+		t.Fatalf("disk1: expected 1 bitmap extent, got %d", len(db2.BitmapExtents))
+	}
+	if db2.BitmapExtents[0].Size != db2.BitmapUnitCount*uint64(bm.header.BitmapClusterSize) {
+		t.Errorf("disk1: size mismatch")
 	}
 }
 
@@ -2550,7 +2982,7 @@ func TestResolveBitmapExtentsMultiExtentDevice(t *testing.T) {
 	}
 	defer bm.file.Close()
 
-	bm.filePath = `\\.\PHYSICALDRIVE1`
+	bm.filePath = `\\.\PHYSICALDRIVE0`
 	bm.offset = 0
 
 	extents := []DiskExtent{
@@ -2565,28 +2997,22 @@ func TestResolveBitmapExtentsMultiExtentDevice(t *testing.T) {
 		t.Fatalf("ResolveBitmapExtents failed: %v", err)
 	}
 
-	pd := bm.findDevice(makeID("multi-ext"))
-	if len(pd.Extents) != 2 {
-		t.Fatalf("expected 2 extents, got %d", len(pd.Extents))
+	// 同一个磁盘上 2 个不连续区间应合并为一张磁盘位图
+	dbs := bm.ListDiskBitmaps()
+	if len(dbs) != 1 {
+		t.Fatalf("expected 1 disk bitmap, got %d", len(dbs))
 	}
-
-	for i, pe := range pd.Extents {
-		if len(pe.BitmapExtents) == 0 {
-			t.Errorf("extent %d: no bitmap extents resolved", i)
-			continue
-		}
-		if pe.BitmapExtentCount != uint32(len(pe.BitmapExtents)) {
-			t.Errorf("extent %d: BitmapExtentCount %d != len %d",
-				i, pe.BitmapExtentCount, len(pe.BitmapExtents))
-		}
-		totalSize := uint64(0)
-		for _, be := range pe.BitmapExtents {
-			totalSize += be.Size
-		}
-		expectedSize := pe.BitmapUnitCount * uint64(bm.header.BitmapClusterSize)
-		if totalSize != expectedSize {
-			t.Errorf("extent %d: total bitmap size %d != expected %d", i, totalSize, expectedSize)
-		}
+	db := dbs[0]
+	if db.BitmapExtentCount != uint32(len(db.BitmapExtents)) {
+		t.Errorf("BitmapExtentCount %d != len %d", db.BitmapExtentCount, len(db.BitmapExtents))
+	}
+	totalSize := uint64(0)
+	for _, be := range db.BitmapExtents {
+		totalSize += be.Size
+	}
+	expectedSize := db.BitmapUnitCount * uint64(bm.header.BitmapClusterSize)
+	if totalSize != expectedSize {
+		t.Errorf("total bitmap size %d != expected %d", totalSize, expectedSize)
 	}
 }
 
@@ -2613,8 +3039,8 @@ func TestResolveBitmapExtentsFlushRoundTrip(t *testing.T) {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
-	pd := bm.findDevice(makeID("roundtrip"))
-	if len(pd.Extents[0].BitmapExtents) == 0 {
+	dbs := bm.ListDiskBitmaps()
+	if len(dbs) != 1 || len(dbs[0].BitmapExtents) == 0 {
 		t.Fatal("BitmapExtents not resolved after Flush")
 	}
 
@@ -2626,28 +3052,31 @@ func TestResolveBitmapExtentsFlushRoundTrip(t *testing.T) {
 	}
 	defer bm2.file.Close()
 
-	pd2 := bm2.findDevice(makeID("roundtrip"))
-	if pd2 == nil {
-		t.Fatal("device not found after reload")
+	dbs2 := bm2.ListDiskBitmaps()
+	if len(dbs2) != 1 {
+		t.Fatalf("expected 1 disk bitmap after reload, got %d", len(dbs2))
 	}
-
-	pe2 := &pd2.Extents[0]
-	if len(pe2.BitmapExtents) == 0 {
+	db2 := dbs2[0]
+	if len(db2.BitmapExtents) == 0 {
 		t.Fatal("BitmapExtents lost after reload")
 	}
-	if pe2.BitmapExtentCount != uint32(len(pe2.BitmapExtents)) {
-		t.Errorf("BitmapExtentCount mismatch: %d != %d", pe2.BitmapExtentCount, len(pe2.BitmapExtents))
+	if db2.BitmapExtentCount != uint32(len(db2.BitmapExtents)) {
+		t.Errorf("BitmapExtentCount mismatch: %d != %d", db2.BitmapExtentCount, len(db2.BitmapExtents))
 	}
 
-	be := pe2.BitmapExtents[0]
-	if be.DiskID.String() != `\\.\PHYSICALDRIVE0` {
-		t.Errorf("DiskID mismatch after reload: got %q", be.DiskID.String())
+	be := db2.BitmapExtents[0]
+	wantDiskID, err := getPhysicalDiskID(`\\.\PHYSICALDRIVE0`)
+	if err != nil {
+		t.Skipf("cannot resolve PHYSICALDRIVE0: %v", err)
 	}
-	expectedStart := bm2.header.BitmapDataOffset + pe2.BitmapUnitStart*uint64(bm2.header.BitmapClusterSize)
+	if be.DiskID.String() != wantDiskID {
+		t.Errorf("DiskID mismatch after reload: got %q, want %q", be.DiskID.String(), wantDiskID)
+	}
+	expectedStart := bm2.header.BitmapDataOffset + db2.BitmapUnitStart*uint64(bm2.header.BitmapClusterSize)
 	if be.Start != expectedStart {
 		t.Errorf("Start mismatch after reload: got %d, want %d", be.Start, expectedStart)
 	}
-	expectedSize := pe2.BitmapUnitCount * uint64(bm2.header.BitmapClusterSize)
+	expectedSize := db2.BitmapUnitCount * uint64(bm2.header.BitmapClusterSize)
 	if be.Size != expectedSize {
 		t.Errorf("Size mismatch after reload: got %d, want %d", be.Size, expectedSize)
 	}
@@ -2681,17 +3110,16 @@ func TestResolveBitmapExtentsBoundary(t *testing.T) {
 		t.Fatalf("ResolveBitmapExtents failed: %v", err)
 	}
 
-	pd := bm.findDevice(makeID("first-unit"))
-	pe := &pd.Extents[0]
+	db := bm.ListDiskBitmaps()[0]
 
-	if pe.BitmapUnitStart != 0 {
-		t.Errorf("expected BitmapUnitStart=0, got %d", pe.BitmapUnitStart)
+	if db.BitmapUnitStart != 0 {
+		t.Errorf("expected BitmapUnitStart=0, got %d", db.BitmapUnitStart)
 	}
-	if pe.BitmapExtents[0].Start != bitmapDataStart {
-		t.Errorf("first unit start: got %d, want %d", pe.BitmapExtents[0].Start, bitmapDataStart)
+	if db.BitmapExtents[0].Start != bitmapDataStart {
+		t.Errorf("first unit start: got %d, want %d", db.BitmapExtents[0].Start, bitmapDataStart)
 	}
 
-	for _, be := range pe.BitmapExtents {
+	for _, be := range db.BitmapExtents {
 		if be.Start < bitmapDataStart || be.Start+be.Size > bitmapDataEnd {
 			t.Errorf("bitmap extent out of range: [%d, %d) not in [%d, %d)",
 				be.Start, be.Start+be.Size, bitmapDataStart, bitmapDataEnd)
@@ -2730,29 +3158,25 @@ func TestResolveBitmapExtentsAllUnitsInRange(t *testing.T) {
 		t.Fatalf("ResolveBitmapExtents failed: %v", err)
 	}
 
-	for _, pd := range bm.devices {
-		for ei, pe := range pd.Extents {
-			if len(pe.BitmapExtents) == 0 {
-				t.Errorf("device %s extent %d: no bitmap extents", xutil.TrimZeroString(pd.DeviceID[:]), ei)
-				continue
-			}
+	for _, db := range bm.ListDiskBitmaps() {
+		if len(db.BitmapExtents) == 0 {
+			t.Errorf("disk %s: no bitmap extents", db.DiskID.String())
+			continue
+		}
 
-			totalBitmapSize := uint64(0)
-			for _, be := range pe.BitmapExtents {
-				if be.Start < bitmapDataStart || be.Start+be.Size > bitmapDataEnd {
-					t.Errorf("device %s extent %d: bitmap extent [%d, %d) out of data range [%d, %d)",
-						xutil.TrimZeroString(pd.DeviceID[:]), ei,
-						be.Start, be.Start+be.Size,
-						bitmapDataStart, bitmapDataEnd)
-				}
-				totalBitmapSize += be.Size
+		totalBitmapSize := uint64(0)
+		for _, be := range db.BitmapExtents {
+			if be.Start < bitmapDataStart || be.Start+be.Size > bitmapDataEnd {
+				t.Errorf("disk %s: bitmap extent [%d, %d) out of data range [%d, %d)",
+					db.DiskID.String(), be.Start, be.Start+be.Size, bitmapDataStart, bitmapDataEnd)
 			}
+			totalBitmapSize += be.Size
+		}
 
-			expectedSize := pe.BitmapUnitCount * clusterSize
-			if totalBitmapSize != expectedSize {
-				t.Errorf("device %s extent %d: total bitmap size %d != expected %d",
-					xutil.TrimZeroString(pd.DeviceID[:]), ei, totalBitmapSize, expectedSize)
-			}
+		expectedSize := db.BitmapUnitCount * clusterSize
+		if totalBitmapSize != expectedSize {
+			t.Errorf("disk %s: total bitmap size %d != expected %d",
+				db.DiskID.String(), totalBitmapSize, expectedSize)
 		}
 	}
 }

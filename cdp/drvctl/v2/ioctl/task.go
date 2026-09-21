@@ -12,9 +12,6 @@ import biotrkmeta "github.com/kisun-bit/drpkg/cdp/drvctl/v2/meta"
 //
 
 // StartTaskRequest 表示启动 CDP 任务的请求。
-//
-// 驱动收到请求后，会根据元数据区域信息读取并解析元数据，
-// 将其中的 ProtectedDevice 列表（不能为0）缓存到内存中，用于 I/O 过滤和位图持久化。
 type StartTaskRequest struct {
 	// MetadataFile 为元数据文件路径。
 	MetadataFile [512]byte
@@ -26,9 +23,6 @@ type StartTaskRequest struct {
 	MetadataExtentsLen uint32 `struc:"sizeof=MetadataExtents"`
 
 	// MetadataExtents 为元数据区域对应的物理磁盘区间。
-	//
-	// 驱动会根据这些物理区间读取完整的元数据区域，并将其写入注册表，
-	// 以便系统重启后无需依赖文件系统即可恢复元数据。
 	MetadataExtents []biotrkmeta.DiskExtent
 }
 

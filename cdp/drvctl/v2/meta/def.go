@@ -46,12 +46,20 @@ const (
 	// DiskExtentBinSize 是 DiskExtent 的二进制大小。
 	// 520 (DiskID) + 8 (Start) + 8 (Size)
 	//
-	// ProtectedExtent.BitmapExtents 也是 DiskExtent，因此每一项同样占 536 Byte。
+	// DiskBitmap.BitmapExtents 与 ProtectedDevice.Extents 都是 DiskExtent，
+	// 因此每一项同样占 536 Byte。
 	DiskExtentBinSize = DiskIDBinSize + 8 + 8
 
-	// ProtectedExtentFixedBinSize 是 ProtectedExtent 中不随 BitmapExtents 数量变化的部分。
-	// 536 (Extent) + 8 (BitmapUnitStart) + 8 (BitmapUnitCount) + 4 (BitmapExtentCount)
-	ProtectedExtentFixedBinSize = DiskExtentBinSize + 8 + 8 + 4
+	// DiskExtentFixedBinSize 是固定大小的 Extent（与 DiskExtent 相同，仅语义区分）。
+	DiskExtentFixedBinSize = DiskExtentBinSize
+
+	// DiskBitmapFixedBinSize 是 DiskBitmap 磁盘位图记录中不随 BitmapExtents 数量变化的部分。
+	// 520 (DiskID) + 8 (BitmapUnitStart) + 8 (BitmapUnitCount) + 4 (BitmapExtentCount)
+	DiskBitmapFixedBinSize = DiskIDBinSize + 8 + 8 + 4
+
+	// DiskBitmapMinBinSize 是单条 DiskBitmap 记录的最小二进制大小。
+	// 4 (TotalSize) + 520 (DiskID) + 8 + 8 + 4
+	DiskBitmapMinBinSize = 4 + DiskBitmapFixedBinSize
 
 	// ProtectedDeviceFixedBinSize 是 ProtectedDevice 中不随 Extents 数量变化的部分。
 	// 4 (Type) + 512 (DeviceID) + 4 (ExtentCount)
@@ -174,15 +182,13 @@ func (d *DiskExtent) String() string {
 	)
 }
 
-// ProtectedExtent 表示一个受保护的磁盘区域及其对应的位图单元区域。
+// DiskBitmap 表示一个存在保护区域的物理磁盘的位图记录。
 //
-// Extents 与 BitmapExtents 都是变长切片，实际数量分别由所属 ProtectedDevice 的
-// ExtentCount 和本结构的 BitmapExtentCount 记录，文件中按数量紧凑排列，无预留槽位。
-//
-// 切片里只存放有效项，因此不需要逐项的有效标记。
-type ProtectedExtent struct {
-	// Extent 为受保护的磁盘区域。
-	Extent DiskExtent
+// 位图数据已经提升为磁盘级别：同一个物理磁盘上的所有受保护区域（无论来自多少个
+// ProtectedDevice）共享一张拼接位图，其内容按记录顺序首尾拼接。
+type DiskBitmap struct {
+	// DiskID 为物理磁盘唯一标识。
+	DiskID DiskID
 
 	// BitmapUnitStart 起始位图单元索引
 	BitmapUnitStart uint64
@@ -193,23 +199,21 @@ type ProtectedExtent struct {
 	// BitmapExtentCount 为 BitmapExtents 的有效数量，与 len(BitmapExtents) 保持一致。
 	BitmapExtentCount uint32 `struc:"sizeof=BitmapExtents"`
 
-	// BitmapExtents 位图在物理磁盘的分布。
-	// 需要调用Flush接口后基于PhysicalExtents接口的返回值确认位图单元数据区的分布，
-	// 再基于这个ProtectedExtent的起始位图单元索引和长度，确定最终这个位图数据在物理磁盘的分布，
-	// 最后将结果填充此值到文件中，然后再调用ListValidProtectDevice就能知道这个列表具体是怎样的了。
+	// BitmapExtents 此磁盘位图数据在元数据磁盘上的真实物理分布。
+	// Flush 之后才有内容；驱动按顺序拼接后即为此磁盘的位图数据。
 	//
 	// 注意这里的 Start 是位图数据在物理磁盘上的绝对偏移，
 	// 不是元数据区域内的相对偏移。
 	BitmapExtents []DiskExtent
 }
 
-func (p *ProtectedExtent) String() string {
+func (d *DiskBitmap) String() string {
 	return fmt.Sprintf(
-		"protected_extent{extent=%s, bitmap_unit_start=%d, bitmap_unit_count=%d, bitmap_extents=%d}",
-		p.Extent.String(),
-		p.BitmapUnitStart,
-		p.BitmapUnitCount,
-		len(p.BitmapExtents),
+		"disk_bitmap{disk=%s, bitmap_unit_start=%d, bitmap_unit_count=%d, bitmap_extents=%d}",
+		d.DiskID.String(),
+		d.BitmapUnitStart,
+		d.BitmapUnitCount,
+		len(d.BitmapExtents),
 	)
 }
 
@@ -240,7 +244,9 @@ type ProtectedDevice struct {
 	ExtentCount uint32 `struc:"sizeof=Extents"`
 
 	// Extents 为设备上的受保护区域集合。
-	Extents []ProtectedExtent
+	// 位图数据已提升为磁盘级别，因此这里只记录受保护区间本身，
+	// 不再携带 BitmapUnitStart / BitmapUnitCount / BitmapExtents。
+	Extents []DiskExtent
 }
 
 func (d *ProtectedDevice) String() string {
@@ -259,26 +265,30 @@ func (d *ProtectedDevice) String() string {
 
 // Header 是 BIOTRKMETA 文件头部，固定 4096 字节。
 //
-// 区域顺序为 Header → Allocation Map → Bitmap Unit Data → Protected Device Records。
-// 记录区放在最后，是为了让变长记录可以自由增长：它后面没有任何其他区域，
-// 长大也不会踩坏 Allocation Map 或 Bitmap Unit Data。
+// 区域顺序为 Header → Allocation Map → Bitmap Unit Data → Disk Bitmap Allocation
+// → Protected Device Records。
+// 两个变长记录区（Disk Bitmap Allocation 与 Protected Device Records）放在最后，
+// 让它们可以自由增长，长大也不会踩坏 Allocation Map 或 Bitmap Unit Data。
 type Header struct {
-	Signature             [16]byte
-	Version               uint32
-	CDPStatus             uint32
-	ErrorCode             uint64
-	BitIndexSpace         uint64
-	BitmapClusterSize     uint32
-	TotalBitmapUnits      uint32
-	ProtectedRegionOffset uint64
-	ProtectedRegionSize   uint64
-	ProtectedDeviceCount  uint32
-	WorkMode              uint32
-	BitmapAllocMapOffset  uint64
-	BitmapAllocMapSize    uint64
-	BitmapDataOffset      uint64
-	HeaderCRC32           uint32
-	Reserved              [HeaderSize - 100]byte
+	Signature                   [16]byte
+	Version                     uint32
+	CDPStatus                   uint32
+	ErrorCode                   uint64
+	BitIndexSpace               uint64
+	BitmapClusterSize           uint32
+	TotalBitmapUnits            uint32
+	ProtectedRegionOffset       uint64
+	ProtectedRegionSize         uint64
+	ProtectedDeviceCount        uint32
+	WorkMode                    uint32
+	BitmapAllocMapOffset        uint64
+	BitmapAllocMapSize          uint64
+	BitmapDataOffset            uint64
+	DiskBitmapAllocRegionOffset uint64
+	DiskBitmapAllocRegionSize   uint64
+	DiskCount                   uint32
+	HeaderCRC32                 uint32
+	Reserved                    [HeaderSize - 120]byte
 }
 
 // BitmapAllocMapTotalSize 返回 Allocation Map 区域大小（已按 AlignSize 对齐）。
@@ -301,13 +311,17 @@ func (h *Header) TotalSize() int64 {
 
 // applyBaseLayout 推导与记录内容无关的区域偏移。
 //
-// ProtectedRegionSize 由实际写入的记录决定，不在此处设置。
+// DiskBitmapAllocRegionSize 与 ProtectedRegionSize 由实际写入的记录决定，不在此处设置；
+// ProtectedRegionOffset = DiskBitmapAllocRegionOffset + DiskBitmapAllocRegionSize，在 flush 时更新。
 // 各区域首尾相接且起始偏移都是 AlignSize 的整数倍，因此每个区域都能整体做扇区对齐读写。
 func applyBaseLayout(h *Header) {
 	h.BitmapAllocMapOffset = HeaderSize
 	h.BitmapAllocMapSize = h.BitmapAllocMapTotalSize()
 	h.BitmapDataOffset = h.BitmapAllocMapOffset + h.BitmapAllocMapSize
-	h.ProtectedRegionOffset = h.BitmapDataOffset + h.BitmapDataTotalSize()
+	h.DiskBitmapAllocRegionOffset = h.BitmapDataOffset + h.BitmapDataTotalSize()
+	// 无磁盘记录时的“空”值
+	h.DiskBitmapAllocRegionSize = 0
+	h.ProtectedRegionOffset = h.DiskBitmapAllocRegionOffset
 }
 
 // alignUp 将 v 向上取整到 AlignSize 的整数倍。
@@ -316,15 +330,19 @@ func alignUp(v uint64) uint64 {
 }
 
 type BioTrkMetadata struct {
-	file     *os.File
-	filePath string
-	offset   int64
-	header   Header
-	devices  []ProtectedDevice
-	allocMap []byte
+	file        *os.File
+	filePath    string
+	offset      int64
+	header      Header
+	devices     []ProtectedDevice
+	diskBitmaps []DiskBitmap
+	allocMap    []byte
 
 	// regionHighWater 是 Protected Region 历史上写到的最大字节数。
 	// 记录变少时区域会缩小，Flush 需要把 [新末尾, regionHighWater) 一并写零，
 	// 否则磁盘上会残留已删除设备的旧记录。
 	regionHighWater uint64
+
+	// diskRegionHighWater 是 Disk Bitmap Allocation 区域历史上写到的最大字节数。
+	diskRegionHighWater uint64
 }

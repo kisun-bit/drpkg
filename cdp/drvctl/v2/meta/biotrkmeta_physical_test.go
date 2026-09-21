@@ -162,7 +162,7 @@ func TestPhysicalDrive(t *testing.T) {
 		}
 
 		// 10. 读取位图
-		bitCount, bitmapData, err := bm.ReadDeviceBitmap(makeID("test-disk-001"))
+		bitCount, bitmapData, err := bm.ReadDiskBitmap(makeID("test-disk-001"))
 		if err != nil {
 			t.Fatalf("ReadDeviceBitmap failed: %v", err)
 		}
@@ -251,7 +251,7 @@ func TestPhysicalDrive(t *testing.T) {
 		t.Logf("Load after Flush: OK, device=%s", xutil.TrimZeroString(pds2[0].DeviceID[:]))
 
 		// 15. 读取位图（重新加载后）
-		bitCount2, bitmapData2, err := bm2.ReadDeviceBitmap(makeID("test-disk-001"))
+		bitCount2, bitmapData2, err := bm2.ReadDiskBitmap(makeID("test-disk-001"))
 		if err != nil {
 			t.Fatalf("ReadDeviceBitmap after reload failed: %v", err)
 		}

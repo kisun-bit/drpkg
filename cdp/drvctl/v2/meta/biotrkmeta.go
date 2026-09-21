@@ -123,6 +123,21 @@ func Load(file string, offset int64) (*BioTrkMetadata, error) {
 		return nil, err
 	}
 
+	// 读取磁盘位图分配区域
+	var diskBitmaps []DiskBitmap
+	if h.DiskBitmapAllocRegionSize > 0 {
+		region := make([]byte, h.DiskBitmapAllocRegionSize)
+		if _, err := f.ReadAt(region, offset+int64(h.DiskBitmapAllocRegionOffset)); err != nil {
+			f.Close()
+			return nil, errors.Wrap(err, "failed to read disk bitmap region")
+		}
+		diskBitmaps, err = parseDiskBitmapRegion(region, h.DiskCount)
+		if err != nil {
+			f.Close()
+			return nil, err
+		}
+	}
+
 	// 读取 Protected Device 记录：整个区域一次对齐读入，再在内存里按 TotalSize 前缀顺序解析。
 	// 变长记录的单条长度不保证扇区对齐，因此不能按条读（裸设备上会失败）。
 	var devices []ProtectedDevice
@@ -146,6 +161,20 @@ func Load(file string, offset int64) (*BioTrkMetadata, error) {
 		return nil, errors.Wrap(err, "failed to read allocation map")
 	}
 
+	// 校验磁盘位图记录一致性
+	for i := range diskBitmaps {
+		if err := validateDiskBitmap(&diskBitmaps[i], h, allocMap); err != nil {
+			f.Close()
+			return nil, errors.Wrapf(err, "disk bitmap %d validation failed", i)
+		}
+	}
+
+	// 校验磁盘位图单元范围不重叠
+	if err := validateBitmapUnitNoOverlap(diskBitmaps); err != nil {
+		f.Close()
+		return nil, err
+	}
+
 	// 校验 ProtectedDevice 一致性
 	for i := range devices {
 		if err := validateProtectedDevice(&devices[i], h, allocMap); err != nil {
@@ -154,18 +183,13 @@ func Load(file string, offset int64) (*BioTrkMetadata, error) {
 		}
 	}
 
-	// 校验同一设备内 Bitmap Unit 范围不重叠
-	if err := validateBitmapUnitNoOverlap(devices); err != nil {
-		f.Close()
-		return nil, err
-	}
-
 	return &BioTrkMetadata{
 		file:            f,
 		filePath:        file,
 		offset:          offset,
 		header:          *h,
 		devices:         devices,
+		diskBitmaps:     diskBitmaps,
 		allocMap:        allocMap,
 		regionHighWater: h.ProtectedRegionSize,
 	}, nil
@@ -182,12 +206,306 @@ func (bm *BioTrkMetadata) ListValidProtectDevice() ([]*ProtectedDevice, error) {
 	return pds, nil
 }
 
-// AddProtectDevice 添加一个受保护设备。不支持同名 devID 同时存在。
-// 分配成功后更新位图单元分配表。
+// distinctDisks 返回 extents 中去重后的磁盘 ID 集合（保持首次出现顺序）。
+func distinctDisks(extents []DiskExtent) []ID {
+	var order []ID
+	seen := make(map[ID]bool)
+	for _, e := range extents {
+		if seen[e.DiskID.ID] {
+			continue
+		}
+		seen[e.DiskID.ID] = true
+		order = append(order, e.DiskID.ID)
+	}
+	return order
+}
+
+// diskExtentLayout 描述某个磁盘位图按记录顺序拼接后的布局。
+type diskExtentLayout struct {
+	diskID    DiskID
+	extents   []DiskExtent
+	bitStart  []uint64 // 每个 extent 在拼接位图中的起始 bit
+	totalBits uint64
+}
+
+// buildDiskLayouts 从 devices 推导每个磁盘按记录顺序拼接的位图布局。
 //
-// Extents 与设备数量都没有格式层面的上限：记录是变长的，Protected Region 位于
-// 元数据区域末尾，增长不会破坏其他区域。但区域会因此变大，调用方需要自行确认
-// Size() 仍然落在可用空间内（裸设备上尤其要留意预留范围与磁盘末尾）。
+// 磁盘去重顺序 = 第一次出现顺序；extent 顺序 = (设备记录顺序, 设备内 extent 顺序)。
+// 每 extent 占 ceil(Size / BitIndexSpace) bit。
+func buildDiskLayouts(devices []ProtectedDevice, bitIndexSpace uint64) []diskExtentLayout {
+	var order []DiskID
+	byID := make(map[ID]*diskExtentLayout)
+
+	for di := range devices {
+		for _, ext := range devices[di].Extents {
+			lo, ok := byID[ext.DiskID.ID]
+			if !ok {
+				lo = &diskExtentLayout{diskID: ext.DiskID}
+				order = append(order, ext.DiskID)
+				byID[ext.DiskID.ID] = lo
+			}
+			lo.extents = append(lo.extents, ext)
+		}
+	}
+
+	result := make([]diskExtentLayout, 0, len(order))
+	for _, d := range order {
+		lo := byID[d.ID]
+		lo.bitStart = make([]uint64, len(lo.extents))
+		var off uint64
+		for i := range lo.extents {
+			lo.bitStart[i] = off
+			off += (lo.extents[i].Size + bitIndexSpace - 1) / bitIndexSpace
+		}
+		lo.totalBits = off
+		result = append(result, *lo)
+	}
+	return result
+}
+
+// findExtentIndex 在 extents 中查找与 target 完全相同的区间（DiskID+Start+Size）。
+// 同一磁盘内的受保护区间不重叠、不重复，因此 Start+Size 唯一标识。
+func findExtentIndex(extents []DiskExtent, target DiskExtent) int {
+	for i := range extents {
+		e := &extents[i]
+		if !bytes.Equal(e.DiskID.ID[:], target.DiskID.ID[:]) {
+			continue
+		}
+		if e.Start == target.Start && e.Size == target.Size {
+			return i
+		}
+	}
+	return -1
+}
+
+// layoutsByID 把磁盘位图布局切片转换为按 DiskID 索引的 map。
+func layoutsByID(layouts []diskExtentLayout) map[ID]diskExtentLayout {
+	m := make(map[ID]diskExtentLayout, len(layouts))
+	for _, lo := range layouts {
+		m[lo.diskID.ID] = lo
+	}
+	return m
+}
+
+// syncDiskBitmaps 依据 bm.devices 现状，把 bm.diskBitmaps 同步到一致状态。
+//
+// oldLayoutByID 为修改前各磁盘的位图布局，用于在扩容搬迁时把幸存区间（在旧布局中
+// 出现的区间）的 bit 映射到新位置；调用方在修改 bm.devices 之前通过 buildDiskLayouts
+// 计算得出。
+//
+// 各磁盘按以下规则处理：
+//   - 复用：磁盘仍存在且现有 BitmapUnitCount 已满足新的 unit 需求，保留原区间不动；
+//   - 扩容：现有 unit 不足时，优先原地向尾部连续增长（无需搬迁数据），
+//     尾部空间不足则整体搬迁到新的更大连续区间；
+//   - 新增：磁盘首次出现，从零分配连续 unit；
+//   - 释放：磁盘不再被任何受保护区间引用，释放其 unit 并删除记录。
+//
+// sync 失败时会恢复调用前的 diskBitmaps / allocMap / DiskCount，保证内存态一致。
+func (bm *BioTrkMetadata) syncDiskBitmaps(oldLayoutByID map[ID]diskExtentLayout) (err error) {
+	// 失败时恢复调用前状态
+	oldDisks := append([]DiskBitmap(nil), bm.diskBitmaps...)
+	oldAllocMap := append([]byte(nil), bm.allocMap...)
+	oldCount := bm.header.DiskCount
+	defer func() {
+		if err != nil {
+			bm.diskBitmaps = oldDisks
+			bm.allocMap = oldAllocMap
+			bm.header.DiskCount = oldCount
+		}
+	}()
+
+	bitIndexSpace := bm.header.BitIndexSpace
+	bitsPerUnit := uint64(bm.header.BitmapClusterSize) * 8
+
+	newLayouts := buildDiskLayouts(bm.devices, bitIndexSpace)
+	newLayoutByID := make(map[ID]diskExtentLayout, len(newLayouts))
+	for _, lo := range newLayouts {
+		newLayoutByID[lo.diskID.ID] = lo
+	}
+
+	oldByID := make(map[ID]*DiskBitmap, len(bm.diskBitmaps))
+	for i := range bm.diskBitmaps {
+		oldByID[bm.diskBitmaps[i].DiskID.ID] = &bm.diskBitmaps[i]
+	}
+
+	newDisks := make([]DiskBitmap, 0, len(newLayouts))
+	for i := range newLayouts {
+		lo := &newLayouts[i]
+		unitsNeeded := (lo.totalBits + bitsPerUnit - 1) / bitsPerUnit
+		if unitsNeeded == 0 {
+			continue
+		}
+
+		old := oldByID[lo.diskID.ID]
+		if old == nil {
+			// 新增磁盘
+			start, err := bm.allocBitmapUnits(unitsNeeded)
+			if err != nil {
+				return err
+			}
+			newDisks = append(newDisks, DiskBitmap{
+				DiskID:          lo.diskID,
+				BitmapUnitStart: start,
+				BitmapUnitCount: unitsNeeded,
+			})
+			continue
+		}
+
+		if unitsNeeded <= old.BitmapUnitCount {
+			// 复用：容量已够，保留原区间
+			db := *old
+			db.BitmapExtents = nil
+			db.BitmapExtentCount = 0
+			newDisks = append(newDisks, db)
+			continue
+		}
+
+		// 扩容
+		grown := DiskBitmap{}
+		if canGrowInPlace(bm.allocMap, &bm.header, old, unitsNeeded) {
+			if err := bm.claimBitmapUnits(old.BitmapUnitStart+old.BitmapUnitCount, unitsNeeded-old.BitmapUnitCount); err != nil {
+				return err
+			}
+			grown = DiskBitmap{
+				DiskID:          old.DiskID,
+				BitmapUnitStart: old.BitmapUnitStart,
+				BitmapUnitCount: unitsNeeded,
+			}
+		} else {
+			oldLo := oldLayoutByID[old.DiskID.ID]
+			g, err := bm.relocateDiskBitmap(old, unitsNeeded, lo, oldLo)
+			if err != nil {
+				return err
+			}
+			grown = *g
+		}
+		newDisks = append(newDisks, grown)
+	}
+
+	// 释放不再被任何受保护区间引用的磁盘
+	for i := range bm.diskBitmaps {
+		id := bm.diskBitmaps[i].DiskID.ID
+		if _, ok := newLayoutByID[id]; !ok {
+			bm.freeBitmapUnits(bm.diskBitmaps[i].BitmapUnitStart, bm.diskBitmaps[i].BitmapUnitCount)
+		}
+	}
+
+	bm.diskBitmaps = newDisks
+	bm.header.DiskCount = uint32(len(newDisks))
+	return nil
+}
+
+// canGrowInPlace 判断磁盘位图能否原地向后连续扩展到 unitsNeeded 个 unit。
+func canGrowInPlace(allocMap []byte, h *Header, old *DiskBitmap, unitsNeeded uint64) bool {
+	total := uint64(h.TotalBitmapUnits)
+	if old.BitmapUnitStart+unitsNeeded > total {
+		return false
+	}
+	for i := old.BitmapUnitCount; i < unitsNeeded; i++ {
+		if isBitmapUnitAllocated(allocMap, old.BitmapUnitStart+i) {
+			return false
+		}
+	}
+	return true
+}
+
+// claimBitmapUnits 把 [start, start+count) 区间清零并标记为已分配。
+// 要求该区间当前全部空闲，否则报错且不做任何修改。
+func (bm *BioTrkMetadata) claimBitmapUnits(start, count uint64) error {
+	total := uint64(bm.header.TotalBitmapUnits)
+	if count == 0 {
+		return nil
+	}
+	if start+count > total {
+		return errors.Errorf("bitmap unit range [%d, %d) exceeds total %d", start, start+count, total)
+	}
+	for i := uint64(0); i < count; i++ {
+		if isBitmapUnitAllocated(bm.allocMap, start+i) {
+			return errors.Errorf("bitmap unit %d already allocated", start+i)
+		}
+	}
+
+	unitSize := int64(bm.header.BitmapClusterSize)
+	zero := make([]byte, unitSize)
+	for i := uint64(0); i < count; i++ {
+		off := bm.offset + int64(bm.header.BitmapDataOffset) + int64(start+i)*unitSize
+		if _, err := bm.file.WriteAt(zero, off); err != nil {
+			return errors.Wrapf(err, "zero bitmap unit %d", start+i)
+		}
+	}
+
+	for i := uint64(0); i < count; i++ {
+		setBitmapUnitAllocated(bm.allocMap, start+i, true)
+	}
+	return nil
+}
+
+// relocateDiskBitmap 把磁盘位图整体搬迁到新的连续区间，保留幸存区间的位图值。
+func (bm *BioTrkMetadata) relocateDiskBitmap(old *DiskBitmap, unitsNeeded uint64, newLo *diskExtentLayout, oldLo diskExtentLayout) (*DiskBitmap, error) {
+	clusterSize := int64(bm.header.BitmapClusterSize)
+	unitBytes := uint64(clusterSize)
+	bitIndexSpace := bm.header.BitIndexSpace
+
+	// 读旧数据
+	raw := make([]byte, old.BitmapUnitCount*unitBytes)
+	off := bm.offset + int64(bm.header.BitmapDataOffset) + int64(old.BitmapUnitStart)*clusterSize
+	if _, err := bm.file.ReadAt(raw, off); err != nil {
+		return nil, errors.Wrap(err, "read old disk bitmap")
+	}
+
+	// 分配新连续区间
+	start, err := bm.allocBitmapUnits(unitsNeeded)
+	if err != nil {
+		return nil, err
+	}
+
+	// 迁移幸存区间
+	newBytes := make([]byte, unitsNeeded*unitBytes)
+	for i := range newLo.extents {
+		bitsForExtent := (newLo.extents[i].Size + bitIndexSpace - 1) / bitIndexSpace
+		if idx := findExtentIndex(oldLo.extents, newLo.extents[i]); idx >= 0 {
+			bitCopy(newBytes, newLo.bitStart[i], raw, oldLo.bitStart[idx], bitsForExtent)
+		}
+	}
+
+	// 写新数据
+	newOff := bm.offset + int64(bm.header.BitmapDataOffset) + int64(start)*clusterSize
+	if _, err := bm.file.WriteAt(newBytes, newOff); err != nil {
+		bm.freeBitmapUnits(start, unitsNeeded)
+		return nil, errors.Wrap(err, "write new disk bitmap")
+	}
+
+	// 释放旧区间
+	bm.freeBitmapUnits(old.BitmapUnitStart, old.BitmapUnitCount)
+
+	return &DiskBitmap{DiskID: old.DiskID, BitmapUnitStart: start, BitmapUnitCount: unitsNeeded}, nil
+}
+
+// diskLayoutFor 返回指定磁盘的位图布局，找不到返回 nil。
+func (bm *BioTrkMetadata) diskLayoutFor(diskID ID) *diskExtentLayout {
+	layouts := buildDiskLayouts(bm.devices, bm.header.BitIndexSpace)
+	for i := range layouts {
+		if bytes.Equal(layouts[i].diskID.ID[:], diskID[:]) {
+			return &layouts[i]
+		}
+	}
+	return nil
+}
+
+// findDiskBitmap 返回指定磁盘的位图记录，找不到返回 nil。
+func (bm *BioTrkMetadata) findDiskBitmap(diskID ID) *DiskBitmap {
+	for i := range bm.diskBitmaps {
+		if bytes.Equal(bm.diskBitmaps[i].DiskID.ID[:], diskID[:]) {
+			return &bm.diskBitmaps[i]
+		}
+	}
+	return nil
+}
+
+// AddProtectDevice 添加一个受保护设备。不支持同名 devID 同时存在。
+//
+// 位图以磁盘为单位维护：去重得到本次新增受保护对象触及的磁盘集合，
+// 追加这些磁盘的位图记录（对已有磁盘则增长其位图）。
 func (bm *BioTrkMetadata) AddProtectDevice(devType DeviceType, devID ID, extents []DiskExtent) error {
 	// 检查是否已存在同名设备
 	for i := range bm.devices {
@@ -207,10 +525,10 @@ func (bm *BioTrkMetadata) AddProtectDevice(devType DeviceType, devID ID, extents
 				continue
 			}
 			for _, existingExt := range existingDev.Extents {
-				if extentsOverlap(newExt, existingExt.Extent) {
+				if extentsOverlap(newExt, existingExt) {
 					return errors.Errorf(
 						"extent %s overlaps with existing extent %s of device %s",
-						newExt.String(), existingExt.Extent.String(),
+						newExt.String(), existingExt.String(),
 						xutil.TrimZeroString(existingDev.DeviceID[:]),
 					)
 				}
@@ -218,46 +536,29 @@ func (bm *BioTrkMetadata) AddProtectDevice(devType DeviceType, devID ID, extents
 		}
 	}
 
-	// 为每个 Extent 分配 Bitmap Unit
-	pd := ProtectedDevice{
+	oldLayouts := layoutsByID(buildDiskLayouts(bm.devices, bm.header.BitIndexSpace))
+
+	bm.devices = append(bm.devices, ProtectedDevice{
 		Type:        devType,
 		DeviceID:    devID,
 		ExtentCount: uint32(len(extents)),
-		Extents:     make([]ProtectedExtent, len(extents)),
-	}
-
-	bitmapUnitCapacity := uint64(bm.header.BitmapClusterSize) * 8 * bm.header.BitIndexSpace
-
-	for i, ext := range extents {
-		neededUnits := (ext.Size + bitmapUnitCapacity - 1) / bitmapUnitCapacity
-		if neededUnits == 0 {
-			neededUnits = 1
-		}
-
-		startUnit, err := bm.allocBitmapUnits(neededUnits)
-		if err != nil {
-			// 回滚已分配的
-			for j := 0; j < i; j++ {
-				bm.freeBitmapUnits(pd.Extents[j].BitmapUnitStart, pd.Extents[j].BitmapUnitCount)
-			}
-			return errors.Wrapf(err, "failed to allocate bitmap units for extent %d", i)
-		}
-
-		pd.Extents[i] = ProtectedExtent{
-			Extent:          ext,
-			BitmapUnitStart: startUnit,
-			BitmapUnitCount: neededUnits,
-		}
-	}
-
-	bm.devices = append(bm.devices, pd)
+		Extents:     append([]DiskExtent(nil), extents...),
+	})
 	bm.header.ProtectedDeviceCount = uint32(len(bm.devices))
+
+	if err := bm.syncDiskBitmaps(oldLayouts); err != nil {
+		bm.devices = bm.devices[:len(bm.devices)-1]
+		bm.header.ProtectedDeviceCount = uint32(len(bm.devices))
+		return err
+	}
 
 	return nil
 }
 
 // RemoveProtectDevice 移除指定设备 ID 的受保护设备。若不存在也返回 nil。
-// 删除后需要更新位图单元分配表。
+//
+// 位图以磁盘为单位维护：去重得到被删除受保护对象触及的磁盘集合，
+// 裁剪这些磁盘的位图记录（磁盘不再有任何受保护区间时删除记录并释放 unit）。
 func (bm *BioTrkMetadata) RemoveProtectDevice(devID ID) error {
 	idx := -1
 	for i := range bm.devices {
@@ -270,88 +571,65 @@ func (bm *BioTrkMetadata) RemoveProtectDevice(devID ID) error {
 		return nil
 	}
 
-	// 释放该设备占用的 Bitmap Unit
-	for _, ext := range bm.devices[idx].Extents {
-		bm.freeBitmapUnits(ext.BitmapUnitStart, ext.BitmapUnitCount)
-	}
+	oldLayouts := layoutsByID(buildDiskLayouts(bm.devices, bm.header.BitIndexSpace))
 
+	removed := bm.devices[idx]
 	bm.devices = append(bm.devices[:idx], bm.devices[idx+1:]...)
 	bm.header.ProtectedDeviceCount = uint32(len(bm.devices))
+
+	if err := bm.syncDiskBitmaps(oldLayouts); err != nil {
+		bm.devices = append(bm.devices, ProtectedDevice{})
+		copy(bm.devices[idx+1:], bm.devices[idx:])
+		bm.devices[idx] = removed
+		bm.header.ProtectedDeviceCount = uint32(len(bm.devices))
+		return err
+	}
 
 	return nil
 }
 
 // RemoveAllProtectDevice 移除所有受保护设备。
 func (bm *BioTrkMetadata) RemoveAllProtectDevice() error {
-	for i := range bm.devices {
-		for _, ext := range bm.devices[i].Extents {
-			bm.freeBitmapUnits(ext.BitmapUnitStart, ext.BitmapUnitCount)
-		}
+	for i := range bm.diskBitmaps {
+		bm.freeBitmapUnits(bm.diskBitmaps[i].BitmapUnitStart, bm.diskBitmaps[i].BitmapUnitCount)
 	}
+	bm.diskBitmaps = nil
+	bm.header.DiskCount = 0
+
 	bm.devices = nil
 	bm.header.ProtectedDeviceCount = 0
 	return nil
 }
 
-// ReadDeviceBitmap 读取指定受保护设备的位图，按 Extent 顺序拼接后返回。
-//
-// 每个 Extent 实际需要的 bit 数 = ceil(Extent.Size / BitIndexSpace)，
-// 可能小于其 BitmapUnit 提供的总 bit 数（最后一个 Unit 有未使用尾部），
-// 拼接时只取有效 bit，丢弃多余部分。
+// ReadDiskBitmap 读取指定物理磁盘的位图，按该盘受保护区间拼接后的顺序返回。
 //
 // 返回的 bitCount 为总有效 bit 数，bitmapData 为 packed bytes（bitCount 不足 8 的倍数时最后一个字节高位补 0）。
-func (bm *BioTrkMetadata) ReadDeviceBitmap(devID ID) (bitCount uint32, bitmapData []byte, err error) {
-	pd := bm.findDevice(devID)
-	if pd == nil {
-		return 0, nil, errors.Errorf("device %s not found", xutil.TrimZeroString(devID[:]))
+func (bm *BioTrkMetadata) ReadDiskBitmap(diskID ID) (bitCount uint32, bitmapData []byte, err error) {
+	layout := bm.diskLayoutFor(diskID)
+	if layout == nil || layout.totalBits == 0 {
+		return 0, nil, errors.Errorf("disk %s not found", xutil.TrimZeroString(diskID[:]))
 	}
 
-	bitsPerUnit := uint64(bm.header.BitmapClusterSize) * 8
+	db := bm.findDiskBitmap(diskID)
+	if db == nil {
+		return 0, nil, errors.Errorf("disk %s has no bitmap record", xutil.TrimZeroString(diskID[:]))
+	}
+
 	unitBytes := int64(bm.header.BitmapClusterSize)
-
-	// 计算总有效 bit 数
-	var totalBits uint64
-	for i := range pd.Extents {
-		totalBits += (pd.Extents[i].Extent.Size + bm.header.BitIndexSpace - 1) / bm.header.BitIndexSpace
-	}
-	if totalBits == 0 {
-		return 0, nil, nil
+	raw := make([]byte, db.BitmapUnitCount*uint64(unitBytes))
+	off := bm.offset + int64(bm.header.BitmapDataOffset) + int64(db.BitmapUnitStart)*unitBytes
+	if _, err := bm.file.ReadAt(raw, off); err != nil {
+		return 0, nil, errors.Wrap(err, "read disk bitmap")
 	}
 
-	dataBytes := (totalBits + 7) / 8
+	dataBytes := (layout.totalBits + 7) / 8
 	bitmapData = make([]byte, dataBytes)
+	bitCopy(bitmapData, 0, raw, 0, layout.totalBits)
 
-	var dstBitOff uint64 // 已写入的目标 bit 偏移
-	unitBuf := make([]byte, unitBytes)
-
-	for i := range pd.Extents {
-		pe := &pd.Extents[i]
-
-		bitsForExtent := (pe.Extent.Size + bm.header.BitIndexSpace - 1) / bm.header.BitIndexSpace
-		bitsRemaining := bitsForExtent
-
-		for u := uint64(0); u < pe.BitmapUnitCount && bitsRemaining > 0; u++ {
-			unitIdx := pe.BitmapUnitStart + u
-			unitOff := bm.offset + int64(bm.header.BitmapDataOffset) + int64(unitIdx)*unitBytes
-			if _, err := bm.file.ReadAt(unitBuf, unitOff); err != nil {
-				return 0, nil, errors.Wrapf(err, "read bitmap unit %d", unitIdx)
-			}
-
-			n := bitsRemaining
-			if n > bitsPerUnit {
-				n = bitsPerUnit
-			}
-
-			bitCopy(bitmapData, dstBitOff, unitBuf, 0, n)
-			dstBitOff += n
-			bitsRemaining -= n
-		}
-	}
-
-	return uint32(totalBits), bitmapData, nil
+	return uint32(layout.totalBits), bitmapData, nil
 }
 
-// ResolveBitmapExtents 解析每个 ProtectedExtent 的位图数据在物理磁盘上的分布。
+// ResolveBitmapExtents 解析每个磁盘位图记录的位图数据在物理磁盘上的分布。
 //
 // 必须在 Flush 之前调用（Flush 内部会自动调用），确保写入磁盘的记录包含正确的
 // BitmapExtents。驱动后续基于 BitmapExtents 直接写入物理磁盘更新位图，
@@ -360,7 +638,7 @@ func (bm *BioTrkMetadata) ReadDeviceBitmap(devID ID) (bitCount uint32, bitmapDat
 // 算法：
 //  1. 获取整个元数据区域的物理磁盘分布（PhysicalExtents）
 //  2. 裁剪到位图数据区 [BitmapDataOffset, BitmapDataOffset + BitmapClusterSize*TotalBitmapUnits)
-//  3. 对每个 ProtectedExtent，将其 bitmap unit 范围映射到物理 extent
+//  3. 对每个磁盘位图记录，将其 bitmap unit 范围映射到物理 extent
 //
 // 位图数据区位于记录区之前，在 Create 时就已完整分配且永不移动，
 // 因此解析结果与设备记录的内容和数量完全无关，Flush 一次写入即可得到最终结果。
@@ -415,48 +693,55 @@ func (bm *BioTrkMetadata) ResolveBitmapExtents() error {
 		metaOff += int64(e.Size)
 	}
 
-	// 为每个 ProtectedExtent 解析 BitmapExtents
-	for di := range bm.devices {
-		for ei := range bm.devices[di].Extents {
-			pe := &bm.devices[di].Extents[ei]
+	// 为每个磁盘位图记录解析 BitmapExtents
+	for i := range bm.diskBitmaps {
+		db := &bm.diskBitmaps[i]
 
-			unitStart := int64(pe.BitmapUnitStart) * clusterSize
-			unitEnd := int64(pe.BitmapUnitStart+pe.BitmapUnitCount) * clusterSize
+		unitStart := int64(db.BitmapUnitStart) * clusterSize
+		unitEnd := int64(db.BitmapUnitStart+db.BitmapUnitCount) * clusterSize
 
-			extents := make([]DiskExtent, 0, len(bitmapSegs))
-			for _, seg := range bitmapSegs {
-				segStart := seg.metaStart
-				segEnd := seg.metaStart + seg.size
+		extents := make([]DiskExtent, 0, len(bitmapSegs))
+		for _, seg := range bitmapSegs {
+			segStart := seg.metaStart
+			segEnd := seg.metaStart + seg.size
 
-				if segEnd <= unitStart {
-					continue
-				}
-				if segStart >= unitEnd {
-					break
-				}
-
-				clipStart := segStart
-				if clipStart < unitStart {
-					clipStart = unitStart
-				}
-				clipEnd := segEnd
-				if clipEnd > unitEnd {
-					clipEnd = unitEnd
-				}
-
-				extents = append(extents, DiskExtent{
-					DiskID: seg.diskID,
-					Start:  uint64(seg.physStart + (clipStart - segStart)),
-					Size:   uint64(clipEnd - clipStart),
-				})
+			if segEnd <= unitStart {
+				continue
+			}
+			if segStart >= unitEnd {
+				break
 			}
 
-			pe.BitmapExtents = extents
-			pe.BitmapExtentCount = uint32(len(extents))
+			clipStart := segStart
+			if clipStart < unitStart {
+				clipStart = unitStart
+			}
+			clipEnd := segEnd
+			if clipEnd > unitEnd {
+				clipEnd = unitEnd
+			}
+
+			extents = append(extents, DiskExtent{
+				DiskID: seg.diskID,
+				Start:  uint64(seg.physStart + (clipStart - segStart)),
+				Size:   uint64(clipEnd - clipStart),
+			})
 		}
+
+		db.BitmapExtents = extents
+		db.BitmapExtentCount = uint32(len(extents))
 	}
 
 	return nil
+}
+
+// ListDiskBitmaps 返回所有存在保护区域的磁盘位图记录。
+func (bm *BioTrkMetadata) ListDiskBitmaps() []*DiskBitmap {
+	out := make([]*DiskBitmap, 0, len(bm.diskBitmaps))
+	for i := range bm.diskBitmaps {
+		out = append(out, &bm.diskBitmaps[i])
+	}
+	return out
 }
 
 // Flush 将内存中的元数据持久化到磁盘。
@@ -483,11 +768,40 @@ func (bm *BioTrkMetadata) Flush() ([]DiskExtent, error) {
 	return bm.PhysicalExtents()
 }
 
-// flushRecords 写入 Protected Region、Allocation Map 和 Header。
+// flushRecords 写入 Disk Bitmap Allocation、Protected Region、Allocation Map 和 Header。
 //
-// 所有设备记录打包成一个整体、末尾补齐到 AlignSize 后一次写入：
+// 两个变长记录区各自打包成整体、末尾补齐到 AlignSize 后一次写入：
 // 变长记录的单条长度不保证扇区对齐，只有整区读写才能在裸设备上成立。
 func (bm *BioTrkMetadata) flushRecords() error {
+	// 1) Disk Bitmap Allocation 区域
+	var diskSize uint64
+	for i := range bm.diskBitmaps {
+		diskSize += uint64(calcDiskBitmapBinSize(&bm.diskBitmaps[i]))
+	}
+	bm.header.DiskBitmapAllocRegionSize = alignUp(diskSize)
+
+	diskBlobSize := alignUp(diskSize)
+	if diskBlobSize > 0 {
+		blob := make([]byte, diskBlobSize)
+		pos := 0
+		for i := range bm.diskBitmaps {
+			buf, err := packDiskBitmap(&bm.diskBitmaps[i])
+			if err != nil {
+				return errors.Wrapf(err, "failed to pack disk bitmap %d", i)
+			}
+			copy(blob[pos:], buf)
+			pos += len(buf)
+		}
+
+		off := bm.offset + int64(bm.header.DiskBitmapAllocRegionOffset)
+		if _, err := bm.file.WriteAt(blob, off); err != nil {
+			return errors.Wrap(err, "failed to write disk bitmap region")
+		}
+	}
+
+	// 2) Protected Region 紧随磁盘位图分配区域
+	bm.header.ProtectedRegionOffset = bm.header.DiskBitmapAllocRegionOffset + bm.header.DiskBitmapAllocRegionSize
+
 	var recordsSize uint64
 	for i := range bm.devices {
 		recordsSize += uint64(calcProtectedDeviceBinSize(&bm.devices[i]))
@@ -518,14 +832,15 @@ func (bm *BioTrkMetadata) flushRecords() error {
 	}
 	bm.regionHighWater = blobSize
 
-	// 写入 Allocation Map
+	// 3) Allocation Map
 	if _, err := bm.file.WriteAt(bm.allocMap, bm.offset+int64(bm.header.BitmapAllocMapOffset)); err != nil {
 		return errors.Wrap(err, "failed to write allocation map")
 	}
 
-	// 更新区域大小与 CRC32，写入 Header
+	// 4) Header
 	bm.header.ProtectedRegionSize = alignUp(recordsSize)
 	bm.header.ProtectedDeviceCount = uint32(len(bm.devices))
+	bm.header.DiskCount = uint32(len(bm.diskBitmaps))
 	bm.header.HeaderCRC32 = calcCRC32(&bm.header)
 	if err := writeHeader(bm.file, bm.offset, &bm.header); err != nil {
 		return err
@@ -833,9 +1148,31 @@ func validateHeader(f *os.File, offset int64, h *Header) error {
 		return errors.Errorf("BitmapDataOffset %d != expected %d",
 			h.BitmapDataOffset, expected.BitmapDataOffset)
 	}
-	if h.ProtectedRegionOffset != expected.ProtectedRegionOffset {
-		return errors.Errorf("ProtectedRegionOffset %d != expected %d",
-			h.ProtectedRegionOffset, expected.ProtectedRegionOffset)
+	if h.DiskBitmapAllocRegionOffset != expected.DiskBitmapAllocRegionOffset {
+		return errors.Errorf("DiskBitmapAllocRegionOffset %d != expected %d",
+			h.DiskBitmapAllocRegionOffset, expected.DiskBitmapAllocRegionOffset)
+	}
+
+	// DiskBitBerapAllocRegionSize / ProtectedRegionOffset 随记录内容变化
+	if h.DiskBitmapAllocRegionSize%AlignSize != 0 {
+		return errors.Errorf("DiskBitmapAllocRegionSize %d is not aligned to %d",
+			h.DiskBitmapAllocRegionSize, AlignSize)
+	}
+	if h.ProtectedRegionOffset != h.DiskBitmapAllocRegionOffset+h.DiskBitmapAllocRegionSize {
+		return errors.Errorf("ProtectedRegionOffset %d != DiskBitmapAllocRegionOffset %d + DiskBitmapAllocRegionSize %d",
+			h.ProtectedRegionOffset, h.DiskBitmapAllocRegionOffset, h.DiskBitmapAllocRegionSize)
+	}
+
+	// DiskCount / DiskBitmapAllocRegionSize 下限
+	if h.DiskCount > 0 {
+		minSize := uint64(h.DiskCount) * DiskBitmapMinBinSize
+		if h.DiskBitmapAllocRegionSize < minSize {
+			return errors.Errorf("DiskBitmapAllocRegionSize %d too small for %d records (need >= %d)",
+				h.DiskBitmapAllocRegionSize, h.DiskCount, minSize)
+		}
+	} else if h.DiskBitmapAllocRegionSize != 0 {
+		return errors.Errorf("DiskBitmapAllocRegionSize must be 0 when DiskCount is 0, got %d",
+			h.DiskBitmapAllocRegionSize)
 	}
 
 	// ProtectedRegionSize 随记录内容变化，只校验对齐与下限
@@ -854,7 +1191,12 @@ func validateHeader(f *os.File, offset int64, h *Header) error {
 	}
 
 	// 区域起始偏移必须对齐，否则裸设备上无法整体读写
-	for _, v := range []uint64{h.BitmapAllocMapOffset, h.BitmapDataOffset, h.ProtectedRegionOffset} {
+	for _, v := range []uint64{
+		h.BitmapAllocMapOffset,
+		h.BitmapDataOffset,
+		h.DiskBitmapAllocRegionOffset,
+		h.ProtectedRegionOffset,
+	} {
 		if v%AlignSize != 0 {
 			return errors.Errorf("region offset %d is not aligned to %d", v, AlignSize)
 		}
@@ -877,7 +1219,12 @@ func validateHeader(f *os.File, offset int64, h *Header) error {
 }
 
 // validateProtectedDevice 校验单条 ProtectedDevice。
+//
+// 位图单元相关的校验已经移交到 DiskBitmap 记录（磁盘级别），这里仅校验设备与受保护区间本身。
 func validateProtectedDevice(pd *ProtectedDevice, h *Header, allocMap []byte) error {
+	_ = h
+	_ = allocMap
+
 	// DeviceType
 	if pd.Type != DeviceTypeDisk && pd.Type != DeviceTypeVolume {
 		return errors.Errorf("invalid DeviceType: %d", pd.Type)
@@ -890,64 +1237,64 @@ func validateProtectedDevice(pd *ProtectedDevice, h *Header, allocMap []byte) er
 
 	// Extents
 	for i := range pd.Extents {
-		pe := &pd.Extents[i]
+		ext := &pd.Extents[i]
 
-		if pe.Extent.Size == 0 {
+		if ext.Size == 0 {
 			return errors.Errorf("extent %d: Size is 0", i)
 		}
-		if pe.BitmapUnitCount == 0 {
-			return errors.Errorf("extent %d: BitmapUnitCount is 0", i)
-		}
-
-		// BitmapUnit 范围不得越界
-		if pe.BitmapUnitStart >= uint64(h.TotalBitmapUnits) {
-			return errors.Errorf("extent %d: BitmapUnitStart %d >= TotalBitmapUnits %d",
-				i, pe.BitmapUnitStart, h.TotalBitmapUnits)
-		}
-		if pe.BitmapUnitCount > uint64(h.TotalBitmapUnits)-pe.BitmapUnitStart {
-			return errors.Errorf("extent %d: BitmapUnit range [%d, %d) exceeds TotalBitmapUnits %d",
-				i, pe.BitmapUnitStart, pe.BitmapUnitStart+pe.BitmapUnitCount, h.TotalBitmapUnits)
-		}
-
-		// Extent 引用的 Bitmap Unit 必须已分配
-		for u := pe.BitmapUnitStart; u < pe.BitmapUnitStart+pe.BitmapUnitCount; u++ {
-			if !isBitmapUnitAllocated(allocMap, u) {
-				return errors.Errorf("extent %d: bitmap unit %d not allocated", i, u)
-			}
-		}
-
-		// Bitmap Unit 容量必须足够
-		unitCapacity := uint64(h.BitmapClusterSize) * 8 * h.BitIndexSpace
-		coveredCapacity := pe.BitmapUnitCount * unitCapacity
-		if coveredCapacity < pe.Extent.Size {
-			return errors.Errorf("extent %d: bitmap capacity %d < extent size %d",
-				i, coveredCapacity, pe.Extent.Size)
-		}
-
-		if err := validateBitmapExtents(pe, h); err != nil {
-			return errors.Wrapf(err, "extent %d", i)
+		if isEmptyDeviceID(ext.DiskID.ID) {
+			return errors.Errorf("extent %d: DiskID is empty", i)
 		}
 	}
 
 	return nil
 }
 
-// validateBitmapExtents 校验单个 ProtectedExtent 的位图物理分布。
+// validateDiskBitmap 校验单条磁盘位图记录。
+func validateDiskBitmap(db *DiskBitmap, h *Header, allocMap []byte) error {
+	if isEmptyDeviceID(db.DiskID.ID) {
+		return errors.New("DiskID is empty")
+	}
+	if db.BitmapUnitCount == 0 {
+		return errors.New("BitmapUnitCount is 0")
+	}
+
+	// BitmapUnit 范围不得越界
+	if db.BitmapUnitStart >= uint64(h.TotalBitmapUnits) {
+		return errors.Errorf("BitmapUnitStart %d >= TotalBitmapUnits %d",
+			db.BitmapUnitStart, h.TotalBitmapUnits)
+	}
+	if db.BitmapUnitCount > uint64(h.TotalBitmapUnits)-db.BitmapUnitStart {
+		return errors.Errorf("BitmapUnit range [%d, %d) exceeds TotalBitmapUnits %d",
+			db.BitmapUnitStart, db.BitmapUnitStart+db.BitmapUnitCount, h.TotalBitmapUnits)
+	}
+
+	// 引用的 Bitmap Unit 必须已分配
+	for u := db.BitmapUnitStart; u < db.BitmapUnitStart+db.BitmapUnitCount; u++ {
+		if !isBitmapUnitAllocated(allocMap, u) {
+			return errors.Errorf("bitmap unit %d not allocated", u)
+		}
+	}
+
+	return validateDiskBitmapExtents(db, h)
+}
+
+// validateDiskBitmapExtents 校验单个磁盘位图记录的位图物理分布。
 //
 // 驱动会照着这份分布直接往物理磁盘写位图，写错位置会损坏磁盘数据，
 // 因此这里做完整校验：每段大小非零且按 Bitmap Unit 对齐、
-// 各段长度之和恰好覆盖该 Extent 的全部 Bitmap Unit。
+// 各段长度之和恰好覆盖该磁盘位图记录的全部 Bitmap Unit。
 //
 // BitmapExtents 只在 Flush 之后才有内容，为空表示尚未解析，跳过校验。
-func validateBitmapExtents(pe *ProtectedExtent, h *Header) error {
-	if len(pe.BitmapExtents) == 0 {
+func validateDiskBitmapExtents(db *DiskBitmap, h *Header) error {
+	if len(db.BitmapExtents) == 0 {
 		return nil
 	}
 
 	clusterSize := uint64(h.BitmapClusterSize)
 	var total uint64
-	for i := range pe.BitmapExtents {
-		be := &pe.BitmapExtents[i]
+	for i := range db.BitmapExtents {
+		be := &db.BitmapExtents[i]
 		if isEmptyDeviceID(be.DiskID.ID) {
 			return errors.Errorf("bitmap extent %d: DiskID is empty", i)
 		}
@@ -961,33 +1308,27 @@ func validateBitmapExtents(pe *ProtectedExtent, h *Header) error {
 		total += be.Size
 	}
 
-	expected := pe.BitmapUnitCount * clusterSize
+	expected := db.BitmapUnitCount * clusterSize
 	if total != expected {
 		return errors.Errorf("bitmap extents total size %d != expected %d (%d units x %d bytes)",
-			total, expected, pe.BitmapUnitCount, clusterSize)
+			total, expected, db.BitmapUnitCount, clusterSize)
 	}
 
 	return nil
 }
 
-// validateBitmapUnitNoOverlap 校验同一设备内 Bitmap Unit 范围不重叠。
-func validateBitmapUnitNoOverlap(devices []ProtectedDevice) error {
-	for di := range devices {
-		pd := &devices[di]
-		if !pd.isValid() {
-			continue
-		}
-		for i := 0; i < len(pd.Extents); i++ {
-			aStart := pd.Extents[i].BitmapUnitStart
-			aEnd := aStart + pd.Extents[i].BitmapUnitCount
-			for j := i + 1; j < len(pd.Extents); j++ {
-				bStart := pd.Extents[j].BitmapUnitStart
-				bEnd := bStart + pd.Extents[j].BitmapUnitCount
-				if aStart < bEnd && bStart < aEnd {
-					return errors.Errorf(
-						"device %d: bitmap unit range overlap: [%d, %d) and [%d, %d)",
-						di, aStart, aEnd, bStart, bEnd)
-				}
+// validateBitmapUnitNoOverlap 校验磁盘位图记录之间的 Bitmap Unit 范围不重叠。
+func validateBitmapUnitNoOverlap(disks []DiskBitmap) error {
+	for i := 0; i < len(disks); i++ {
+		aStart := disks[i].BitmapUnitStart
+		aEnd := aStart + disks[i].BitmapUnitCount
+		for j := i + 1; j < len(disks); j++ {
+			bStart := disks[j].BitmapUnitStart
+			bEnd := bStart + disks[j].BitmapUnitCount
+			if aStart < bEnd && bStart < aEnd {
+				return errors.Errorf(
+					"bitmap unit range overlap: [%d, %d) and [%d, %d)",
+					aStart, aEnd, bStart, bEnd)
 			}
 		}
 	}
@@ -1203,6 +1544,30 @@ func (r *recordReader) raw(dst []byte) error {
 	return nil
 }
 
+// openRecord 解析记录开头的 TotalSize 前缀，校验其上下界，
+// 并把读取范围收敛到本条记录内部。返回读取器与 TotalSize，
+// 调用方据此解码记录体。
+func openRecord(buf []byte, minBinSize int) (*recordReader, uint32, error) {
+	if len(buf) < minBinSize {
+		return nil, 0, errors.Errorf("record buffer too small: %d < %d", len(buf), minBinSize)
+	}
+
+	r := &recordReader{buf: buf}
+	totalSize, err := r.uint32()
+	if err != nil {
+		return nil, 0, err
+	}
+	if totalSize < uint32(minBinSize) {
+		return nil, 0, errors.Errorf("TotalSize %d < minimum %d", totalSize, minBinSize)
+	}
+	if uint64(totalSize) > uint64(len(buf)) {
+		return nil, 0, errors.Errorf("TotalSize %d exceeds buffer %d", totalSize, len(buf))
+	}
+	// 收敛读取范围，防止损坏的计数字段越界读到下一条记录
+	r.buf = buf[:totalSize]
+	return r, totalSize, nil
+}
+
 // packDiskID 将 DiskID 编码到记录缓冲区。
 func packDiskID(w *recordWriter, d *DiskID) error {
 	if err := w.raw(d.ID[:]); err != nil {
@@ -1261,62 +1626,80 @@ func unpackDiskExtent(r *recordReader, de *DiskExtent) error {
 	return nil
 }
 
-// calcProtectedExtentBinSize 计算 ProtectedExtent 的二进制大小。
+// calcDiskBitmapBinSize 计算 DiskBitmap 记录的二进制大小（含 TotalSize 前缀）。
 //
 // BitmapExtents 直接复用 DiskExtent 的编码，每项 DiskExtentBinSize 字节。
-func calcProtectedExtentBinSize(pe *ProtectedExtent) int {
-	return ProtectedExtentFixedBinSize + len(pe.BitmapExtents)*DiskExtentBinSize
+func calcDiskBitmapBinSize(db *DiskBitmap) int {
+	return DiskBitmapMinBinSize + len(db.BitmapExtents)*DiskExtentBinSize
 }
 
-// packProtectedExtent 将 ProtectedExtent 编码为独立的二进制。
-func packProtectedExtent(pe *ProtectedExtent) ([]byte, error) {
-	buf := make([]byte, calcProtectedExtentBinSize(pe))
+// packDiskBitmap 将 DiskBitmap 编码为变长记录（含 TotalSize 前缀）。
+//
+// 格式：TotalSize + DiskID + BitmapUnitStart + BitmapUnitCount + BitmapExtentCount + BitmapExtents...
+func packDiskBitmap(db *DiskBitmap) ([]byte, error) {
+	buf := make([]byte, calcDiskBitmapBinSize(db))
 	w := recordWriter{buf: buf}
-	if err := packProtectedExtentTo(&w, pe); err != nil {
+
+	if err := w.uint32(uint32(len(buf))); err != nil {
+		return nil, err
+	}
+	if err := packDiskBitmapTo(&w, db); err != nil {
 		return nil, err
 	}
 	return buf, nil
 }
 
-// packProtectedExtentTo 将 ProtectedExtent 编码到记录缓冲区。
-func packProtectedExtentTo(w *recordWriter, pe *ProtectedExtent) error {
-	if err := packDiskExtent(w, &pe.Extent); err != nil {
+// packDiskBitmapTo 将 DiskBitmap 编码到记录缓冲区（不含 TotalSize 前缀）。
+func packDiskBitmapTo(w *recordWriter, db *DiskBitmap) error {
+	if err := packDiskID(w, &db.DiskID); err != nil {
 		return err
 	}
-	if err := w.uint64(pe.BitmapUnitStart); err != nil {
+	if err := w.uint64(db.BitmapUnitStart); err != nil {
 		return err
 	}
-	if err := w.uint64(pe.BitmapUnitCount); err != nil {
+	if err := w.uint64(db.BitmapUnitCount); err != nil {
 		return err
 	}
-	if err := w.uint32(uint32(len(pe.BitmapExtents))); err != nil {
+	if err := w.uint32(uint32(len(db.BitmapExtents))); err != nil {
 		return err
 	}
-	for i := range pe.BitmapExtents {
-		if err := packDiskExtent(w, &pe.BitmapExtents[i]); err != nil {
+	for i := range db.BitmapExtents {
+		if err := packDiskExtent(w, &db.BitmapExtents[i]); err != nil {
 			return errors.Wrapf(err, "bitmap extent %d", i)
 		}
 	}
 	return nil
 }
 
-// unpackProtectedExtent 从独立的二进制解码 ProtectedExtent。
-func unpackProtectedExtent(buf []byte, pe *ProtectedExtent) error {
-	r := recordReader{buf: buf}
-	return unpackProtectedExtentFrom(&r, pe)
+// unpackDiskBitmap 从变长记录缓冲区解码 DiskBitmap。
+func unpackDiskBitmap(buf []byte, db *DiskBitmap) error {
+	r, totalSize, err := openRecord(buf, DiskBitmapMinBinSize)
+	if err != nil {
+		return err
+	}
+
+	if err := unpackDiskBitmapFrom(r, db); err != nil {
+		return err
+	}
+
+	if r.pos != int(totalSize) {
+		return errors.Errorf("record size mismatch: TotalSize %d, decoded %d bytes", totalSize, r.pos)
+	}
+
+	return nil
 }
 
-// unpackProtectedExtentFrom 从记录缓冲区解码 ProtectedExtent。
-func unpackProtectedExtentFrom(r *recordReader, pe *ProtectedExtent) error {
-	if err := unpackDiskExtent(r, &pe.Extent); err != nil {
+// unpackDiskBitmapFrom 从记录缓冲区解码 DiskBitmap（不含 TotalSize 前缀）。
+func unpackDiskBitmapFrom(r *recordReader, db *DiskBitmap) error {
+	if err := unpackDiskID(r, &db.DiskID); err != nil {
 		return err
 	}
 
 	var err error
-	if pe.BitmapUnitStart, err = r.uint64(); err != nil {
+	if db.BitmapUnitStart, err = r.uint64(); err != nil {
 		return err
 	}
-	if pe.BitmapUnitCount, err = r.uint64(); err != nil {
+	if db.BitmapUnitCount, err = r.uint64(); err != nil {
 		return err
 	}
 
@@ -1328,14 +1711,14 @@ func unpackProtectedExtentFrom(r *recordReader, pe *ProtectedExtent) error {
 	if uint64(count)*uint64(DiskExtentBinSize) > uint64(len(r.buf)) {
 		return errors.Errorf("BitmapExtentCount %d exceeds record size %d", count, len(r.buf))
 	}
-	pe.BitmapExtentCount = count
-	pe.BitmapExtents = make([]DiskExtent, 0, count)
+	db.BitmapExtentCount = count
+	db.BitmapExtents = make([]DiskExtent, 0, count)
 	for i := uint32(0); i < count; i++ {
 		var be DiskExtent
 		if err := unpackDiskExtent(r, &be); err != nil {
 			return errors.Wrapf(err, "bitmap extent %d", i)
 		}
-		pe.BitmapExtents = append(pe.BitmapExtents, be)
+		db.BitmapExtents = append(db.BitmapExtents, be)
 	}
 
 	return nil
@@ -1344,15 +1727,13 @@ func unpackProtectedExtentFrom(r *recordReader, pe *ProtectedExtent) error {
 // calcProtectedDeviceBinSize 计算 ProtectedDevice 记录的二进制大小（含 TotalSize 前缀）。
 func calcProtectedDeviceBinSize(pd *ProtectedDevice) int {
 	size := ProtectedDeviceMinBinSize
-	for i := range pd.Extents {
-		size += calcProtectedExtentBinSize(&pd.Extents[i])
-	}
+	size += len(pd.Extents) * DiskExtentBinSize
 	return size
 }
 
 // packProtectedDevice 将 ProtectedDevice 编码为变长记录。
 //
-// 格式：TotalSize (uint32，含自身 4 字节) + Type + DeviceID + ExtentCount + Extents...
+// 格式：TotalSize (uint32，含自身 4 字节) + Type + DeviceID + ExtentCount + Extents(DiskExtent)...
 func packProtectedDevice(pd *ProtectedDevice) ([]byte, error) {
 	buf := make([]byte, calcProtectedDeviceBinSize(pd))
 	w := recordWriter{buf: buf}
@@ -1370,7 +1751,7 @@ func packProtectedDevice(pd *ProtectedDevice) ([]byte, error) {
 		return nil, err
 	}
 	for i := range pd.Extents {
-		if err := packProtectedExtentTo(&w, &pd.Extents[i]); err != nil {
+		if err := packDiskExtent(&w, &pd.Extents[i]); err != nil {
 			return nil, errors.Wrapf(err, "extent %d", i)
 		}
 	}
@@ -1383,24 +1764,10 @@ func packProtectedDevice(pd *ProtectedDevice) ([]byte, error) {
 // buf 至少要覆盖记录自身的 TotalSize，读取范围会被限定在 TotalSize 之内，
 // 因此损坏的计数字段不可能读到下一条记录或缓冲区之外。
 func unpackProtectedDevice(buf []byte, pd *ProtectedDevice) error {
-	if len(buf) < ProtectedDeviceMinBinSize {
-		return errors.Errorf("record buffer too small: %d < %d", len(buf), ProtectedDeviceMinBinSize)
-	}
-
-	r := recordReader{buf: buf}
-
-	totalSize, err := r.uint32()
+	r, totalSize, err := openRecord(buf, ProtectedDeviceMinBinSize)
 	if err != nil {
 		return err
 	}
-	if totalSize < ProtectedDeviceMinBinSize {
-		return errors.Errorf("TotalSize %d < minimum %d", totalSize, ProtectedDeviceMinBinSize)
-	}
-	if uint64(totalSize) > uint64(len(buf)) {
-		return errors.Errorf("TotalSize %d exceeds buffer %d", totalSize, len(buf))
-	}
-	// 把读取范围收敛到本条记录，防止越界读到下一条
-	r.buf = buf[:totalSize]
 
 	devType, err := r.uint32()
 	if err != nil {
@@ -1416,19 +1783,19 @@ func unpackProtectedDevice(buf []byte, pd *ProtectedDevice) error {
 	if err != nil {
 		return err
 	}
-	// 每个 Extent 至少 ProtectedExtentFixedBinSize 字节，用它挡掉损坏的 count
-	if uint64(extentCount)*uint64(ProtectedExtentFixedBinSize) > uint64(totalSize) {
+	// 每个 Extent 固定 DiskExtentBinSize 字节，用它挡掉损坏的 count
+	if uint64(extentCount)*uint64(DiskExtentBinSize) > uint64(totalSize) {
 		return errors.Errorf("ExtentCount %d exceeds record size %d", extentCount, totalSize)
 	}
 	pd.ExtentCount = extentCount
-	pd.Extents = make([]ProtectedExtent, 0, extentCount)
+	pd.Extents = make([]DiskExtent, 0, extentCount)
 
 	for i := uint32(0); i < extentCount; i++ {
-		var pe ProtectedExtent
-		if err := unpackProtectedExtentFrom(&r, &pe); err != nil {
+		var de DiskExtent
+		if err := unpackDiskExtent(r, &de); err != nil {
 			return errors.Wrapf(err, "extent %d", i)
 		}
-		pd.Extents = append(pd.Extents, pe)
+		pd.Extents = append(pd.Extents, de)
 	}
 
 	if r.pos != int(totalSize) {
@@ -1438,9 +1805,10 @@ func unpackProtectedDevice(buf []byte, pd *ProtectedDevice) error {
 	return nil
 }
 
-// parseProtectedRegion 按 TotalSize 前缀顺序解析整个 Protected Region。
-func parseProtectedRegion(region []byte, count uint32) ([]ProtectedDevice, error) {
-	devices := make([]ProtectedDevice, 0, count)
+// parseRecordRegion 按 TotalSize 前缀顺序解析整个变长记录区。
+// unpack 负责解码单条记录（含 TotalSize 前缀），minBinSize 为单条记录的最小大小。
+func parseRecordRegion[T any](region []byte, count uint32, minBinSize int, unpack func([]byte, *T) error) ([]T, error) {
+	records := make([]T, 0, count)
 
 	pos := 0
 	for i := uint32(0); i < count; i++ {
@@ -1450,25 +1818,35 @@ func parseProtectedRegion(region []byte, count uint32) ([]ProtectedDevice, error
 		}
 
 		totalSize := int(binary.LittleEndian.Uint32(region[pos:]))
-		if totalSize < ProtectedDeviceMinBinSize {
+		if totalSize < minBinSize {
 			return nil, errors.Errorf("record %d: TotalSize %d < minimum %d",
-				i, totalSize, ProtectedDeviceMinBinSize)
+				i, totalSize, minBinSize)
 		}
 		if pos+totalSize > len(region) {
 			return nil, errors.Errorf("record %d: TotalSize %d exceeds region (%d bytes remaining)",
 				i, totalSize, len(region)-pos)
 		}
 
-		var pd ProtectedDevice
-		if err := unpackProtectedDevice(region[pos:pos+totalSize], &pd); err != nil {
+		var rec T
+		if err := unpack(region[pos:pos+totalSize], &rec); err != nil {
 			return nil, errors.Wrapf(err, "record %d", i)
 		}
-		devices = append(devices, pd)
+		records = append(records, rec)
 
 		pos += totalSize
 	}
 
-	return devices, nil
+	return records, nil
+}
+
+// parseProtectedRegion 按 TotalSize 前缀顺序解析整个 Protected Region。
+func parseProtectedRegion(region []byte, count uint32) ([]ProtectedDevice, error) {
+	return parseRecordRegion(region, count, ProtectedDeviceMinBinSize, unpackProtectedDevice)
+}
+
+// parseDiskBitmapRegion 按 TotalSize 前缀顺序解析整个 Disk Bitmap Allocation Region。
+func parseDiskBitmapRegion(region []byte, count uint32) ([]DiskBitmap, error) {
+	return parseRecordRegion(region, count, DiskBitmapMinBinSize, unpackDiskBitmap)
 }
 
 // isDevicePath 判断路径是否为 Windows 设备路径（如 \\.\PHYSICALDRIVE0）。

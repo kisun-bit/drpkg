@@ -412,14 +412,10 @@ func TestClearBitmapReferencePackUnpack(t *testing.T) {
 func TestAddProtectedDevicesRequestPackUnpack(t *testing.T) {
 	pd := biotrkmeta.ProtectedDevice{
 		Type:    biotrkmeta.DeviceTypeDisk,
-		Extents: make([]biotrkmeta.ProtectedExtent, 1),
+		Extents: make([]biotrkmeta.DiskExtent, 1),
 	}
 	copy(pd.DeviceID[:], "test-device")
-	pd.Extents[0] = biotrkmeta.ProtectedExtent{
-		Extent:          makeDiskExtent("phys0", 0, 4096),
-		BitmapUnitStart: 0,
-		BitmapUnitCount: 4,
-	}
+	pd.Extents[0] = makeDiskExtent("phys0", 0, 4096)
 	pd.ExtentCount = uint32(len(pd.Extents))
 
 	orig := &AddProtectedDevicesRequest{
@@ -456,18 +452,20 @@ func TestAddProtectedDevicesRequestPackUnpack(t *testing.T) {
 }
 
 func TestRemoveProtectedDevicesRequestPackUnpack(t *testing.T) {
-	idsData := IDsFromMeta([]biotrkmeta.ID{
-		makeDiskID("device-001").ID,
-		makeDiskID("device-002").ID,
-	})
-
 	orig := &RemoveProtectedDevicesRequest{
-		IDs: idsData,
+		DiskIDs: []biotrkmeta.ID{
+			makeDiskID("disk-001").ID,
+		},
+		DeviceIDs: []biotrkmeta.ID{
+			makeDiskID("device-001").ID,
+			makeDiskID("device-002").ID,
+		},
 		NewMetadataExtents: []biotrkmeta.DiskExtent{
 			makeDiskExtent("meta0", 65536, 8192),
 		},
 	}
-	orig.IDsLen = uint32(len(orig.IDs))
+	orig.DiskIDsLen = uint32(len(orig.DiskIDs))
+	orig.DeviceIDsLen = uint32(len(orig.DeviceIDs))
 	orig.NewMetadataExtentsLen = uint32(len(orig.NewMetadataExtents))
 
 	packed, err := pack(orig)
@@ -480,15 +478,21 @@ func TestRemoveProtectedDevicesRequestPackUnpack(t *testing.T) {
 		t.Fatalf("unpack RemoveProtectedDevicesRequest: %v", err)
 	}
 
-	decodedIDs := IDsToMeta(decoded.IDs)
-	if len(decodedIDs) != 2 {
-		t.Fatalf("IDs count: got %d, want 2", len(decodedIDs))
+	if len(decoded.DiskIDs) != 1 {
+		t.Fatalf("DiskIDs count: got %d, want 1", len(decoded.DiskIDs))
 	}
-	if string(decodedIDs[0][:len("device-001")]) != "device-001" {
-		t.Error("IDs[0] mismatch")
+	if string(decoded.DiskIDs[0][:len("disk-001")]) != "disk-001" {
+		t.Error("DiskIDs[0] mismatch")
 	}
-	if string(decodedIDs[1][:len("device-002")]) != "device-002" {
-		t.Error("IDs[1] mismatch")
+
+	if len(decoded.DeviceIDs) != 2 {
+		t.Fatalf("DeviceIDs count: got %d, want 2", len(decoded.DeviceIDs))
+	}
+	if string(decoded.DeviceIDs[0][:len("device-001")]) != "device-001" {
+		t.Error("DeviceIDs[0] mismatch")
+	}
+	if string(decoded.DeviceIDs[1][:len("device-002")]) != "device-002" {
+		t.Error("DeviceIDs[1] mismatch")
 	}
 	if len(decoded.NewMetadataExtents) != 1 {
 		t.Fatalf("NewMetadataExtents count: got %d, want 1", len(decoded.NewMetadataExtents))
@@ -498,14 +502,10 @@ func TestRemoveProtectedDevicesRequestPackUnpack(t *testing.T) {
 func TestListProtectedDevicesPackUnpack(t *testing.T) {
 	pd := biotrkmeta.ProtectedDevice{
 		Type:    biotrkmeta.DeviceTypeVolume,
-		Extents: make([]biotrkmeta.ProtectedExtent, 1),
+		Extents: make([]biotrkmeta.DiskExtent, 1),
 	}
 	copy(pd.DeviceID[:], "volume-001")
-	pd.Extents[0] = biotrkmeta.ProtectedExtent{
-		Extent:          makeDiskExtent("diskA", 0, 4096),
-		BitmapUnitStart: 0,
-		BitmapUnitCount: 3,
-	}
+	pd.Extents[0] = makeDiskExtent("diskA", 0, 4096)
 	pd.ExtentCount = uint32(len(pd.Extents))
 
 	orig := &ListProtectedDevices{

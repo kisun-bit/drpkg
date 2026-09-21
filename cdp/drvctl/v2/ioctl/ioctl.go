@@ -29,7 +29,14 @@ import (
 const maxResponseBuffer = 65536
 
 // pack 使用 struc 将 v 按 LittleEndian 编码为二进制。
+//
+// RemoveProtectedDevicesRequest 因其含 []biotrkmeta.ID（命名 [512]byte 数组切片，
+// struc 无法编码），走专用的手工编码。
 func pack(v interface{}) ([]byte, error) {
+	if req, ok := v.(*RemoveProtectedDevicesRequest); ok {
+		return packRemoveProtectedDevicesRequest(req)
+	}
+
 	buf := new(bytes.Buffer)
 	if err := struc.PackWithOptions(buf, v, &struc.Options{Order: binary.LittleEndian}); err != nil {
 		return nil, errors.Wrapf(err, "struc pack")
@@ -39,7 +46,135 @@ func pack(v interface{}) ([]byte, error) {
 
 // unpack 使用 struc 将 LittleEndian 二进制数据解码到 v 中。
 func unpack(data []byte, v interface{}) error {
+	if req, ok := v.(*RemoveProtectedDevicesRequest); ok {
+		return unpackRemoveProtectedDevicesRequest(data, req)
+	}
+
 	return struc.UnpackWithOptions(bytes.NewReader(data), v, &struc.Options{Order: binary.LittleEndian})
+}
+
+// packRemoveProtectedDevicesRequest 手工编码 RemoveProtectedDevicesRequest。
+//
+// 线缆格式：DiskIDsLen + DiskIDs[] + DeviceIDsLen + DeviceIDs[] + NewMetadataExtentsLen + NewMetadataExtents[]，
+// 其中长度字段均为元素个数，ID 每个 512 字节，DiskExtent 每个 536 字节。
+func packRemoveProtectedDevicesRequest(req *RemoveProtectedDevicesRequest) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	le := binary.LittleEndian
+
+	writeID := func(id biotrkmeta.ID) error {
+		return binary.Write(buf, le, id)
+	}
+	writeExtent := func(e *biotrkmeta.DiskExtent) error {
+		if err := binary.Write(buf, le, e.DiskID.ID); err != nil {
+			return err
+		}
+		if err := binary.Write(buf, le, e.DiskID.Major); err != nil {
+			return err
+		}
+		if err := binary.Write(buf, le, e.DiskID.Minor); err != nil {
+			return err
+		}
+		if err := binary.Write(buf, le, e.Start); err != nil {
+			return err
+		}
+		return binary.Write(buf, le, e.Size)
+	}
+
+	if err := binary.Write(buf, le, uint32(len(req.DiskIDs))); err != nil {
+		return nil, err
+	}
+	for i := range req.DiskIDs {
+		if err := writeID(req.DiskIDs[i]); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := binary.Write(buf, le, uint32(len(req.DeviceIDs))); err != nil {
+		return nil, err
+	}
+	for i := range req.DeviceIDs {
+		if err := writeID(req.DeviceIDs[i]); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := binary.Write(buf, le, uint32(len(req.NewMetadataExtents))); err != nil {
+		return nil, err
+	}
+	for i := range req.NewMetadataExtents {
+		if err := writeExtent(&req.NewMetadataExtents[i]); err != nil {
+			return nil, err
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
+// unpackRemoveProtectedDevicesRequest 手工解码 RemoveProtectedDevicesRequest。
+func unpackRemoveProtectedDevicesRequest(data []byte, req *RemoveProtectedDevicesRequest) error {
+	r := bytes.NewReader(data)
+	le := binary.LittleEndian
+
+	readCount := func() (uint32, error) {
+		var n uint32
+		if err := binary.Read(r, le, &n); err != nil {
+			return 0, err
+		}
+		return n, nil
+	}
+	readID := func(id *biotrkmeta.ID) error {
+		return binary.Read(r, le, id)
+	}
+	readExtent := func(e *biotrkmeta.DiskExtent) error {
+		if err := binary.Read(r, le, &e.DiskID.ID); err != nil {
+			return err
+		}
+		if err := binary.Read(r, le, &e.DiskID.Major); err != nil {
+			return err
+		}
+		if err := binary.Read(r, le, &e.DiskID.Minor); err != nil {
+			return err
+		}
+		if err := binary.Read(r, le, &e.Start); err != nil {
+			return err
+		}
+		return binary.Read(r, le, &e.Size)
+	}
+
+	n, err := readCount()
+	if err != nil {
+		return err
+	}
+	req.DiskIDs = make([]biotrkmeta.ID, n)
+	for i := range req.DiskIDs {
+		if err := readID(&req.DiskIDs[i]); err != nil {
+			return err
+		}
+	}
+
+	n, err = readCount()
+	if err != nil {
+		return err
+	}
+	req.DeviceIDs = make([]biotrkmeta.ID, n)
+	for i := range req.DeviceIDs {
+		if err := readID(&req.DeviceIDs[i]); err != nil {
+			return err
+		}
+	}
+
+	n, err = readCount()
+	if err != nil {
+		return err
+	}
+	req.NewMetadataExtents = make([]biotrkmeta.DiskExtent, n)
+	for i := range req.NewMetadataExtents {
+		if err := readExtent(&req.NewMetadataExtents[i]); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // sizeof 返回 v 的 struc 二进制编码大小。
@@ -60,11 +195,13 @@ func sizeof(v interface{}) int {
 
 // StartTask 向驱动发送启动任务请求。
 //
-// 驱动收到请求后，会根据 MetadataExtents 读取元数据区域，
-// 解析其中的位图bit索引空间大小、受保护设备的位图物理分布区域列表用于实现 I/O 过滤和位图持久化。
-//
-// 成功后自动调用 PersistStartRequest 将 req 持久化到注册表（Windows）
-// 或 initramfs（Linux），确保系统重启后驱动能恢复 CDP 任务。
+// 工作流程：
+// s1. 用户层创建biotrkmeta文件并组装StartTaskRequest
+// s2. 用户层通知驱动发起CDP备份
+// s3. 驱动基于MetadataExtents的物理分布区间：完整加载保存各个磁盘的位图物理映射分布信息、受保护设备的保护区域信息
+// s4. 驱动基于磁盘大小初始化位图数据
+// s5. 驱动基于受保护设备的保护区域信息，开始hook数据，并持续更新位图及引用
+// s6. 驱动返回成功
 func StartTask(req *StartTaskRequest) error {
 	inBuf, err := pack(req)
 	if err != nil {
@@ -79,8 +216,10 @@ func StartTask(req *StartTaskRequest) error {
 
 // ReleaseTask 向驱动发送释放并删除任务请求。
 //
-// 除释放任务外，会连带删除共享内存。
-// 成功后自动调用 RemovePersist 删除持久化参数。
+// 工作流程：
+// s2. 用户层通知驱动结束CDP备份
+// s3. 驱动删除各个磁盘的位图物理映射分布信息、受保护设备的保护区域信息、各个磁盘的位图数据、shm共享内存、结束所有磁盘的hook
+// s6. 驱动返回成功
 func ReleaseTask() error {
 	_, err := doIoctl(IOCTL_BIOTRK_RELEASE_TASK, nil, 0)
 	if err != nil {
@@ -113,6 +252,11 @@ func GetTaskStatus() (*TaskStatus, error) {
 }
 
 // SetTaskConsistency 设置任务一致性标记，将任务切换为 CDP 模式（实时模式）。
+//
+// 工作流程：
+// s2. 用户层通知驱动启用CDP模式（注意必须已创建SHM）
+// s3. 驱动随即在预处理阶段为所有IO打入实时IO的标记，这些IO将写入SHM
+// s6. 驱动返回成功
 func SetTaskConsistency() error {
 	_, err := doIoctl(IOCTL_BIOTRK_SET_TASK_CONSISTENCY, nil, 0)
 	return err
@@ -169,12 +313,13 @@ func GetProtectedDevices() (*ListProtectedDevices, error) {
 
 // AddProtectedDevices 向驱动发送批量增加受保护设备请求。
 //
-// 调用前应使用 biotrkmeta 的 AddProtectDevice / Flush 流程构造请求参数。
-// 驱动更新内存中的 ProtectedDevice 列表后，会同步更新注册表中的 MetadataExtents。
-//
-// 成功后自动从已有持久化参数中读取原始 StartTaskRequest，
-// 用 req.NewMetadataExtents 替换其中的 MetadataExtents，
-// 再调用 PersistStartRequest 更新持久化。
+// 工作流程：
+// s1. 应用层调用biotrkmeta的AddProtectedDevice方法并调用Flush，获取最新的元数据文件的物理分布信息
+// s2. 将AddProtectedDevicesRequest发送给驱动
+// s3. 驱动更新维护在内存中的磁盘位图的物理分布区域信息，用于关机阶段刷盘，注意驱动不用更新维护在内存中的位图数据，因为他总是连续的，只是刷盘时，根据最新的磁盘位图的物理分布区域信息进行刷盘即可。
+// s4. 驱动更新维护在内存中的受保护设备信息，用于后续CDP工作时，进行IO的hook
+// s5. 驱动成功更新磁盘位图的物理分布区域信息和受保护设备信息，向用户层返回成功
+// s6. 用户层基于AddProtectedDevicesRequest组装新的StartTaskRequest，并写入注册表或Initramfs
 //
 // 注意：
 //   - 不允许添加相同 ID 的设备。
@@ -202,12 +347,13 @@ func AddProtectedDevices(req *AddProtectedDevicesRequest) error {
 
 // RemoveProtectedDevices 向驱动发送批量移除受保护设备请求。
 //
-// 调用前应使用 biotrkmeta 的 RemoveProtectDevice / Flush 流程构造请求参数。
-// 驱动更新内存中的 ProtectedDevice 列表后，会同步更新注册表中的 MetadataExtents。
-//
-// 成功后自动从已有持久化参数中读取原始 StartTaskRequest，
-// 用 req.NewMetadataExtents 替换其中的 MetadataExtents，
-// 再调用 PersistStartRequest 更新持久化。
+// 工作流程：
+// s1. 应用层调用biotrkmeta的RemoveProtectedDevice方法并调用Flush，获取最新的元数据文件的物理分布信息
+// s2. 将RemoveProtectedDevicesRequest发送给驱动
+// s3. 驱动基于DiskIDs删除在内存中的磁盘位图的物理分布区域信息。
+// s4. 驱动更新维护在内存中的受保护设备信息，用于后续CDP工作时，进行IO的hook
+// s5. 驱动成功更新磁盘位图的物理分布区域信息和受保护设备信息，向用户层返回成功
+// s6. 用户层基于RemoveProtectedDevicesRequest组装新的StartTaskRequest，并写入注册表或Initramfs
 //
 // 注意：
 //   - 不允许全部删除。
