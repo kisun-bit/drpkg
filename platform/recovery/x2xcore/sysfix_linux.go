@@ -165,6 +165,10 @@ func (fixer *linuxSystemFixer) Prepare() error {
 	logger.Debugf("Prepare: fsList:\n%s",
 		xutil.Pretty(fixer.offsys.fsList))
 
+	if fixer.opts.RecoveryParam.FsckFs {
+		fixer.fsckAllFs()
+	}
+
 	if err := fixer.detectLastMount(); err != nil {
 		return errors.Wrap(err, "failed to detect previous mount information")
 	}
@@ -333,9 +337,9 @@ func (fixer *linuxSystemFixer) Cleanup() error {
 		return errors.Wrap(err, "umount sys")
 	}
 
-	if fixer.opts.RecoveryParam.FsckFs {
-		fixer.fsckAllFs()
-	}
+	//if fixer.opts.RecoveryParam.FsckFs {
+	//	fixer.fsckAllFs()
+	//}
 
 	fixer.closeCryptoLUKS()
 
