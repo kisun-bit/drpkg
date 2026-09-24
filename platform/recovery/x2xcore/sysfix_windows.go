@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
@@ -588,79 +587,30 @@ func (fixer *windowsSystemFixer) detectWindowsVersion() error {
 	logger.Debugf("detectWindowsVersion: ++")
 	defer logger.Debugf("detectWindowsVersion: --")
 
-	offlineSoftwareHivePath := filepath.Join(
-		fixer.offsys.sysVolumeLtr+":\\",
-		"Windows", "System32", "config", "SOFTWARE",
-	)
-
-	const offlineSoftwareKeyName = "OfflineSoftwareReg"
-	offlineSoftwareKey := offlineSoftwareKeyName
-
-	if err := loadReg(offlineSoftwareKey, offlineSoftwareHivePath); err != nil {
-		return errors.Wrapf(err, "load registry %s", offlineSoftwareHivePath)
-	}
-	defer func() {
-		if err := unloadReg(offlineSoftwareKey); err != nil {
-			logger.Errorf("unload registry: %v", err)
-		}
-	}()
-
-	currentVersionKey := fmt.Sprintf(
-		`%s\Microsoft\Windows NT\CurrentVersion`,
-		offlineSoftwareKeyName,
-	)
-
-	key, err := registry.OpenKey(
-		registry.LOCAL_MACHINE,
-		currentVersionKey,
-		registry.QUERY_VALUE,
-	)
+	isServer, err := fixer.detectServerProduct()
 	if err != nil {
-		return errors.Wrapf(err, "open registry %s", currentVersionKey)
-	}
-	defer key.Close()
-
-	readString := func(name string) string {
-		v, _, err := key.GetStringValue(name)
-		if err != nil {
-			return ""
-		}
-		return v
+		logger.Warnf("detectWindowsVersion: detect product type: %v", err)
 	}
 
-	readDWORD := func(name string) uint64 {
-		v, _, err := key.GetIntegerValue(name)
-		if err != nil {
-			return 0
-		}
-		return v
-	}
-
-	currentVersion := readString("CurrentVersion")
-	buildStr := readString("CurrentBuildNumber")
-	if buildStr == "" {
-		buildStr = readString("CurrentBuild")
-	}
-
-	build, _ := strconv.Atoi(buildStr)
-
-	major := readDWORD("CurrentMajorVersionNumber")
-	//minor := readDWORD("CurrentMinorVersionNumber")
-
-	productName := readString("ProductName")
-
-	winVer := detectWindowsVersion(
-		productName,
-		currentVersion,
-		build,
-		major,
+	kernelPath := filepath.Join(
+		fixer.offsys.sysVolumeLtr+":\\",
+		"Windows", "System32", "ntoskrnl.exe",
 	)
+
+	major, minor, build, err := readFileVersion(kernelPath)
+	if err != nil {
+		return errors.Wrapf(err, "read version of %s", kernelPath)
+	}
+
+	winVer := detectWindowsVersion(isServer, major, minor, build)
 
 	logger.Infof(
-		"Detected Windows: %v (%s, Build=%d)",
+		"Detected Windows: %v (major=%d minor=%d build=%d server=%v)",
 		winVer,
-		productName,
+		major,
+		minor,
 		build,
+		isServer,
 	)
 
 	fixer.offsys.windowsVersion = winVer
@@ -668,6 +618,38 @@ func (fixer *windowsSystemFixer) detectWindowsVersion() error {
 	fixer.infof(LogTplForPrintDistroWith1Args, fixer.offsys.windowsVersion)
 
 	return nil
+}
+
+// detectServerProduct 通过已加载的离线 SYSTEM hive 的 ProductOptions\ProductType
+// 判断离线系统是否为服务器版本，从而避免加载可能又大又脏的 SOFTWARE hive。
+func (fixer *windowsSystemFixer) detectServerProduct() (bool, error) {
+	productOptionsPath := fmt.Sprintf(
+		`%s\ControlSet00%d\Control\ProductOptions`,
+		fixer.offsys.registryRootKey,
+		fixer.offsys.currentControlSet,
+	)
+
+	key, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		productOptionsPath,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return false, errors.Wrapf(err, "open registry %s", productOptionsPath)
+	}
+	defer key.Close()
+
+	productType, _, err := key.GetStringValue("ProductType")
+	if err != nil {
+		return false, errors.Wrap(err, "read ProductType")
+	}
+
+	// ProductType 取值：WinNT（客户端）／ServerNT（独立服务器）／LanmanNT（域控制器）。
+	// 非 WinNT 一律按服务器处理。
+	isServer := !strings.EqualFold(productType, "WinNT")
+	logger.Debugf("detectServerProduct: ProductType=%q isServer=%v", productType, isServer)
+
+	return isServer, nil
 }
 
 func (fixer *windowsSystemFixer) detectHAL() error {

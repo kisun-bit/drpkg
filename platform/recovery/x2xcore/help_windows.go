@@ -8,13 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/kisun-bit/drpkg/command"
 	"github.com/kisun-bit/drpkg/defs"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/info"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xlib"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows"
@@ -281,8 +282,12 @@ func findDriverStoreDir(root string) (string, error) {
 }
 
 func loadReg(key, regDBPath string) error {
+	if !xutil.IsExisted(regDBPath) {
+		return errors.Wrapf(os.ErrNotExist, "load registry %s", regDBPath)
+	}
 	cmdline := fmt.Sprintf("REG LOAD HKLM\\%s %s", key, regDBPath)
-	if _, _, e := command.Execute(cmdline, command.WithDebug()); e != nil {
+	logger.Debugf("loadReg: %s", cmdline)
+	if _, _, e := command.Execute(cmdline, command.WithDebug(), command.WithTimeout(2*time.Minute)); e != nil {
 		return e
 	}
 	return nil
@@ -296,15 +301,7 @@ func unloadReg(key string) error {
 	return nil
 }
 
-func detectWindowsVersion(
-	productName string,
-	currentVersion string,
-	build int,
-	major uint64,
-) defs.WindowsVersion {
-
-	isServer := strings.Contains(strings.ToLower(productName), "server")
-
+func detectWindowsVersion(isServer bool, major, minor, build uint32) defs.WindowsVersion {
 	// Windows 10 / 11 / Server 2016+
 	if major >= 10 {
 		if !isServer {
@@ -326,6 +323,7 @@ func detectWindowsVersion(
 		}
 	}
 
+	currentVersion := fmt.Sprintf("%d.%d", major, minor)
 	switch currentVersion {
 	case "5.0":
 		return defs.Win2k
@@ -366,6 +364,52 @@ func detectWindowsVersion(
 	}
 
 	return defs.WinUnknown
+}
+
+// vsFixedFileInfo 只取 VS_FIXEDFILEINFO 前缀中我们关心的版本字段，
+// 结构体布局需与 Win32 定义保持一致（前 6 个 DWORD）。
+type vsFixedFileInfo struct {
+	Signature        uint32
+	StrucVersion     uint32
+	FileVersionMS    uint32
+	FileVersionLS    uint32
+	ProductVersionMS uint32
+	ProductVersionLS uint32
+}
+
+// readFileVersion 读取 PE 文件的 VS_FIXEDFILEINFO 版本号，返回主/次版本号与 Build 号。
+// 用于通过 ntoskrnl.exe 判定离线系统版本，避免加载可能又大又脏的 SOFTWARE hive。
+func readFileVersion(path string) (major, minor, build uint32, err error) {
+	size, err := windows.GetFileVersionInfoSize(path, nil)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if size == 0 {
+		return 0, 0, 0, errors.Errorf("empty version info: %s", path)
+	}
+
+	buf := make([]byte, size)
+	if err := windows.GetFileVersionInfo(path, 0, size, unsafe.Pointer(&buf[0])); err != nil {
+		return 0, 0, 0, err
+	}
+
+	var root unsafe.Pointer
+	var rootLen uint32
+	if err := windows.VerQueryValue(unsafe.Pointer(&buf[0]), `\`, unsafe.Pointer(&root), &rootLen); err != nil {
+		return 0, 0, 0, err
+	}
+	if root == nil {
+		return 0, 0, 0, errors.Errorf("no version resource root: %s", path)
+	}
+
+	fi := (*vsFixedFileInfo)(root)
+	// 注意：ntoskrnl.exe 等内核文件的 dwFileVersionMS/LS 是兼容性版本
+	// （如 6.2），真实的内核/系统版本在 dwProductVersionMS/LS（如 10.0.19041）。
+	major = uint32(fi.ProductVersionMS >> 16)
+	minor = uint32(fi.ProductVersionMS & 0xFFFF)
+	build = uint32(fi.ProductVersionLS >> 16)
+
+	return major, minor, build, nil
 }
 
 func deleteRegistryTree(root registry.Key, path string) error {
