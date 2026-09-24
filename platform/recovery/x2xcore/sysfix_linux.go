@@ -451,8 +451,10 @@ func (fixer *linuxSystemFixer) mountSys() error {
 	// 1. 不要使用--rbind和--make-rslave，会造成卸载rootDir时vg资源释放不干净
 
 	for mp, cmdline := range releatedMounts {
-		if !xutil.IsExisted(mp) {
-			_ = os.MkdirAll(mp, 0755)
+		if !xutil.IsDir(mp) {
+			if err := os.MkdirAll(mp, 0755); err != nil {
+				return errors.Wrapf(err, "create mountpoint %s", mp)
+			}
 		}
 		if _, _, e := command.Execute(cmdline, command.WithDebug()); e != nil {
 			return e
