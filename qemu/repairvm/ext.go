@@ -17,9 +17,9 @@ import (
 
 	"github.com/kisun-bit/drpkg/defs"
 	"github.com/kisun-bit/drpkg/disk/image/qemublk"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 )
 
@@ -168,12 +168,13 @@ func validateDisk(
 		return errors.Wrapf(os.ErrNotExist, d.Path)
 	}
 
-	if d.Size <= 0 {
-		return errors.Errorf(
-			"invalid size: %d",
-			d.Size,
-		)
-	}
+	// Size 改成非必填
+	//if d.Size <= 0 {
+	//	return errors.Errorf(
+	//		"invalid size: %d",
+	//		d.Size,
+	//	)
+	//}
 
 	if d.LBA < 0 {
 		return errors.Errorf(
