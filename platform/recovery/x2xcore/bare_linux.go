@@ -3,7 +3,6 @@ package x2xcore
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
@@ -100,7 +99,7 @@ func (fixer *linuxSystemFixer) compatPci(loader *Loader, up *universal.UniPci) (
 
 		// 从驱动库进行匹配
 		dr, e := fixer.x2xLib.SelectLinuxBestNormalDriver(
-			runtime.GOOS,
+			fixer.opts.RecoveryParam.Source.Arch,
 			fixer.offsys.distro.Family,
 			loader.KernelVersion(),
 			up.String())

@@ -113,6 +113,7 @@ func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io
 	if err = CheckAndFillFixerCreateOptions(opts); err != nil {
 		return nil, err
 	}
+	//logger.Debugf("NewSysFixer: CheckAndFillFixerCreateOptions: opts:\n%s", xutil.Pretty(opts))
 	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(chan LogEntry, 1000)}
 	if opts.InRepairVM {
 		if serialReqPort == nil {

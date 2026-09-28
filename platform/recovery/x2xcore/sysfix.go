@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/kisun-bit/drpkg/defs"
+	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
 	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
@@ -134,9 +135,12 @@ func CheckAndFillRecoveryParameter(rp *RecoveryParameter) error {
 
 	plats := []*Platform{&rp.Source, &rp.Target}
 	for i := 0; i < len(plats); i++ {
-		if plats[i].Base != "" {
+
+		// 虚拟化平台类型确定的就不必再去探测虚拟化平台了
+		if plats[i].Base == defs.HPVirt {
 			continue
 		}
+
 		plats[i].Base = defs.HPBareMetal
 		plats[i].Virt = defs.HPVTNone
 		for _, p := range plats[i].PciList {
@@ -147,16 +151,19 @@ func CheckAndFillRecoveryParameter(rp *RecoveryParameter) error {
 			if uniPci.VendorId() == 0x1af4 {
 				plats[i].Base = defs.HPVirt
 				plats[i].Virt = defs.HPVTKvm
+				logger.Debugf("CheckAndFillRecoveryParameter: patch platform[%d] as `kvm`", i)
 				break
 			}
 			if uniPci.VendorId() == 0x5853 {
 				plats[i].Base = defs.HPVirt
 				plats[i].Virt = defs.HPVTXen
+				logger.Debugf("CheckAndFillRecoveryParameter: patch platform[%d] as `xen`", i)
 				break
 			}
 			if uniPci.VendorId() == 0x15ad {
 				plats[i].Base = defs.HPVirt
 				plats[i].Virt = defs.HPVTVmware
+				logger.Debugf("CheckAndFillRecoveryParameter: patch platform[%d] as `vmware`", i)
 				break
 			}
 		}
