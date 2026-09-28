@@ -374,4 +374,9 @@ var (
 		Zh: "内核 Xen 补丁失败：%v，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
 		En: "Kernel Xen patch failed: %v. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
 	}
+
+	LogTplForVmwarePatchFailedWith1Args = LangTpl{
+		Zh: "内核 VMware 补丁失败：%v，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "Kernel VMware patch failed: %v. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+	}
 )
