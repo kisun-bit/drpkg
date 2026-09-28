@@ -46,23 +46,23 @@ type LangTpl struct {
 
 var (
 	LogTplForReadyWith0Args = LangTpl{
-		Zh: "加载异构修复环境",
-		En: "Loading heterogeneous recovery environment",
+		Zh: "初始化 Rescue 救援环境",
+		En: "Initializing Rescue environment",
 	}
 
 	LogTplForOfflineSystemReadyWith0Args = LangTpl{
-		Zh: "识别离线系统磁盘",
-		En: "Identifying offline system disks",
+		Zh: "枚举离线系统块设备",
+		En: "Enumerating offline system block devices",
 	}
 
 	LogTplForResetWith0Args = LangTpl{
-		Zh: "重置存储映射环境",
-		En: "Resetting storage mapping environment",
+		Zh: "初始化 Device Mapper 环境",
+		En: "Initializing Device Mapper environment",
 	}
 
 	LogTplForOpenLUKSWith0Args = LangTpl{
-		Zh: "打开 LUKS 加密卷",
-		En: "Opening LUKS encrypted volumes",
+		Zh: "解锁 LUKS 加密卷",
+		En: "Unlocking LUKS encrypted volumes",
 	}
 
 	LogTplForEnumFsWith0Args = LangTpl{
@@ -71,18 +71,18 @@ var (
 	}
 
 	LogTplForFsckFsWith0Args = LangTpl{
-		Zh: "修复文件系统",
-		En: "Repairing filesystems",
+		Zh: "修复文件系统一致性",
+		En: "Repairing filesystem consistency",
 	}
 
 	LogTplForCleanElastioSnapWith0Args = LangTpl{
-		Zh: "清理残留的 Elastio/Datto 快照",
-		En: "Cleaning up leftover Elastio/Datto snapshots",
+		Zh: "清理残留块设备快照",
+		En: "Cleaning up residual block device snapshots",
 	}
 
 	LogTplForCleanBackupMetadataWith1Args = LangTpl{
-		Zh: "清理元数据目录：%s",
-		En: "Cleaning up metadata directory: %s",
+		Zh: "清理备份元数据目录：%s",
+		En: "Cleaning up backup metadata directory: %s",
 	}
 
 	LogTplForSpecifySystemBootDeviceWith0Args = LangTpl{
@@ -91,23 +91,23 @@ var (
 	}
 
 	LogTplForPrintSystemBootDeviceWith2Args = LangTpl{
-		Zh: "系统启动设备：%s（挂载点：%s）",
-		En: "System boot device: %s (mount point: %s)",
+		Zh: "已识别系统启动设备：%s（挂载点：%s）",
+		En: "Detected system boot device: %s (mount point: %s)",
 	}
 
 	LogTplForBootableKernelWith1Args = LangTpl{
-		Zh: "可启动内核：%s",
-		En: "Bootable kernel: %s",
+		Zh: "已识别可启动内核：%s",
+		En: "Detected bootable kernel: %s",
 	}
 
 	LogTplForLoadRegistryWith0Args = LangTpl{
-		Zh: "加载注册表",
-		En: "Loading registry",
+		Zh: "加载离线注册表",
+		En: "Loading offline registry",
 	}
 
 	LogTplForUnloadRegistryWith0Args = LangTpl{
-		Zh: "卸载注册表",
-		En: "Unloading registry",
+		Zh: "卸载离线注册表",
+		En: "Unloading offline registry",
 	}
 
 	LogTplForMountSystemWith0Args = LangTpl{
@@ -116,43 +116,43 @@ var (
 	}
 
 	LogTplForPrintControlSetWith1Args = LangTpl{
-		Zh: "当前系统控制集：ControlSet00%d",
-		En: "Current system control set: ControlSet00%d",
+		Zh: "已识别当前系统控制集：ControlSet00%d",
+		En: "Detected current system control set: ControlSet00%d",
 	}
 
 	LogTplForPrintDriverDatabaseLegacyWith0Args = LangTpl{
-		Zh: "系统驱动数据库：CDB",
-		En: "System driver database: CDB",
+		Zh: "已识别系统驱动数据库：CDB",
+		En: "Detected system driver database: CDB",
 	}
 
 	LogTplForPrintDriverDatabasePnpWith0Args = LangTpl{
-		Zh: "系统驱动数据库：PNP",
-		En: "System driver database: PNP",
+		Zh: "已识别系统驱动数据库：PNP",
+		En: "Detected system driver database: PNP",
 	}
 
 	LogTplForPrintSystemBootKernelWith1Args = LangTpl{
-		Zh: "系统启动内核：%s",
-		En: "System boot kernel: %s",
+		Zh: "已识别系统启动内核：%s",
+		En: "Detected system boot kernel: %s",
 	}
 
 	LogTplForPrintSystemGrubWith2Args = LangTpl{
-		Zh: "系统引导程序：%s（版本：%v）",
-		En: "System bootloader: %s (version: %v)",
+		Zh: "已识别系统引导程序：%s（版本：v%v）",
+		En: "Detected system bootloader: %s (version: v%v)",
 	}
 
 	LogTplForPrintSystemBootTypeWith1Args = LangTpl{
-		Zh: "系统启动模式：%s",
-		En: "System boot mode: %s",
+		Zh: "已识别系统启动模式：%s",
+		En: "Detected system boot mode: %s",
 	}
 
 	LogTplForPrintDistroWith1Args = LangTpl{
-		Zh: "系统发行版：%s",
-		En: "System distribution: %s",
+		Zh: "已识别系统发行版：%s",
+		En: "Detected system distribution: %s",
 	}
 
 	LogTplForPrintInitrdMgrWith1Args = LangTpl{
-		Zh: "Initramfs 管理工具：%s",
-		En: "Initramfs management tool: %s",
+		Zh: "已识别 Initramfs 管理工具：%s",
+		En: "Detected Initramfs management tool: %s",
 	}
 
 	LogTplForDisableSELinuxWith0Args = LangTpl{
@@ -161,58 +161,53 @@ var (
 	}
 
 	LogTplForDisableAutoRebootWith0Args = LangTpl{
-		Zh: "禁用自动重启",
-		En: "Disabling automatic reboot",
+		Zh: "禁用系统故障自动重启",
+		En: "Disabling automatic reboot on system failure",
 	}
 
 	LogTplForRepairPAMWith0Args = LangTpl{
-		Zh: "修复 PAM 配置",
-		En: "Repairing PAM configuration",
+		Zh: "修复 PAM 认证配置",
+		En: "Repairing PAM authentication configuration",
 	}
 
 	LogTplForRepairGrubWith0Args = LangTpl{
-		Zh: "修复 GRUB 配置",
-		En: "Repairing GRUB configuration",
+		Zh: "修复 GRUB 启动配置",
+		En: "Repairing GRUB boot configuration",
 	}
 
 	LogTplForRepairFstabWith0Args = LangTpl{
-		Zh: "修复 fstab 配置",
-		En: "Repairing fstab configuration",
-	}
-
-	LogTplForIgnoreRepairWith1Args = LangTpl{
-		Zh: "系统版本（%s）过旧，已跳过硬件修复和网络配置注入，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
-		En: "System version (%s) is too old. Hardware repair and network configuration injection were skipped. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+		Zh: "修复 fstab 挂载配置",
+		En: "Repairing fstab mount configuration",
 	}
 
 	LogTplForInjectLegacyDriversWith0Args = LangTpl{
-		Zh: "以传统方式（CDB）注入虚拟化驱动",
-		En: "Injecting virtualization drivers using the legacy method (CDB)",
+		Zh: "采用传统模式（CDB）注入虚拟化驱动",
+		En: "Injecting virtualization drivers using legacy mode (CDB)",
 	}
 
 	LogTplForSkipFirstBootServiceWith1Args = LangTpl{
-		Zh: "系统版本（%s）过旧，已跳过首次启动服务和网络配置注入",
-		En: "System version (%s) is too old. First-boot service and network configuration injection were skipped.",
+		Zh: "系统版本（%s）过旧，已跳过首次启动服务和网络配置部署",
+		En: "System version (%s) is too old. Skipped first-boot service and network configuration deployment",
 	}
 
 	LogTplForNoLegacyBlockDriverWith1Args = LangTpl{
-		Zh: "未找到适用于系统版本（%s）的 VirtIO 块设备启动驱动，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
-		En: "No VirtIO block boot driver is available for system version (%s). After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+		Zh: "未找到与系统版本（%s）兼容的 VirtIO 启动驱动。恢复后请使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "No VirtIO boot driver compatible with system version (%s) was found. Boot using compatible hardware such as IDE and Legacy NIC after recovery",
 	}
 
 	LogTplForNoLegacyVirtualDriverWith2Args = LangTpl{
-		Zh: "未找到适用于系统版本（%s）的 KVM 虚拟化驱动（%v），请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
-		En: "No KVM virtualization driver is available for system version (%s) (%v). After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+		Zh: "未找到适用于系统版本（%s）的 KVM 虚拟化驱动（%v）。恢复后请使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "No KVM virtualization driver compatible with system version (%s) was found (%v). Boot using compatible hardware such as IDE and Legacy NIC after recovery",
 	}
 
 	LogTplForIntelIdeNotAvailableWith1Args = LangTpl{
-		Zh: "确保 Intel IDE 引导驱动失败：%v。若系统使用 Intel IDE 启动盘，恢复后可能无法正常启动",
-		En: "Failed to ensure the Intel IDE boot driver is available: %v. If the system boots from an Intel IDE disk, it may fail to boot after recovery.",
+		Zh: "启用 IDE/ATA 启动驱动失败：%v。若系统启动盘采用 IDE/ATA 模式，恢复后可能无法正常启动",
+		En: "Failed to enable IDE/ATA boot driver: %v. The system may fail to boot after recovery if the boot disk uses IDE/ATA mode",
 	}
 
 	LogTplForNonBootDriverInstalledWith2Args = LangTpl{
-		Zh: "系统版本过旧，非启动驱动（%s）已放入驱动目录 %s，请在恢复后进入该目录手动安装驱动",
-		En: "System version is too old. Non-boot driver (%s) was placed in driver directory %s. Install the driver manually from this directory after recovery.",
+		Zh: "系统版本过旧，已将非启动驱动（%s）部署至驱动目录：%s。请在恢复后手动安装",
+		En: "System version is too old. Non-boot driver (%s) has been deployed to driver directory: %s. Install it manually after recovery",
 	}
 
 	LogTplForOptimizeUEFIWith0Args = LangTpl{
@@ -226,13 +221,13 @@ var (
 	}
 
 	LogTplForInjectFirstBootServiceWith1Args = LangTpl{
-		Zh: "注入首次启动服务：%s",
-		En: "Injecting first-boot service: %s",
+		Zh: "部署首次启动服务：%s",
+		En: "Deploying first-boot service: %s",
 	}
 
 	LogTplForInjectNetworkToolFailedWith1Args = LangTpl{
-		Zh: "网络配置工具注入失败：%v",
-		En: "Failed to inject network configuration tool: %v",
+		Zh: "网络配置工具部署失败：%v",
+		En: "Failed to deploy network configuration tool: %v",
 	}
 
 	LogTplForInjectNetworkConfigWith0Args = LangTpl{
@@ -282,7 +277,7 @@ var (
 
 	LogTplForConfigKVMSuccessWith0Args = LangTpl{
 		Zh: "KVM 驱动支持配置完成",
-		En: "KVM driver support configured successfully",
+		En: "KVM driver support configuration completed",
 	}
 
 	LogTplForConfigXenWith0Args = LangTpl{
@@ -301,23 +296,23 @@ var (
 	}
 
 	LogTplForIncompatibleNonBootPCIWith2Args = LangTpl{
-		Zh: "检测到不兼容的非启动设备：%s（%s），请在系统启动后安装相应驱动",
-		En: "Detected incompatible non-boot device: %s (%s). Install the appropriate driver after system startup.",
+		Zh: "检测到不兼容的非启动设备：%s（%s）。请在系统启动后安装对应驱动",
+		En: "Detected incompatible non-boot device: %s (%s). Install the corresponding driver after system startup",
 	}
 
 	LogTplForMatchDriverWith1Args = LangTpl{
-		Zh: "为硬件 %s 进行兼容性检查",
-		En: "Checking compatibility for hardware %s",
+		Zh: "检查硬件兼容性：%s",
+		En: "Checking hardware compatibility: %s",
 	}
 
 	LogTplForMatchDriverDbWith2Args = LangTpl{
-		Zh: "硬件 %s 的兼容驱动：%s",
-		En: "Compatible driver for hardware %s: %s",
+		Zh: "已匹配硬件 %s 的兼容驱动：%s",
+		En: "Matched compatible driver for hardware %s: %s",
 	}
 
 	LogTplForMatchDriverSuccessWith1Args = LangTpl{
-		Zh: "硬件 %s 已完成兼容性修复",
-		En: "Compatibility fix completed for hardware %s",
+		Zh: "硬件 %s 的兼容性修复完成",
+		En: "Compatibility repair completed for hardware %s",
 	}
 
 	LogTplForUnlockBitlockerWith1Args = LangTpl{
@@ -332,51 +327,51 @@ var (
 
 	LogTplForRepairSuccessWith0Args = LangTpl{
 		Zh: "系统修复完成",
-		En: "System repair completed successfully",
+		En: "System repair completed",
 	}
 
 	LogTplForRepairFailedWith1Args = LangTpl{
-		Zh: "系统修复失败，原因：%v",
+		Zh: "系统修复失败：%v",
 		En: "System repair failed: %v",
 	}
 
 	LogTplForUnsupportedHardwareWith2Args = LangTpl{
-		Zh: "不支持的硬件设备：%s（%s），该设备为非启动设备，无需进行兼容性修复",
-		En: "Unsupported hardware device: %s (%s). The device is not a boot device, so compatibility repair is not required.",
+		Zh: "检测到不支持的硬件设备：%s（%s），该设备为非启动设备，无需执行兼容性修复",
+		En: "Detected unsupported hardware device: %s (%s). The device is not a boot device, so compatibility repair is not required",
 	}
 
 	LogTplForHyperVLowVersionWith0Args = LangTpl{
-		Zh: "当前 Linux 版本可能不兼容 Hyper-V，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
-		En: "The current Linux version may be incompatible with Hyper-V. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+		Zh: "当前 Linux 版本可能不兼容 Hyper-V。恢复后请使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "The current Linux version may be incompatible with Hyper-V. Boot using compatible hardware such as IDE and Legacy NIC after recovery",
 	}
 
 	LogTplForKVMPatchFailedWith1Args = LangTpl{
-		Zh: "内核 VirtIO 补丁失败：%v，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
-		En: "Kernel VirtIO patch failed: %v. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+		Zh: "内核 VirtIO 补丁失败：%v。恢复后请使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "VirtIO kernel patch failed: %v. Boot using compatible hardware such as IDE and Legacy NIC after recovery",
 	}
 
 	LogTplForUdevNoUuidWith0Args = LangTpl{
-		Zh: "udev 不支持 UUID，grub.cfg 和 fstab 无法自动更新，恢复后系统可能无法正常启动",
-		En: "udev does not support UUID. grub.cfg and fstab cannot be updated automatically, and the system may fail to boot after recovery.",
+		Zh: "udev 不支持 UUID，无法自动更新 grub.cfg 和 fstab，恢复后系统可能无法正常启动",
+		En: "udev does not support UUID. grub.cfg and fstab cannot be updated automatically, and the system may fail to boot after recovery",
 	}
 
 	LogTplForFstabUnknownLineWith1Args = LangTpl{
-		Zh: "fstab 存在无法识别的配置行：%s，恢复后系统可能无法正常启动",
-		En: "Unrecognized fstab configuration line: %s. The system may fail to boot after recovery.",
+		Zh: "fstab 存在无法识别的配置项：%s，恢复后系统可能无法正常启动",
+		En: "Unrecognized fstab configuration entry: %s. The system may fail to boot after recovery",
 	}
 
 	LogTplForNoEfiFirmwareWith0Args = LangTpl{
-		Zh: "未找到 EFI 固件入口，启动后需在 UEFI Shell 中手动选择 EFI 文件",
-		En: "No EFI firmware entry found. Manually select the EFI file in UEFI Shell after boot.",
+		Zh: "未找到 EFI 固件启动项，启动后需在 UEFI Shell 中手动选择 EFI 文件",
+		En: "No EFI firmware boot entry found. Manually select the EFI file in UEFI Shell after boot",
 	}
 
 	LogTplForXenPatchFailedWith1Args = LangTpl{
-		Zh: "内核 Xen 补丁失败：%v，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
-		En: "Kernel Xen patch failed: %v. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+		Zh: "内核 Xen 补丁失败：%v。恢复后请使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "Xen kernel patch failed: %v. Boot using compatible hardware such as IDE and Legacy NIC after recovery",
 	}
 
 	LogTplForVmwarePatchFailedWith1Args = LangTpl{
-		Zh: "内核 VMware 补丁失败：%v，请恢复后使用 IDE、Legacy NIC 等兼容硬件启动",
-		En: "Kernel VMware patch failed: %v. After recovery, boot using compatible hardware such as IDE and Legacy NIC.",
+		Zh: "内核 VMware 补丁失败：%v。恢复后请使用 IDE、Legacy NIC 等兼容硬件启动",
+		En: "VMware kernel patch failed: %v. Boot using compatible hardware such as IDE and Legacy NIC after recovery",
 	}
 )
