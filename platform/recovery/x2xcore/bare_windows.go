@@ -7,10 +7,10 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xlib"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows/registry"
 )
@@ -36,12 +36,19 @@ func (fixer *windowsSystemFixer) configBareMetal() error {
 
 	for _, p := range fixer.opts.RecoveryParam.Target.PciList {
 
-		fixer.infof(LogTplForMatchDriverWith1Args, p)
-
 		up, e := universal.UniPciFromString(p)
 		if e != nil {
 			return e
 		}
+
+		// 非存储和网络类的硬件忽略兼容性检查
+		if up.BaseClassId() != 0x01 &&
+			up.BaseClassId() != 0x02 {
+			logger.Debugf("configBareMetal: ignore `%s`", p)
+			continue
+		}
+
+		fixer.infof(LogTplForMatchDriverWith1Args, p)
 
 		logger.Debugf("configBareMetal: \npci: %s\nhardwareIds:\n%s",
 			p,

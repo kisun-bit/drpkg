@@ -6,10 +6,8 @@ import (
 
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
-	"github.com/kisun-bit/drpkg/platform/recovery/x2xlib"
 	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
-	"github.com/thoas/go-funk"
 )
 
 func (fixer *linuxSystemFixer) unconfigBareMetal() error {
@@ -54,12 +52,20 @@ func (fixer *linuxSystemFixer) compatKernel(k kernel, loader *Loader, pciList []
 			return nil, e
 		}
 
+		// 非存储和网络类的硬件忽略兼容性检查
+		if up.BaseClassId() != 0x01 &&
+			up.BaseClassId() != 0x02 {
+			logger.Debugf("compatKernel: ignore `%s`", p)
+			continue
+		}
+
 		ms, e := fixer.compatPci(loader, up)
 		if e != nil {
-			if funk.InUInt32s(x2xlib.SupportedBusTypes, up.BaseClassId()) {
-				return nil, e
+			if up.BaseClassId() == 0x01 {
+				fixer.errorf(LogTplForIncompatibleBootPCIWith2Args, p, up.Human())
+				return nil, errors.Wrapf(err, "incompatible pci(%s), detail: %s", up.MsHardwareId()[0], up.Human())
 			}
-			// 其余非存储控制器、网卡、显卡的硬件设备，抛出警告即可
+			// 其余非存储控制器的硬件设备，抛出警告即可
 			fixer.warnf(LogTplForUnsupportedHardwareWith2Args, up, up.Human())
 			continue
 		}
