@@ -186,13 +186,13 @@ func (up *UniPci) MsHardwareId() []string {
 	//
 
 	return []string{
-		fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X\\SUBSYS_%04X%04X\\REV_%02X",
+		fmt.Sprintf("PCI\\VEN_%04X&DEV_%04X&SUBSYS_%04X%04X&REV_%02X",
 			up.vendorId, up.deviceId, up.subsystemVendorId, up.subsystemDeviceId, up.revision),
-		fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X\\SUBSYS_%04X%04X",
+		fmt.Sprintf("PCI\\VEN_%04X&DEV_%04X&SUBSYS_%04X%04X",
 			up.vendorId, up.deviceId, up.subsystemVendorId, up.subsystemDeviceId),
-		fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X\\CC_%02X%02X%02X",
+		fmt.Sprintf("PCI\\VEN_%04X&DEV_%04X&CC_%02X%02X%02X",
 			up.vendorId, up.deviceId, up.baseClass, up.subClass, up.programInterface),
-		fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X\\CC_%02X%02X",
+		fmt.Sprintf("PCI\\VEN_%04X&DEV_%04X&CC_%02X%02X",
 			up.vendorId, up.deviceId, up.baseClass, up.subClass),
 	}
 }
@@ -232,26 +232,26 @@ func (up *UniPci) MsCompatibleId() []string {
 
 	// VEN + DEV + REV
 	if up.revision != 0 {
-		ids[0] = fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X\\REV_%02X",
+		ids[0] = fmt.Sprintf("PCI\\VEN_%04X&DEV_%04X&REV_%02X",
 			up.vendorId, up.deviceId, up.revision)
 	}
 
 	// VEN + DEV
-	ids[1] = fmt.Sprintf("PCI\\VEN_%04X\\DEV_%04X",
+	ids[1] = fmt.Sprintf("PCI\\VEN_%04X&DEV_%04X",
 		up.vendorId, up.deviceId)
 
 	// VEN + CC(6)
 	if up.baseClass != 0 ||
 		up.subClass != 0 ||
 		up.programInterface != 0 {
-		ids[2] = fmt.Sprintf("PCI\\VEN_%04X\\CC_%02X%02X%02X",
+		ids[2] = fmt.Sprintf("PCI\\VEN_%04X&CC_%02X%02X%02X",
 			up.vendorId, up.baseClass, up.subClass, up.programInterface)
 	}
 
 	// VEN + CC(4)
 	if up.baseClass != 0 ||
 		up.subClass != 0 {
-		ids[3] = fmt.Sprintf("PCI\\VEN_%04X\\CC_%02X%02X",
+		ids[3] = fmt.Sprintf("PCI\\VEN_%04X&CC_%02X%02X",
 			up.vendorId, up.baseClass, up.subClass)
 	}
 
