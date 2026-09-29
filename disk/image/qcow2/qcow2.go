@@ -135,6 +135,21 @@ func (factory ImageFactory) imageFromFile(
 	maxRecursionDepth uint32,
 	readOnly bool,
 ) (*ImageFile, error) {
+	var backingFileImage *ImageFile
+	succeeded := false
+	defer func() {
+		if succeeded {
+			return
+		}
+		// 出错时释放本函数内已打开的资源, 避免只读句柄泄漏 (Windows 上会阻塞文件删除)。
+		if backingFileImage != nil {
+			_ = backingFileImage.Close()
+		}
+		if file != nil {
+			_ = file.Close()
+		}
+	}()
+
 	header, err := imageHeaderFromFile(file)
 	if err != nil {
 		return nil, err
@@ -154,7 +169,6 @@ func (factory ImageFactory) imageFromFile(
 			return nil, newErrL1OffsetExceedsFileBoundaries(header.l1TableOffset, fileSize)
 		}
 	}
-	var backingFileImage *ImageFile
 	if header.backingFilePath != nil {
 		backingFileImage, err = factory.getBackingFileImage(
 			*header.backingFilePath,
@@ -260,6 +274,7 @@ func (factory ImageFactory) imageFromFile(
 	if err != nil {
 		return nil, err
 	}
+	succeeded = true
 	return &image, nil
 }
 
@@ -302,8 +317,14 @@ func (factory ImageFactory) CreateImageFromBacking(
 	if err != nil {
 		return nil, err
 	}
+	// 此处打开 backing 仅用于读取虚拟磁盘大小, 读取后立即释放;
+	// 否则该只读句柄会一直存活 (Windows 上会阻塞目标文件的删除)。
+	virtualSize := backingFileImage.header.virtualDiskSizeBytes
+	if err := backingFileImage.Close(); err != nil {
+		return nil, err
+	}
 	header, err := createHeaderForSizeAndPath(
-		backingFileImage.header.virtualDiskSizeBytes,
+		virtualSize,
 		&backingFileName,
 	)
 	if err != nil {
@@ -322,16 +343,17 @@ func (factory ImageFactory) createImageFromHeader(
 	if err != nil {
 		return nil, err
 	}
-	_, err = file.Seek(0, 0)
-	if err != nil {
+	if _, err = file.Seek(0, 0); err != nil {
+		_ = file.Close()
 		return nil, err
 	}
-	err = header.writeToFile(file)
-	if err != nil {
+	if err = header.writeToFile(file); err != nil {
+		_ = file.Close()
 		return nil, err
 	}
 	qcowImage, err := factory.imageFromFile(filePath, file, maxNestingDepth, maxNestingDepth, false)
 	if err != nil {
+		// imageFromFile 出错时已将 file 关闭。
 		return nil, err
 	}
 	endClusterAddress := header.refCountTableOffset +
@@ -339,6 +361,7 @@ func (factory ImageFactory) createImageFromHeader(
 	for clusterAddress := uint64(0); clusterAddress < endClusterAddress; clusterAddress += header.clusterSize {
 		unreferencedClusters, err := qcowImage.setClusterRefcount(clusterAddress, 1)
 		if err != nil {
+			_ = qcowImage.Close()
 			return nil, err
 		}
 		qcowImage.unrefClusters = append(qcowImage.unrefClusters, unreferencedClusters...)
