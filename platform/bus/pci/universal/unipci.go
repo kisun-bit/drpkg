@@ -162,7 +162,7 @@ func (up *UniPci) Equals(other *UniPci) bool {
 
 // Modalias 获取此PCI在Linux系统中的硬件标识
 func (up *UniPci) Modalias() string {
-	return fmt.Sprintf("pci:v%08Xd%08Xsv%08xsd%08Xbc%02Xsc%02Xi%02X",
+	return fmt.Sprintf("pci:v%08xd%08xsv%08xsd%08xbc%02xsc%02xi%02x",
 		up.vendorId, up.deviceId, up.subsystemVendorId, up.subsystemDeviceId, up.baseClass, up.subClass, up.programInterface)
 }
 
@@ -171,7 +171,7 @@ func (up *UniPci) VirtioModalias() (modAlias string, ok bool) {
 	if up.vendorId != 0x1af4 {
 		return "", false
 	}
-	return fmt.Sprintf("virtio:d%08Xv%08X", up.subsystemDeviceId, up.subsystemVendorId), true
+	return fmt.Sprintf("virtio:d%08xv%08x", up.subsystemDeviceId, up.subsystemVendorId), true
 }
 
 // MsHardwareId 获取此PCI在Windows系统中的硬件ID集合

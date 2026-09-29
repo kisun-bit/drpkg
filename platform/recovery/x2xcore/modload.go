@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -21,7 +22,8 @@ type ModuleIndex map[string]string
 // ================================
 
 func matchAlias(pattern, target string) bool {
-	ok, err := filepath.Match(pattern, target)
+	// 忽略大小写，兼容不同发行版的 modules.alias 格式（CentOS 7 用大写，新系统用小写）
+	ok, err := filepath.Match(strings.ToLower(pattern), strings.ToLower(target))
 	return ok && err == nil
 }
 
@@ -133,16 +135,16 @@ func BuildModuleIndex(graph DepGraph) ModuleIndex {
 
 	index := make(ModuleIndex)
 
-	for path := range graph {
+	for p := range graph {
 
-		name := moduleName(filepath.Base(path))
+		name := moduleName(path.Base(p))
 
 		if old, ok := index[name]; ok {
-			if modulePriority(path) > modulePriority(old) {
-				index[name] = path
+			if modulePriority(p) > modulePriority(old) {
+				index[name] = p
 			}
 		} else {
-			index[name] = path
+			index[name] = p
 		}
 	}
 
@@ -199,6 +201,60 @@ func ResolveDeps(graph DepGraph, modules []string) ([]string, error) {
 // Loader
 // ================================
 
+// parseModulesBuiltin 解析 modules.builtin 文件，返回内置模块名集合
+func parseModulesBuiltin(filePath string) map[string]bool {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	builtin := make(map[string]bool)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		// line 格式：kernel/drivers/ata/ahci.ko
+		// 使用 path.Base 处理 Linux 路径分隔符
+		name := moduleName(path.Base(line))
+		builtin[name] = true
+	}
+	return builtin
+}
+
+// parseModulesBuiltinModinfo 解析 modules.builtin.modinfo 文件，提取内置模块的 alias
+// 格式：kernel/drivers/ata/ahci.ko.alias=pci:v00008086d00008d02sv*sd*bc01sc06i01*
+func parseModulesBuiltinModinfo(filePath string) (AliasMap, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	aliasMap := make(AliasMap)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		// 只处理 .alias= 行
+		const aliasSuffix = ".alias="
+		idx := strings.Index(line, aliasSuffix)
+		if idx < 0 {
+			continue
+		}
+		pattern := line[idx+len(aliasSuffix):]
+		// 提取模块路径部分并去掉 .ko 后缀
+		modPath := strings.TrimSuffix(line[:idx], ".ko")
+		module := moduleName(path.Base(modPath))
+		aliasMap[pattern] = append(aliasMap[pattern], module)
+	}
+	return aliasMap, scanner.Err()
+}
+
 type Loader struct {
 	root        string
 	kernel      string
@@ -206,6 +262,7 @@ type Loader struct {
 	depGraph    DepGraph
 	aliasMap    AliasMap
 	moduleIndex ModuleIndex
+	builtinMods map[string]bool // 编译进内核的模块名集合
 }
 
 // 初始化
@@ -215,6 +272,8 @@ func NewModuleLoader(root, kernel string) (*Loader, error) {
 
 	depFile := filepath.Join(moduleRoot, "modules.dep")
 	aliasFile := filepath.Join(moduleRoot, "modules.alias")
+	builtinFile := filepath.Join(moduleRoot, "modules.builtin")
+	builtinModinfoFile := filepath.Join(moduleRoot, "modules.builtin.modinfo")
 
 	depGraph, err := ParseModulesDep(depFile)
 	if err != nil {
@@ -222,6 +281,16 @@ func NewModuleLoader(root, kernel string) (*Loader, error) {
 	}
 
 	aliasMap, _ := ParseModulesAlias(aliasFile)
+
+	// 解析编译进内核的模块
+	builtinMods := parseModulesBuiltin(builtinFile)
+
+	// 合并内置模块的 alias（如果 modules.builtin.modinfo 存在）
+	if builtinAliases, err := parseModulesBuiltinModinfo(builtinModinfoFile); err == nil {
+		for pattern, modules := range builtinAliases {
+			aliasMap[pattern] = append(aliasMap[pattern], modules...)
+		}
+	}
 
 	index := BuildModuleIndex(depGraph)
 
@@ -232,6 +301,7 @@ func NewModuleLoader(root, kernel string) (*Loader, error) {
 		depGraph:    depGraph,
 		aliasMap:    aliasMap,
 		moduleIndex: index,
+		builtinMods: builtinMods,
 	}, nil
 }
 
@@ -276,6 +346,9 @@ func (l *Loader) LoadByDevice(device string) ([]string, error) {
 	for _, m := range modules {
 		if p, ok := l.moduleIndex[m]; ok {
 			fullModules = append(fullModules, p)
+		} else if l.builtinMods != nil && l.builtinMods[m] {
+			// 模块已编译进内核，无需额外加载
+			continue
 		}
 	}
 
@@ -296,7 +369,7 @@ func (l *Loader) build(modules []string) ([]string, error) {
 
 	for _, m := range order {
 
-		full := filepath.Join(l.root, m)
+		full := filepath.Join(l.moduleRoot, m)
 
 		if _, err = os.Stat(full); err != nil {
 			return nil, errors.Wrapf(err, "failed to access %s", full)

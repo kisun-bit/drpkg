@@ -1,8 +1,10 @@
 package x2xcore
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
@@ -74,6 +76,8 @@ func (fixer *linuxSystemFixer) compatKernel(k kernel, loader *Loader, pciList []
 		if len(ms) != 0 {
 			modules = append(modules, ms...)
 		}
+
+		fixer.infof(LogTplForMatchDriverSuccessWith1Args, fmt.Sprintf("%s (kernel: %s, module: %v)", up, k.Name, strings.Join(ms, ",")))
 	}
 
 	if len(modules) != 0 {
