@@ -25,10 +25,12 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 
 		levelFile := filepath.Join(mdPath, name, "md", "level")
 		sizeFile := filepath.Join(mdPath, name, "size")
+		uuidFile := filepath.Join(mdPath, name, "md", "uuid")
 		devicesPath := filepath.Join(mdPath, name, "slaves")
 
 		level := -1
 		size := uint64(0)
+		var uuid string
 		var subDevices []string
 
 		if data, err := os.ReadFile(levelFile); err == nil {
@@ -69,6 +71,10 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 			}
 		}
 
+		if data, err := os.ReadFile(uuidFile); err == nil {
+			uuid = strings.TrimSpace(string(data))
+		}
+
 		// 获取子设备
 		if slaves, err := os.ReadDir(devicesPath); err == nil {
 			for _, s := range slaves {
@@ -84,6 +90,7 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 			Name:   name,
 			Level:  level,
 			Device: device,
+			UUID:   uuid,
 			Size:   int64(size),
 			Table:  table_,
 			Slaves: subDevices,
