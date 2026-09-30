@@ -22,7 +22,9 @@ func QueryMultipath() ([]MultipathDevice, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !strings.HasPrefix(string(uuidBody), "mpath-") {
+		// dm uuid 形如 mpath-3600508b...，mpath- 前缀标记其为 multipath 设备。
+		mpUUID := strings.TrimSpace(string(uuidBody))
+		if !strings.HasPrefix(mpUUID, "mpath-") {
 			continue
 		}
 		dmNamePath := filepath.Join(filepath.Dir(dmPath), "name")
@@ -40,6 +42,7 @@ func QueryMultipath() ([]MultipathDevice, error) {
 		mp := MultipathDevice{}
 		mp.Name = dmName
 		mp.Device = devicePath
+		mp.UUID = mpUUID
 
 		size, err := xutil.FileSize(mp.Device)
 		if err != nil {
