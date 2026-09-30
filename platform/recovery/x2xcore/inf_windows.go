@@ -187,6 +187,62 @@ func (inf *INF) ServiceNames() []string {
 	return funk.UniqString(svcs)
 }
 
+// ServiceSysFile 返回指定服务名对应的 .sys 驱动文件名（不含路径）。
+// 通过 AddService → ServiceInstall → ServiceBinary 链查找；
+// 找不到或服务不存在时返回空字符串。
+func (inf *INF) ServiceSysFile(svcName string) string {
+	for sec, lines := range inf.Sections {
+		if !strings.HasSuffix(sec, ".services") {
+			continue
+		}
+
+		for _, line := range lines {
+			k, v, ok := splitKeyValue(line)
+			if !ok || !strings.EqualFold(k, "AddService") {
+				continue
+			}
+
+			fields := splitComma(v)
+			if len(fields) < 3 {
+				continue
+			}
+
+			svc := strings.Trim(strings.TrimSpace(fields[0]), `"`)
+			if !strings.EqualFold(svc, svcName) {
+				continue
+			}
+
+			installSec := strings.ToLower(
+				strings.Trim(strings.TrimSpace(fields[2]), `"`))
+
+			// 在 ServiceInstall 段中查找 ServiceBinary
+			for _, l := range inf.Sections[installSec] {
+				k2, v2, ok2 := splitKeyValue(l)
+				if !ok2 || !strings.EqualFold(k2, "ServiceBinary") {
+					continue
+				}
+
+				binFields := splitComma(v2)
+				if len(binFields) == 0 {
+					continue
+				}
+
+				p := strings.Trim(strings.TrimSpace(binFields[0]), `"`)
+				// 取路径最后一段（文件名）
+				if i := strings.LastIndexAny(p, `\/`); i >= 0 {
+					p = p[i+1:]
+				}
+
+				if strings.HasSuffix(strings.ToLower(p), ".sys") {
+					return strings.ToLower(p)
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
 // infNonDeviceSections 是不包含设备硬件 ID 条目的 INF 段名黑名单
 // （段名在解析时已统一小写），解析硬件 ID 时跳过这些段。
 var infNonDeviceSections = map[string]bool{

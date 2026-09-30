@@ -39,11 +39,11 @@ type windowsSystemFixer struct {
 }
 
 type infMap struct {
-	serviceName string   // inf中安装的服务名
-	classGuid   string   // inf中声明的设备类GUID（ClassGUID）
-	infName     string   // inf文件名（Windows\Inf目录下）
-	pciList     []string // inf中声明的pci硬件/兼容ID集合（小写归一化）
-	sysFiles    []string // inf声明的.sys驱动文件列表
+	serviceNames []string // inf中安装的所有服务名
+	classGuid    string   // inf中声明的设备类GUID（ClassGUID）
+	infName      string   // inf文件名（Windows\Inf目录下）
+	pciList      []string // inf中声明的pci硬件/兼容ID集合（小写归一化）
+	sysFiles     []string // inf声明的.sys驱动文件列表
 }
 
 type offlineSystem struct {
@@ -60,7 +60,8 @@ type offlineSystem struct {
 	halType            defs.HALType
 	legacyBlockDriver  string   // 传统方式注入的 virtio 块驱动服务名（viostor/vioscsi），空表示未注入
 	legacyNetDriver    bool     // 是否以传统方式注入了 netkvm 网络驱动
-	infMaps            []infMap // 驱动名至pci硬件集的映射表，key是
+	infMaps            []infMap // 驱动名至pci硬件集的映射表
+	pciIndex           map[string]*infMap // PCI ID → infMap 快速索引（键为 cdbKeyName 归一化形式）
 }
 
 func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io.Writer) (fixer SysFixer, err error) {

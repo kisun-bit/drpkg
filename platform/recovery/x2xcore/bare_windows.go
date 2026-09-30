@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 
 	"github.com/kisun-bit/drpkg/logger"
@@ -126,12 +125,13 @@ func (fixer *windowsSystemFixer) checkPciInDriverStore(up *universal.UniPci) err
 
 		logger.Debugf("checkPciInDriverStore: DeviceId %s found, key is %s", compatID, keyPath)
 
-		valueNames, err := key.ReadValueNames(-1)
-		key.Close()
-		if err != nil {
-			logger.Warnf("checkPciInDriverStore: failed to enumerate %s: %v", keyPath, err)
-			continue
-		}
+valueNames, err := key.ReadValueNames(-1)
+			if err != nil {
+				key.Close()
+				logger.Warnf("checkPciInDriverStore: failed to enumerate %s: %v", keyPath, err)
+				continue
+			}
+			key.Close()
 
 		for _, value := range valueNames {
 			if strings.HasSuffix(strings.ToLower(value), ".inf") {
@@ -200,13 +200,26 @@ func (fixer *windowsSystemFixer) checkPciInDriverStore(up *universal.UniPci) err
 	}
 	logger.Debugf("checkPciInDriverStore: found %d packages, details:\n%s", len(pkgIDs), xutil.Pretty(pkgIDs))
 
-	//
-	// Non-storage devices only need to verify existence.
-	//
-	if up.BaseClassId() != 0x01 {
-		logger.Debug("checkPciInDriverStore: non-storage device")
-		return nil
-	}
+//
+		// Non-storage devices: verify at least one Active package
+		// directory exists and is non-empty, but don't require boot-time
+		// service enablement (PnP manager handles post-boot installation).
+		//
+		if up.BaseClassId() != 0x01 {
+			for _, pkgID := range pkgIDs {
+				infDir := filepath.Join(
+					fixer.offsys.sysVolumeLtr+":\\",
+					"Windows", "System32", "DriverStore",
+					"FileRepository", pkgID,
+				)
+				if !xutil.IsEmptyDir(infDir) {
+					logger.Debugf("checkPciInDriverStore: non-storage device, package %s exists", pkgID)
+					return nil
+				}
+				logger.Warnf("checkPciInDriverStore: non-storage package %s missing", pkgID)
+			}
+			return ErrDeviceNotSupported
+		}
 
 	var processed bool
 
@@ -355,6 +368,7 @@ func (fixer *windowsSystemFixer) checkPciInDriverStoreLegacy(up *universal.UniPc
 		}
 
 		svcName = svc
+		break // 已找到最精确匹配的 Service，无需继续遍历兼容 ID
 	}
 
 	logger.Debugf("checkPciInDriverStoreLegacy: svcName is `%s`", svcName)
@@ -385,8 +399,8 @@ func (fixer *windowsSystemFixer) checkPciInDriverStoreLegacy(up *universal.UniPc
 		// 匹配成功后补齐驱动文件、创建服务并登记 CDB 记录。
 		m, _ := fixer.matchInfMap(up)
 		if m != nil {
-			logger.Debugf("checkPciInDriverStoreLegacy: matched inf map, service=%s inf=%s",
-				m.serviceName, m.infName)
+logger.Debugf("checkPciInDriverStoreLegacy: matched inf map, service=%v inf=%s",
+					m.serviceNames, m.infName)
 
 			if e := fixer.installLegacyDriverFromInfMap(m, up); e != nil {
 				return e
@@ -401,13 +415,6 @@ func (fixer *windowsSystemFixer) checkPciInDriverStoreLegacy(up *universal.UniPc
 	if svcName != "" && fixer.existedService(svcName) {
 		return fixer.enableService(svcName)
 	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("SelectWindowsBestNormalDriver panic: %v\n%s", r, debug.Stack())
-			panic(r) // 如果不想吞掉 panic，可以继续抛
-		}
-	}()
 
 	ds, e := fixer.x2xLib.SelectWindowsBestNormalDriver(
 		fixer.opts.RecoveryParam.Source.Arch,
@@ -501,8 +508,10 @@ func (fixer *windowsSystemFixer) injectNormalDriverLegacy(
 		sysFiles := infObj.SysFiles()
 
 		for _, svc := range infObj.ServiceNames() {
-			sysFileName := ""
-			if len(sysFiles) > 0 {
+			// 优先按 ServiceBinary 精确匹配该服务对应的 .sys 文件；
+			// 解析失败时回退到全局 sysFiles[0]（兼容旧版 INF 格式）
+			sysFileName := infObj.ServiceSysFile(svc)
+			if sysFileName == "" && len(sysFiles) > 0 {
 				sysFileName = sysFiles[0]
 			}
 
@@ -543,6 +552,7 @@ func (fixer *windowsSystemFixer) buildInfMaps() error {
 	}
 
 	fixer.offsys.infMaps = fixer.offsys.infMaps[:0]
+	fixer.offsys.pciIndex = make(map[string]*infMap)
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -576,14 +586,28 @@ func (fixer *windowsSystemFixer) buildInfMaps() error {
 
 		sysFiles := infObj.SysFiles()
 
-		for _, svc := range infObj.ServiceNames() {
-			fixer.offsys.infMaps = append(fixer.offsys.infMaps, infMap{
-				serviceName: svc,
-				classGuid:   classGuid,
-				infName:     name,
-				pciList:     hwIds,
-				sysFiles:    sysFiles,
-			})
+		svcNames := infObj.ServiceNames()
+		if len(svcNames) == 0 {
+			continue
+		}
+
+		fixer.offsys.infMaps = append(fixer.offsys.infMaps, infMap{
+			serviceNames: svcNames,
+			classGuid:    classGuid,
+			infName:      name,
+			pciList:      hwIds,
+			sysFiles:     sysFiles,
+		})
+	}
+
+	// 构建 PCI ID → infMap 快速索引（cdbKeyName 归一化形式为键）
+	for i := range fixer.offsys.infMaps {
+		m := &fixer.offsys.infMaps[i]
+		for _, pciID := range m.pciList {
+			k := cdbKeyName(pciID)
+			if k != "" && fixer.offsys.pciIndex[k] == nil {
+				fixer.offsys.pciIndex[k] = m
+			}
 		}
 	}
 
@@ -602,25 +626,16 @@ func (fixer *windowsSystemFixer) buildInfMaps() error {
 //
 // 返回匹配到的索引条目与命中的归一化 ID；未匹配时返回 (nil, "")。
 func (fixer *windowsSystemFixer) matchInfMap(up *universal.UniPci) (*infMap, string) {
-	// 设备硬件 ID 与兼容 ID 归一化为 CDB 键名形式后建立集合：
-	// INF 中既可能声明完整硬件 ID（带 SUBSYS），也可能只声明
-	// 兼容 ID（VEN+DEV 等），两者都要参与匹配。
-	compatSet := make(map[string]bool)
+	// 设备的硬件 ID 与兼容 ID 逐一归一化为 CDB 键名形式，
+	// 在 pciIndex 中 O(1) 查找匹配的 INF 条目；
+	// 先匹配硬件 ID（更精确），再匹配兼容 ID。
 	for _, id := range append(up.MsHardwareId(), up.MsCompatibleId()...) {
 		k := cdbKeyName(id)
-		if k != "" {
-			compatSet[k] = true
+		if k == "" {
+			continue
 		}
-	}
-
-	for i := range fixer.offsys.infMaps {
-		m := &fixer.offsys.infMaps[i]
-
-		for _, pciID := range m.pciList {
-			k := cdbKeyName(pciID)
-			if k != "" && compatSet[k] {
-				return m, k
-			}
+		if m, ok := fixer.offsys.pciIndex[k]; ok {
+			return m, k
 		}
 	}
 
@@ -682,20 +697,22 @@ func (fixer *windowsSystemFixer) installLegacyDriverFromInfMap(
 	}
 	sysFileName := m.sysFiles[0]
 
-	if e := fixer.installLegacyService(m.serviceName, sysFileName, bootCritical); e != nil {
-		return e
-	}
+	for _, svcName := range m.serviceNames {
+		if e := fixer.installLegacyService(svcName, sysFileName, bootCritical); e != nil {
+			return e
+		}
 
-	// 4) 在 CDB 中登记该设备，保证引导阶段可识别并加载驱动。
-	// 完整硬件 ID 与兼容 ID 一并登记，提高引导阶段命中率。
-	compatIds := append(up.MsHardwareId(), up.MsCompatibleId()...)
-	if e := fixer.registerCriticalDeviceDatabase(m.serviceName, m.classGuid, compatIds); e != nil {
-		return e
+		// 4) 在 CDB 中登记该设备，保证引导阶段可识别并加载驱动。
+		// 完整硬件 ID 与兼容 ID 一并登记，提高引导阶段命中率。
+		compatIds := append(up.MsHardwareId(), up.MsCompatibleId()...)
+		if e := fixer.registerCriticalDeviceDatabase(svcName, m.classGuid, compatIds); e != nil {
+			return e
+		}
 	}
 
 	logger.Infof(
-		"installLegacyDriverFromInfMap: service %s installed for %s (inf=%s)",
-		m.serviceName,
+		"installLegacyDriverFromInfMap: service %v installed for %s (inf=%s)",
+		m.serviceNames,
 		up,
 		m.infName,
 	)
@@ -719,18 +736,19 @@ func (fixer *windowsSystemFixer) findDriverPackageDir(m *infMap) (string, error)
 		return "", errors.Wrapf(err, "read FileRepository %s", fileRepoDir)
 	}
 
-	// 优先：按 "<服务名>.inf" 前缀匹配包目录名
-	prefix := strings.ToLower(m.serviceName) + ".inf"
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		name := strings.ToLower(entry.Name())
-		if strings.HasPrefix(name, prefix) {
-			pkgDir := filepath.Join(fileRepoDir, entry.Name())
-			logger.Debugf("findDriverPackageDir: matched by service name: %s", pkgDir)
-			return pkgDir, nil
+	// 优先：按每个服务名的 "<服务名>.inf" 前缀匹配包目录名
+	for _, svcName := range m.serviceNames {
+		prefix := strings.ToLower(svcName) + ".inf"
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := strings.ToLower(entry.Name())
+			if strings.HasPrefix(name, prefix) {
+				pkgDir := filepath.Join(fileRepoDir, entry.Name())
+				logger.Debugf("findDriverPackageDir: matched by service name %s: %s", svcName, pkgDir)
+				return pkgDir, nil
+			}
 		}
 	}
 
@@ -757,6 +775,6 @@ func (fixer *windowsSystemFixer) findDriverPackageDir(m *infMap) (string, error)
 	}
 
 	return "", errors.Errorf(
-		"no driver package found in FileRepository for service %s (inf %s)",
-		m.serviceName, m.infName)
+		"no driver package found in FileRepository for services %v (inf %s)",
+		m.serviceNames, m.infName)
 }
