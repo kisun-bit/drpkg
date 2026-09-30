@@ -95,6 +95,12 @@ type RecoveryParameter struct {
 	// MultipathNotExisted 表示目标系统不存在源系统的多路径设备。
 	// 对整机备份或整机 CDP 代理备份恢复时通常应设置为 true。
 	MultipathNotExisted bool `json:"multipathNotExisted"`
+
+	// RaidUUIDs 表示目标系统的物理环境中存在的 RAID 设备的UUID。
+	RaidUUIDs []string `json:"raidUUIDs"`
+
+	// MultipathUUIDs 表示目标系统的物理环境中存在的多路径设备的UUID。
+	MultipathUUIDs []string `json:"multipathUUIDs"`
 }
 
 type DeviceMap struct {
