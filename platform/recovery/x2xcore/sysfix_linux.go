@@ -256,6 +256,10 @@ func (fixer *linuxSystemFixer) Repair() error {
 		return errors.Wrap(err, "fix fstab")
 	}
 
+	if err := fixer.validateStorageStack(); err != nil {
+		return errors.Wrap(err, "validate storage stack")
+	}
+
 	if err := fixer.fixGrub(); err != nil {
 		return errors.Wrap(err, "fix grub")
 	}
@@ -678,11 +682,22 @@ func (fixer *linuxSystemFixer) detectStorage() error {
 	fixer.offsys.useMdraid = false
 	fixer.offsys.useBtrfs = false
 
+	// 目标环境通过 RaidUUIDs 指定了自带 RAID 设备，需要 mdraid 模块组装。
+	if len(fixer.opts.RecoveryParam.RaidUUIDs) > 0 {
+		logger.Debugf("detectStorage: target raid specified by RaidUUIDs: %v",
+			fixer.opts.RecoveryParam.RaidUUIDs)
+		fixer.offsys.useMdraid = true
+	}
+
+	// 源系统用软 RAID 且恢复时保留（RaidNotExisted=false），需要 mdraid 重新组装；
+	// 若要求拆除 RAID（RaidNotExisted=true），则不需要注入 mdraid。
+	keepSourceRaid := !fixer.opts.RecoveryParam.RaidNotExisted
+
 	for _, dev := range fixer.offsys.fsList {
 		if isLvmLogicalVolume(dev.Device) {
 			logger.Debugf("detectStorage: lvm logical volume detected: %s", dev.Device)
 			fixer.offsys.useLvm = true
-		} else if strings.HasPrefix(dev.Device, "/dev/md") {
+		} else if keepSourceRaid && strings.HasPrefix(dev.Device, "/dev/md") {
 			logger.Debugf("detectStorage: mdraid device detected: %s", dev.Device)
 			fixer.offsys.useMdraid = true
 		}
@@ -694,7 +709,31 @@ func (fixer *linuxSystemFixer) detectStorage() error {
 		}
 	}
 
+	// LVM-on-MD：当 LVM 的 PV 落在软 RAID 上时，fsList 里只有 LV 设备、看不到
+	// /dev/md（PV 会被 enumFilesystem 过滤），需遍历 PV 设备列表补识别。
+	if keepSourceRaid && fixer.offsys.useLvm {
+		li, err := info.QueryLVMInfo()
+		if err != nil {
+			logger.Warnf("detectStorage: QueryLVMInfo failed: %v", err)
+		} else if lvmOnMdraid(li) {
+			logger.Debugf("detectStorage: lvm on mdraid detected")
+			fixer.offsys.useMdraid = true
+		}
+	}
+
 	return nil
+}
+
+// lvmOnMdraid 判断 LVM 的物理卷是否落在软 RAID 设备上。
+func lvmOnMdraid(li info.LVM) bool {
+	for _, vg := range li.VGList {
+		for _, pv := range vg.PVDeviceList {
+			if strings.HasPrefix(pv, "/dev/md") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isLvmLogicalVolume 判断设备是否为 LVM 逻辑卷
@@ -2067,6 +2106,32 @@ func (fixer *linuxSystemFixer) disableMultipathModule() error {
 	return errors.New("disableMultipathModule: not implemented yet")
 }
 
+// validateStorageStack 校验源系统与目标环境组合下的存储栈是否可以恢复。
+// 此处的失败属于无法继续的错误，放在 Repair 阶段直接返回，确保错误不会被
+// virtio 补丁的 SATA 回退逻辑吞掉。
+func (fixer *linuxSystemFixer) validateStorageStack() error {
+	logger.Debugf("validateStorageStack: ++")
+	defer logger.Debugf("validateStorageStack: --")
+
+	// 多重 RAID：源磁盘头已带 RAID 签名（RaidNotExisted=false），目标环境又
+	// 配置了 RAID（RaidUUIDs 非空），相当于 RAID 之上再套 RAID，系统无法启动。
+	if !fixer.opts.RecoveryParam.RaidNotExisted &&
+		len(fixer.opts.RecoveryParam.RaidUUIDs) > 0 {
+		fixer.errorf(LogTplForNestedRaidWith0Args)
+		return errors.New("nested raid detected")
+	}
+
+	// 使用软 RAID 时，mdraid 框架模块必须存在，否则系统无法组装 RAID。
+	if fixer.offsys.useMdraid {
+		if err := fixer.ensureMdraidSupported(); err != nil {
+			fixer.errorf(LogTplForMdraidModuleMissingWith0Args)
+			return err
+		}
+	}
+
+	return nil
+}
+
 // fixGrub 修复Grub
 func (fixer *linuxSystemFixer) fixGrub() error {
 	logger.Debugf("fixGrub: ++")
@@ -2159,6 +2224,7 @@ func (fixer *linuxSystemFixer) fixOneGrub(
 	content = fixGrubBootArgs(fixer.offsys.distro,
 		content,
 		fixer.opts.RecoveryParam.RaidNotExisted,
+		fixer.opts.RecoveryParam.RaidUUIDs,
 		fixer.opts.RecoveryParam.MultipathNotExisted)
 
 	if content == before {
@@ -2207,7 +2273,7 @@ func fixGrubRootResume(
 	return content
 }
 
-func fixGrubBootArgs(distro DistroInfo, content string, disableRaid bool, disableMultipath bool) string {
+func fixGrubBootArgs(distro DistroInfo, content string, disableRaid bool, raidUUIDs []string, disableMultipath bool) string {
 
 	lineRe := regexp.MustCompile(
 		`(?m)^(\s*(kernel|linux|linux16|linuxefi)\s+.*)$`,
@@ -2258,6 +2324,22 @@ func fixGrubBootArgs(distro DistroInfo, content string, disableRaid bool, disabl
 				return strings.TrimRight(line, " \t")
 			},
 		)
+	}
+
+	// 目标环境自带 RAID：按 UUID 补全 rd.md.uuid= 启动参数。
+	for _, raidUUID := range raidUUIDs {
+		raidUUID = strings.TrimSpace(raidUUID)
+		if raidUUID == "" {
+			continue
+		}
+
+		// 已存在则跳过
+		existRe := regexp.MustCompile(`\s+rd\.md\.uuid=` + regexp.QuoteMeta(raidUUID) + `(\s|$)`)
+		if existRe.MatchString(content) {
+			continue
+		}
+
+		content = lineRe.ReplaceAllString(content, `${1} rd.md.uuid=`+raidUUID)
 	}
 
 	if disableMultipath {
@@ -2354,7 +2436,7 @@ func (fixer *linuxSystemFixer) initrdAddModule(k kernel, modules ...string) erro
 		if err := fixer.addModulesToDracutConf(modules...); err != nil {
 			return err
 		}
-		if err := fixer.configureDracutStorage(); err != nil {
+		if err := fixer.configureDracutStorage(k); err != nil {
 			return err
 		}
 		return fixer.generateInitrdByDracut(k)
@@ -2816,8 +2898,9 @@ func (fixer *linuxSystemFixer) mergeDracutConfKey(key string, modules ...string)
 //
 // 为什么按需探测而不是默认全加：crypt/mdraid 等框架模块在目标系统缺少对应
 // 用户态工具（cryptsetup/mdadm）时，dracut 会因安装工具失败而整体失败，进而
-// 让 virtio 注入回退到 SATA。因此只对确实使用了某存储栈的系统注入。
-func (fixer *linuxSystemFixer) configureDracutStorage() error {
+// 让 virtio 注入回退到 SATA。因此只对确实使用了某存储栈的系统注入；其中
+// mdraid 作为软 RAID 的组装框架，缺少时直接失败，RAID 内核驱动则按存在性可选注入。
+func (fixer *linuxSystemFixer) configureDracutStorage(k kernel) error {
 	logger.Debugf("configureDracutStorage: ++")
 	defer logger.Debugf("configureDracutStorage: --")
 
@@ -2831,20 +2914,37 @@ func (fixer *linuxSystemFixer) configureDracutStorage() error {
 		frameworkMods = append(frameworkMods, "crypt")
 	}
 	if fixer.offsys.useMdraid {
+		// mdraid 属于框架模块；validateStorageStack 已在 Repair 阶段校验其存在性，
+		// 这里仅做防御性检查，避免绕过校验时把不存在的模块写进配置。
+		if err := fixer.ensureMdraidSupported(); err != nil {
+			return err
+		}
 		frameworkMods = append(frameworkMods, "mdraid")
+	}
+
+	// 内核驱动
+	driverMods := make([]string, 0)
+
+	if fixer.offsys.useBtrfs {
+		driverMods = append(driverMods, "btrfs")
+	}
+
+	// RAID 内核驱动为可选：不同内核版本的模块命名有差异，有则注入、无则跳过。
+	if fixer.offsys.useMdraid {
+		for _, drv := range []string{
+			"raid0", "raid1", "raid10", "raid456", "raid6_pq", "async_raid6_recov",
+		} {
+			if ok, _ := fixer.kernelContainsModule(k, drv); ok {
+				driverMods = append(driverMods, drv)
+				logger.Debugf("configureDracutStorage: add raid driver `%s`", drv)
+			}
+		}
 	}
 
 	if len(frameworkMods) > 0 {
 		if err := fixer.addDracutModulesToDracutConf(frameworkMods...); err != nil {
 			return err
 		}
-	}
-
-	// 内核驱动：btrfs 是文件系统驱动而非激活层框架模块，走 add_drivers。
-	driverMods := make([]string, 0)
-
-	if fixer.offsys.useBtrfs {
-		driverMods = append(driverMods, "btrfs")
 	}
 
 	if len(driverMods) > 0 {
@@ -2854,6 +2954,23 @@ func (fixer *linuxSystemFixer) configureDracutStorage() error {
 	}
 
 	return nil
+}
+
+// ensureMdraidSupported 检查离线系统的 dracut 是否包含 mdraid 框架模块。
+func (fixer *linuxSystemFixer) ensureMdraidSupported() error {
+	logger.Debugf("ensureMdraidSupported: ++")
+	defer logger.Debugf("ensureMdraidSupported: --")
+
+	for _, rel := range []string{
+		"usr/lib/dracut/modules.d/90mdraid",
+		"usr/share/dracut/modules.d/90mdraid",
+	} {
+		if xutil.IsDir(filepath.Join(fixer.offsys.root, rel)) {
+			return nil
+		}
+	}
+
+	return errors.New("mdraid dracut module not found")
 }
 
 // addDracutModulesToDracutConf 向 dracut 配置中强制追加框架模块

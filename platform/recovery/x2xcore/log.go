@@ -374,4 +374,14 @@ var (
 		Zh: "内核 VMware 补丁失败：%v。恢复后请使用 IDE、Legacy NIC 等兼容硬件启动",
 		En: "VMware kernel patch failed: %v. Boot using compatible hardware such as IDE and Legacy NIC after recovery",
 	}
+
+	LogTplForMdraidModuleMissingWith0Args = LangTpl{
+		Zh: "离线系统缺少 mdraid 模块，无法组装软件 RAID。恢复时请将存储控制器设置为非 RAID 模式（ATA/IDE 或 AHCI）",
+		En: "The offline system is missing the mdraid module and cannot assemble software RAID. Set the storage controller to non-RAID mode (ATA/IDE or AHCI) during recovery",
+	}
+
+	LogTplForNestedRaidWith0Args = LangTpl{
+		Zh: "检测到多重 RAID：源磁盘带 RAID 签名，且目标环境再次配置了 RAID，系统将无法启动。请取消目标环境的 RAID 配置或调整恢复参数",
+		En: "Nested RAID detected: the source disk carries a RAID signature while the target environment is configured with RAID again. The system will fail to boot. Remove the target RAID configuration or adjust recovery parameters",
+	}
 )
