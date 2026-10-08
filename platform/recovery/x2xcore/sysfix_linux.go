@@ -110,10 +110,14 @@ type kernel struct {
 
 func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io.Writer) (fixer SysFixer, err error) {
 	logger.Debugf("NewSysFixer: opts:\n%s", xutil.Pretty(opts))
+
 	if err = CheckAndFillFixerCreateOptions(opts); err != nil {
 		return nil, err
 	}
-	//logger.Debugf("NewSysFixer: CheckAndFillFixerCreateOptions: opts:\n%s", xutil.Pretty(opts))
+
+	//opts.RecoveryParam.RaidUUIDs = append(opts.RecoveryParam.RaidUUIDs, "1d53fd99:78696630:3673e26b:6a44304c")
+	logger.Debugf("NewSysFixer: CheckAndFillFixerCreateOptions: opts:\n%s", xutil.Pretty(opts))
+
 	lf := &linuxSystemFixer{ctx: ctx, opts: opts, logs: make(chan LogEntry, 1000)}
 	if opts.InRepairVM {
 		if serialReqPort == nil {
@@ -2299,6 +2303,17 @@ func fixGrubBootArgs(distro DistroInfo, content string, disableRaid bool, raidUU
 		content = lineRe.ReplaceAllString(
 			content,
 			`${1} rootwait`,
+		)
+	}
+
+	// rd.auto
+	// rd.auto 是 Dracut 的参数。Dracut 文档明确说明 rd.auto 用于自动组装 LUKS、dmraid、mdraid、LVM，并且从 dracut 024 起默认关闭。
+	// 那么只要此参数有效，就算恢复目标主机存在RAID，也不用自己再组装 "rd.md.uuid=" 这个参数了。
+	rdAutoRe := regexp.MustCompile(`(^|\s+)rd.auto(\s|$)`)
+	if !rdAutoRe.MatchString(content) {
+		content = lineRe.ReplaceAllString(
+			content,
+			`${1} rd.auto`,
 		)
 	}
 

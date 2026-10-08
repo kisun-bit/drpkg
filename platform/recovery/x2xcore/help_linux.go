@@ -210,14 +210,30 @@ func VmbusExisted() (bool, error) {
 }
 
 func DetectGrub(root string) (int, string) {
+	type result struct {
+		ver  int
+		path string
+	}
+
+	// -------------------------------------------------------------------------
+	// 1. 按启动方式/优先级定义候选配置
+	//
+	// UEFI vendor-specific 配置优先于 UEFI fallback 配置。
+	// EFI/BOOT 是 UEFI fallback 路径，不应该因为 glob("EFI/*") 被提前处理。
+	// -------------------------------------------------------------------------
 	globs := []string{
+		// UEFI vendor-specific
+		"boot/efi/EFI/*/grub.cfg",
+		"boot/efi/EFI/*/grub.conf",
+		"boot/efi/EFI/*/elilo.conf",
+
+		// BIOS / legacy
 		"boot/*/grub.cfg",
 		"boot/*/grub.conf",
 		"boot/*/menu.lst",
 		"boot/burg/burg.cfg",
-		"boot/efi/EFI/*/grub.cfg",
-		"boot/efi/EFI/*/grub.conf",
-		"boot/efi/EFI/*/elilo.conf",
+
+		// Compatibility / symlink paths
 		"etc/grub2.cfg",
 		"etc/grub2-efi.cfg",
 		"etc/grub.conf",
@@ -225,23 +241,30 @@ func DetectGrub(root string) (int, string) {
 		"etc/elilo.conf",
 	}
 
-	type result struct {
-		ver  int
-		path string
-	}
 	var found []result
 
+	// -------------------------------------------------------------------------
+	// 2. 先处理 UEFI vendor-specific 配置
+	//
+	// 这里明确排除 EFI/BOOT，避免 fallback 配置被当成普通 vendor 配置。
+	// 如果发现 configfile，则优先跟踪真实配置。
+	// -------------------------------------------------------------------------
 	for _, g := range globs {
 		paths, _ := filepath.Glob(filepath.Join(root, g))
 
 		for _, p := range paths {
 			absPath := resolve(p)
+
+			if isEFIBootFallback(absPath, root) {
+				continue
+			}
+
 			content, err := readFileHead(absPath, 512<<10)
 			if err != nil {
 				continue
 			}
 
-			// EFI stub 跟踪
+			// EFI stub / grub chain config。
 			if strings.Contains(content, "configfile ") {
 				if next := parseConfigfile(content, root); next != "" {
 					if v, rp := detectSingle(next); v != -1 {
@@ -251,17 +274,59 @@ func DetectGrub(root string) (int, string) {
 			}
 
 			if v := detectContent(content); v != -1 {
-				found = append(found, result{v, absPath})
+				found = append(found, result{
+					ver:  v,
+					path: absPath,
+				})
 			}
 		}
 	}
 
-	// 优先 grub2
+	// -------------------------------------------------------------------------
+	// 3. 最后处理 UEFI fallback：
+	//
+	// /boot/efi/EFI/BOOT/grub.cfg
+	//
+	// 它是 fallback 路径，因此优先级低于 EFI/<vendor>/。
+	// 同样优先跟踪 configfile 指向的真实配置。
+	// -------------------------------------------------------------------------
+	fallback := filepath.Join(
+		root,
+		"boot/efi/EFI/BOOT/grub.cfg",
+	)
+
+	if absPath := resolve(fallback); absPath != "" {
+		content, err := readFileHead(absPath, 512<<10)
+		if err == nil {
+			if strings.Contains(content, "configfile ") {
+				if next := parseConfigfile(content, root); next != "" {
+					if v, rp := detectSingle(next); v != -1 {
+						return v, rp
+					}
+				}
+			}
+
+			if v := detectContent(content); v != -1 {
+				found = append(found, result{
+					ver:  v,
+					path: absPath,
+				})
+			}
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// 4. 优先返回 grub2
+	// -------------------------------------------------------------------------
 	for _, r := range found {
 		if r.ver == 2 {
 			return r.ver, r.path
 		}
 	}
+
+	// -------------------------------------------------------------------------
+	// 5. 其次返回 grub legacy
+	// -------------------------------------------------------------------------
 	for _, r := range found {
 		if r.ver == 1 {
 			return r.ver, r.path
@@ -269,6 +334,25 @@ func DetectGrub(root string) (int, string) {
 	}
 
 	return -1, ""
+}
+
+// isEFIBootFallback 判断路径是否为 UEFI fallback 配置：
+//
+//	/boot/efi/EFI/BOOT/...
+//
+// 注意：这里使用 filepath.ToSlash，避免 Windows 风格路径分隔符影响判断。
+// root 传入的是目标系统根目录，例如 /mnt。
+func isEFIBootFallback(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+
+	rel = filepath.ToSlash(rel)
+
+	const prefix = "boot/efi/EFI/BOOT/"
+
+	return strings.HasPrefix(rel, prefix)
 }
 
 func resolve(p string) string {

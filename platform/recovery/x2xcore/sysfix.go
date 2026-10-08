@@ -69,9 +69,28 @@ func CheckAndFillFixerCreateOptions(opts *FixerCreateOptions) error {
 	if len(opts.OfflineSysDisks) == 0 {
 		return errors.New("FixerCreateOptions OfflineSysDisks is empty")
 	}
+
+	opts.RecoveryParam.RaidNotExisted = true
+	opts.RecoveryParam.MultipathNotExisted = true
+
 	for _, disk := range opts.OfflineSysDisks {
 		if !xutil.IsExisted(disk) {
 			return errors.Errorf("FixerCreateOptions disk(%s) does not exist", disk)
+		}
+
+		ri, err := RAIDProbe(disk)
+		if err != nil {
+			logger.Warnf(
+				"CheckAndFillFixerCreateOptions: RAIDProbe(%s): %v",
+				disk,
+				err,
+			)
+			continue
+		}
+
+		if ri.Detected {
+			opts.RecoveryParam.RaidNotExisted = false
+			break
 		}
 	}
 
