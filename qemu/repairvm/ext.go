@@ -43,8 +43,14 @@ func (o *Option) Validate() error {
 	}
 
 	seenIndex := make(map[int]struct{})
+	newOfflineSystemDisks := make([]x2xcore.Disk, 0)
 
 	for i, disk := range o.RecoveryParams.OfflineSystemDisks {
+
+		// 若磁盘路径为空，忽略即可
+		if disk.Path == "" {
+			continue
+		}
 
 		if err := validateDisk(
 			disk,
@@ -64,7 +70,14 @@ func (o *Option) Validate() error {
 		}
 
 		seenIndex[disk.Index] = struct{}{}
+		newOfflineSystemDisks = append(newOfflineSystemDisks, disk)
 	}
+
+	if len(newOfflineSystemDisks) == 0 {
+		return errors.New("no offline system disks specified")
+	}
+
+	o.RecoveryParams.OfflineSystemDisks = newOfflineSystemDisks
 
 	//if isqcow2, _ := isQCOW2(o.VmBootDiskFile); !isqcow2 {
 	//	return errors.New("boot file format is not qcow2")

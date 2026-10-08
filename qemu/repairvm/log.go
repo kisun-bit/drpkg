@@ -10,7 +10,7 @@ var (
 
 	LogTplRepairRequestDetails = x2xcore.LangTpl{
 		Zh: "修复请求详情：磁盘数量：%d，CPU 架构：%s，系统类型：%s，强制文件系统修复：%v，源硬件平台：%s，目标硬件平台：%s",
-		En: "Repair request details: disk count: %d, CPU architecture: %s, force filesystem repair: %v, source hardware platform: %s, target hardware platform: %s",
+		En: "Repair request details: disk count: %d, CPU architecture: %s, system type: %s, force filesystem repair: %v, source hardware platform: %s, target hardware platform: %s",
 	}
 
 	LogTplCreateRepairVM = x2xcore.LangTpl{
