@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kisun-bit/drpkg/defs"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
 	"gorm.io/gorm"
@@ -147,23 +147,23 @@ func versionWeight(in string) (uint64, error) {
 		nums[3], nil
 }
 
-func compatIdsFromUniPci(upStr string) ([]string, error) {
+func hwIdsAndCompatIdsFromUniPci(upStr string) ([]string, []string, error) {
 	up, err := universal.UniPciFromString(upStr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	msCompatIds := up.MsCompatibleId()
-	validMsCompatIds := make([]string, 0)
-	for _, id := range msCompatIds {
-		if strings.TrimSpace(id) == "" {
-			continue
-		}
-		validMsCompatIds = append(validMsCompatIds, id)
-	}
-	if len(validMsCompatIds) == 0 {
-		return nil, errors.Errorf("no compatible msCompatIds found in %s", upStr)
-	}
-	return validMsCompatIds, nil
+	//msCompatIds := up.MsCompatibleId()
+	//validMsCompatIds := make([]string, 0)
+	//for _, id := range msCompatIds {
+	//	if strings.TrimSpace(id) == "" {
+	//		continue
+	//	}
+	//	validMsCompatIds = append(validMsCompatIds, id)
+	//}
+	//if len(validMsCompatIds) == 0 {
+	//	return nil, nil, errors.Errorf("no compatible msCompatIds found in %s", upStr)
+	//}
+	return up.MsHardwareId(), up.MsCompatibleId(), nil
 }
 
 type createDriverOption struct {

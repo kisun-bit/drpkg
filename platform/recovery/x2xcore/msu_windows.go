@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xlib"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 )
 
@@ -260,6 +260,9 @@ func (fixer *windowsSystemFixer) injectWindowsDriverLegacy(
 	}
 	if len(msus) > 0 {
 		return fixer.injectMsuPackages(ds)
+	}
+	if yes, _ := fixer.isModernWindows(); yes {
+		return fixer.injectDriversByDism(ds)
 	}
 	return fixer.injectNormalDriverLegacy(ds, up)
 }

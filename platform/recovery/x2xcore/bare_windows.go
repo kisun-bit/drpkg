@@ -125,13 +125,13 @@ func (fixer *windowsSystemFixer) checkPciInDriverStore(up *universal.UniPci) err
 
 		logger.Debugf("checkPciInDriverStore: DeviceId %s found, key is %s", compatID, keyPath)
 
-valueNames, err := key.ReadValueNames(-1)
-			if err != nil {
-				key.Close()
-				logger.Warnf("checkPciInDriverStore: failed to enumerate %s: %v", keyPath, err)
-				continue
-			}
+		valueNames, err := key.ReadValueNames(-1)
+		if err != nil {
 			key.Close()
+			logger.Warnf("checkPciInDriverStore: failed to enumerate %s: %v", keyPath, err)
+			continue
+		}
+		key.Close()
 
 		for _, value := range valueNames {
 			if strings.HasSuffix(strings.ToLower(value), ".inf") {
@@ -200,26 +200,26 @@ valueNames, err := key.ReadValueNames(-1)
 	}
 	logger.Debugf("checkPciInDriverStore: found %d packages, details:\n%s", len(pkgIDs), xutil.Pretty(pkgIDs))
 
-//
-		// Non-storage devices: verify at least one Active package
-		// directory exists and is non-empty, but don't require boot-time
-		// service enablement (PnP manager handles post-boot installation).
-		//
-		if up.BaseClassId() != 0x01 {
-			for _, pkgID := range pkgIDs {
-				infDir := filepath.Join(
-					fixer.offsys.sysVolumeLtr+":\\",
-					"Windows", "System32", "DriverStore",
-					"FileRepository", pkgID,
-				)
-				if !xutil.IsEmptyDir(infDir) {
-					logger.Debugf("checkPciInDriverStore: non-storage device, package %s exists", pkgID)
-					return nil
-				}
-				logger.Warnf("checkPciInDriverStore: non-storage package %s missing", pkgID)
+	//
+	// Non-storage devices: verify at least one Active package
+	// directory exists and is non-empty, but don't require boot-time
+	// service enablement (PnP manager handles post-boot installation).
+	//
+	if up.BaseClassId() != 0x01 {
+		for _, pkgID := range pkgIDs {
+			infDir := filepath.Join(
+				fixer.offsys.sysVolumeLtr+":\\",
+				"Windows", "System32", "DriverStore",
+				"FileRepository", pkgID,
+			)
+			if !xutil.IsEmptyDir(infDir) {
+				logger.Debugf("checkPciInDriverStore: non-storage device, package %s exists", pkgID)
+				return nil
 			}
-			return ErrDeviceNotSupported
+			logger.Warnf("checkPciInDriverStore: non-storage package %s missing", pkgID)
 		}
+		return ErrDeviceNotSupported
+	}
 
 	var processed bool
 
@@ -399,8 +399,8 @@ func (fixer *windowsSystemFixer) checkPciInDriverStoreLegacy(up *universal.UniPc
 		// 匹配成功后补齐驱动文件、创建服务并登记 CDB 记录。
 		m, _ := fixer.matchInfMap(up)
 		if m != nil {
-logger.Debugf("checkPciInDriverStoreLegacy: matched inf map, service=%v inf=%s",
-					m.serviceNames, m.infName)
+			logger.Debugf("checkPciInDriverStoreLegacy: matched inf map, service=%v inf=%s",
+				m.serviceNames, m.infName)
 
 			if e := fixer.installLegacyDriverFromInfMap(m, up); e != nil {
 				return e

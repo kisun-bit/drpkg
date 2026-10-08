@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/defs"
-	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/kisun-bit/drpkg/logger"
 	"github.com/kisun-bit/drpkg/platform/bus/pci/universal"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
@@ -411,17 +411,22 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 		return nil, err
 	}
 
-	compatIds, err := compatIdsFromUniPci(unipci)
+	hwIds, compatIds, err := hwIdsAndCompatIdsFromUniPci(unipci)
 	if err != nil {
 		return nil, err
 	}
 
 	// hardware_compat 入库时统一为小写；查询侧同样归一化，
 	// 并用 LOWER() 包裹列，兼容历史大小写混存的记录。
-	compatIdsLower := make([]string, 0, len(compatIds))
+	idsLower := make([]string, 0)
 	for _, id := range compatIds {
-		compatIdsLower = append(compatIdsLower, strings.ToLower(id))
+		idsLower = append(idsLower, strings.ToLower(id))
 	}
+	for _, id := range hwIds {
+		idsLower = append(idsLower, strings.ToLower(id))
+	}
+
+	//fmt.Println(xutil.Pretty(idsLower))
 
 	var drivers []Driver
 
@@ -441,7 +446,7 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 		Where("driver.hw_type = ?", driverTypeNormal).
 		Where(
 			"LOWER(hardware_compat.compat_id) IN ?",
-			compatIdsLower,
+			idsLower,
 		).
 		Where(
 			"? = nt_compat.windows_version",

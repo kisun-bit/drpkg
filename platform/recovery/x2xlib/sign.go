@@ -125,7 +125,12 @@ func (ds *DriverSignature) Check() error {
 }
 
 func (ds *DriverSignature) IsSha1() bool {
-	return len(ds.Signatures) > 0 && ds.Signatures[0].Hash == defs.DrvHashSHA1
+	for _, s := range ds.Signatures {
+		if s.Hash == defs.DrvHashSHA1 {
+			return true
+		}
+	}
+	return false
 }
 
 // Weight 优先级权重
