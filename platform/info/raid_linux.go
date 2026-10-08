@@ -76,7 +76,7 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 		if data, err := os.ReadFile(uuidFile); err == nil {
 			uuid = strings.TrimSpace(string(data))
 		}
-		if uuid == "" {
+		if uuid == "" || uuid == "00000000-0000-0000-0000-000000000000" {
 			// IMSM/DDF 等 external metadata 的阵列在 sysfs 中没有 uuid 文件，
 			// 需回退到 mdadm --detail --export 解析 MD_UUID=。
 			uuid = mdRaidUUID(device)
