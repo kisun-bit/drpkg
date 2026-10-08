@@ -21,6 +21,7 @@ import (
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xcore"
 	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
+	"github.com/thoas/go-funk"
 )
 
 func (o *Option) Validate() error {
@@ -78,6 +79,13 @@ func (o *Option) Validate() error {
 	}
 
 	o.RecoveryParams.OfflineSystemDisks = newOfflineSystemDisks
+
+	o.RecoveryParams.RaidUUIDs = funk.FilterString(o.RecoveryParams.RaidUUIDs, func(s string) bool {
+		return s != ""
+	})
+	o.RecoveryParams.MultipathUUIDs = funk.FilterString(o.RecoveryParams.MultipathUUIDs, func(s string) bool {
+		return s != ""
+	})
 
 	//if isqcow2, _ := isQCOW2(o.VmBootDiskFile); !isqcow2 {
 	//	return errors.New("boot file format is not qcow2")
