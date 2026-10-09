@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kisun-bit/drpkg/command"
+	"github.com/kisun-bit/drpkg/xutil"
 )
 
 // QueryRaidDevices 获取所有 md 设备
@@ -93,14 +94,26 @@ func QueryRaidDevices() ([]RaidDevice, error) {
 			continue
 		}
 
+		lba, err := xutil.DiskLogicalSectorSize(device)
+		if err != nil {
+			return nil, err
+		}
+
+		pba, err := xutil.DiskPhysicalSectorSize(device)
+		if err != nil {
+			return nil, err
+		}
+
 		raids = append(raids, RaidDevice{
-			Name:   name,
-			Level:  level,
-			Device: device,
-			UUID:   uuid,
-			Size:   int64(size),
-			Table:  table_,
-			Slaves: subDevices,
+			Name:               name,
+			Level:              level,
+			Device:             device,
+			UUID:               uuid,
+			Size:               int64(size),
+			LogicalSectorSize:  lba,
+			PhysicalSectorSize: pba,
+			Table:              table_,
+			Slaves:             subDevices,
 		})
 	}
 

@@ -50,6 +50,18 @@ func QueryMultipath() ([]MultipathDevice, error) {
 		}
 		mp.Size = int64(size)
 
+		lba, err := xutil.DiskLogicalSectorSize(mp.Device)
+		if err != nil {
+			return nil, err
+		}
+		mp.LogicalSectorSize = lba
+
+		pba, err := xutil.DiskPhysicalSectorSize(mp.Device)
+		if err != nil {
+			return nil, err
+		}
+		mp.PhysicalSectorSize = pba
+
 		mp.Table, err = GetDiskTable(mp.Device)
 		if err != nil {
 			return nil, err

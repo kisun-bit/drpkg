@@ -2,8 +2,11 @@ package info
 
 import (
 	"encoding/json"
+	"fmt"
 	"runtime"
 
+	"github.com/dustin/go-humanize"
+	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
 )
 
@@ -84,11 +87,14 @@ type WindowsPrivateInfo struct {
 
 // RecoveryDevice 表示待恢复的目标设备。
 type RecoveryDevice struct {
-	Device        string `json:"path"`          // 设备路径
-	Size          uint64 `json:"size"`          // 设备容量，单位：字节
-	Safe          bool   `json:"safe"`          // 设备是否安全可写；仅当设备前 64KB 空间的数据全部为 0 时有效
-	RaidUUID      string `json:"raidUUID"`      // RAID 阵列 UUID；仅适用于 RAID 设备
-	MultipathUUID string `json:"multipathUUID"` // Multipath 设备 UUID；仅适用于 Multipath 设备
+	HumanName          string `json:"humanName"`          // 可读名称
+	Device             string `json:"device"`             // 设备路径
+	LogicalSectorSize  int    `json:"logicalSectorSize"`  // 逻辑扇区大小（单位：字节）
+	PhysicalSectorSize int    `json:"physicalSectorSize"` // 物理扇区大小（单位：字节）
+	Size               uint64 `json:"size"`               // 设备容量，单位：字节
+	Safe               bool   `json:"safe"`               // 设备是否安全可写；仅当设备前 64KB 空间的数据全部为 0 时有效
+	RaidUUID           string `json:"raidUUID"`           // RAID 阵列 UUID；仅适用于 RAID 设备
+	MultipathUUID      string `json:"multipathUUID"`      // Multipath 设备 UUID；仅适用于 Multipath 设备
 }
 
 // QueryPsInfo 查询系统信息
@@ -177,61 +183,87 @@ func (p *PsInfo) HardwareFingerprintChanged(other *PsInfo) bool {
 func (p *PsInfo) RecoveryDevices() []RecoveryDevice {
 	var rds []RecoveryDevice
 
+	sectorFmt := func(lba, pba int) string {
+		switch {
+		case lba == 512 && pba == 512:
+			return "512n"
+		case lba == 512 && pba == 4096:
+			return "512e"
+		case lba == 4096 && pba == 4096:
+			return "4Kn"
+		default:
+			return "Other"
+		}
+	}
+
+	appendDevice := func(
+		device string,
+		size uint64,
+		lba, pba int,
+		deviceType string,
+		raidUUID, multipathUUID string,
+	) {
+		rds = append(rds, RecoveryDevice{
+			HumanName: fmt.Sprintf("%s · %s · %s · %s",
+				device,
+				xutil.TrimAllSpace(humanize.IBytes(size)),
+				sectorFmt(lba, pba),
+				deviceType,
+			),
+			Device:             device,
+			Size:               size,
+			LogicalSectorSize:  lba,
+			PhysicalSectorSize: pba,
+			Safe:               isRecoveryDeviceSafe(device),
+			RaidUUID:           raidUUID,
+			MultipathUUID:      multipathUUID,
+		})
+	}
+
 	switch runtime.GOOS {
 	case "linux":
-		// 记录已被 RAID 或 Multipath 聚合的底层设备，
-		// 避免将其重复作为普通磁盘返回。
 		slaves := make(map[string]struct{})
 
-		// RAID 设备
 		for _, md := range p.Private.Linux.Raid {
-			rds = append(rds, RecoveryDevice{
-				Device:   md.Device,
-				Size:     uint64(md.Size),
-				Safe:     isRecoveryDeviceSafe(md.Device),
-				RaidUUID: md.UUID,
-			})
-
+			appendDevice(
+				md.Device, uint64(md.Size),
+				md.LogicalSectorSize, md.PhysicalSectorSize,
+				fmt.Sprintf("RAID %d", md.Level), md.UUID, "",
+			)
 			for _, slave := range md.Slaves {
 				slaves[slave] = struct{}{}
 			}
 		}
 
-		// Multipath 设备
 		for _, mp := range p.Private.Linux.Multipath {
-			rds = append(rds, RecoveryDevice{
-				Device:        mp.Device,
-				Size:          uint64(mp.Size),
-				Safe:          isRecoveryDeviceSafe(mp.Device),
-				MultipathUUID: mp.UUID,
-			})
-
+			appendDevice(
+				mp.Device, uint64(mp.Size),
+				mp.LogicalSectorSize, mp.PhysicalSectorSize,
+				"MULTIPATH", "", mp.UUID,
+			)
 			for _, slave := range mp.Slaves {
 				slaves[slave] = struct{}{}
 			}
 		}
 
-		// 普通磁盘：排除 RAID 和 Multipath 的底层设备
 		for _, d := range p.Public.Disks {
 			if _, ok := slaves[d.Device]; ok {
 				continue
 			}
-
-			rds = append(rds, RecoveryDevice{
-				Device: d.Device,
-				Size:   uint64(d.Size),
-				Safe:   isRecoveryDeviceSafe(d.Device),
-			})
+			appendDevice(
+				d.Device, uint64(d.Size),
+				d.LogicalSectorSize, d.PhysicalSectorSize,
+				"HARDDISK", "", "",
+			)
 		}
 
 	case "windows":
-		// 普通磁盘
 		for _, d := range p.Public.Disks {
-			rds = append(rds, RecoveryDevice{
-				Device: d.Device,
-				Size:   uint64(d.Size),
-				Safe:   isRecoveryDeviceSafe(d.Device),
-			})
+			appendDevice(
+				d.Device, uint64(d.Size),
+				d.LogicalSectorSize, d.PhysicalSectorSize,
+				"HARDDISK", "", "",
+			)
 		}
 	}
 
