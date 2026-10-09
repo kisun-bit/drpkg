@@ -13,6 +13,7 @@ import (
 	"github.com/kisun-bit/drpkg/platform/recovery/x2xlib"
 	"github.com/kisun-bit/drpkg/xutil"
 	"github.com/pkg/errors"
+	"github.com/thoas/go-funk"
 )
 
 // msuAlreadyInstalledToken 是 DISM 报告目标包已安装时输出的错误码
@@ -235,14 +236,31 @@ func (fixer *windowsSystemFixer) injectMsuPackages(ds *x2xlib.DriverResource) er
 //   - 目录含 .msu 安装包：走 DISM /Add-Package 安装包逻辑；
 //   - 否则：走现有 DISM /Add-Driver 注入逻辑。
 func (fixer *windowsSystemFixer) injectWindowsDriver(ds *x2xlib.DriverResource) error {
+	if ds == nil {
+		return errors.New("nil DriverResource")
+	}
+
+	if funk.InStrings(fixer.offsys.injectedDrvList, ds.Id) {
+		logger.Debugf("injectWindowsDriver: %s already injected, skipped", ds.Id)
+		return nil
+	}
+
 	msus, err := listMsuPackages(ds.Dir)
 	if err != nil {
 		return err
 	}
+
 	if len(msus) > 0 {
-		return fixer.injectMsuPackages(ds)
+		err = fixer.injectMsuPackages(ds)
+	} else {
+		err = fixer.injectDriversByDism(ds)
 	}
-	return fixer.injectDriversByDism(ds)
+	if err != nil {
+		return err
+	}
+
+	fixer.offsys.injectedDrvList = append(fixer.offsys.injectedDrvList, ds.Id)
+	return nil
 }
 
 // injectWindowsDriverLegacy 向离线系统（传统 CDB 型）注入驱动库中的
@@ -254,15 +272,35 @@ func (fixer *windowsSystemFixer) injectWindowsDriverLegacy(
 	ds *x2xlib.DriverResource,
 	up *universal.UniPci,
 ) error {
+	if ds == nil {
+		return errors.New("nil DriverResource")
+	}
+	if up == nil {
+		return errors.New("nil UniPci")
+	}
+
+	if funk.InStrings(fixer.offsys.injectedDrvList, ds.Id) {
+		logger.Debugf("injectWindowsDriverLegacy: %s already injected, skipped", ds.Id)
+		return nil
+	}
+
 	msus, err := listMsuPackages(ds.Dir)
 	if err != nil {
 		return err
 	}
+
 	if len(msus) > 0 {
-		return fixer.injectMsuPackages(ds)
+		err = fixer.injectMsuPackages(ds)
+	} else if yes, _ := fixer.isModernWindows(); yes {
+		err = fixer.injectDriversByDism(ds)
+	} else {
+		err = fixer.injectNormalDriverLegacy(ds, up)
 	}
-	if yes, _ := fixer.isModernWindows(); yes {
-		return fixer.injectDriversByDism(ds)
+
+	if err != nil {
+		return err
 	}
-	return fixer.injectNormalDriverLegacy(ds, up)
+
+	fixer.offsys.injectedDrvList = append(fixer.offsys.injectedDrvList, ds.Id)
+	return nil
 }

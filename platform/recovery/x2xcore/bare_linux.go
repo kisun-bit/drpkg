@@ -120,7 +120,7 @@ func (fixer *linuxSystemFixer) compatPci(loader *Loader, up *universal.UniPci) (
 		logger.Debugf("compatPci: modalias=`%s` driver=\n%s", modalias, xutil.Pretty(dr))
 
 		// 注入驱动
-		if e = fixer.batchInjectPackage(dr.Dir); e != nil {
+		if e = fixer.batchInjectPackage(dr); e != nil {
 			return nil, errors.Wrapf(e, "batchInjectPackage")
 		}
 

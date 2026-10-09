@@ -58,10 +58,11 @@ type offlineSystem struct {
 	currentControlSet  int
 	windowsVersion     defs.WindowsVersion
 	halType            defs.HALType
-	legacyBlockDriver  string   // 传统方式注入的 virtio 块驱动服务名（viostor/vioscsi），空表示未注入
-	legacyNetDriver    bool     // 是否以传统方式注入了 netkvm 网络驱动
-	infMaps            []infMap // 驱动名至pci硬件集的映射表
+	legacyBlockDriver  string             // 传统方式注入的 virtio 块驱动服务名（viostor/vioscsi），空表示未注入
+	legacyNetDriver    bool               // 是否以传统方式注入了 netkvm 网络驱动
+	infMaps            []infMap           // 驱动名至pci硬件集的映射表
 	pciIndex           map[string]*infMap // PCI ID → infMap 快速索引（键为 cdbKeyName 归一化形式）
+	injectedDrvList    []string           // 已经注入的驱动包
 }
 
 func NewSysFixer(ctx context.Context, opts *FixerCreateOptions, serialReqPort io.Writer) (fixer SysFixer, err error) {

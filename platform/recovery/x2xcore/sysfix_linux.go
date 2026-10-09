@@ -101,6 +101,9 @@ type offlineSystem struct {
 
 	// supportSystemd 是否支持 systemd
 	supportSystemd bool
+
+	// injectedDrvList 已经注入的驱动包
+	injectedDrvList []string
 }
 
 type kernel struct {
@@ -3267,16 +3270,32 @@ func (fixer *linuxSystemFixer) batchInjectPackagesByApt(
 }
 
 func (fixer *linuxSystemFixer) batchInjectPackage(
-	pkgDir string,
+	dr *x2xlib.DriverResource,
 ) error {
+	if dr == nil {
+		return errors.New("nil DriverResource")
+	}
+
+	if funk.InStrings(fixer.offsys.injectedDrvList, dr.Id) {
+		logger.Debugf("batchInjectPackage: %s already injected, skipped", dr.Id)
+		return nil
+	}
+
 	switch fixer.offsys.pkgMgrType {
 	case PackageManagerRPM:
-		return fixer.batchInjectPackagesByRpm(pkgDir)
+		if err := fixer.batchInjectPackagesByRpm(dr.Dir); err != nil {
+			return err
+		}
 	case PackageManagerDEB:
-		return fixer.batchInjectPackagesByDpkg(pkgDir)
+		if err := fixer.batchInjectPackagesByDpkg(dr.Dir); err != nil {
+			return err
+		}
 	default:
 		return errors.Errorf("unsupported package manager type: %s", fixer.offsys.pkgMgrType)
 	}
+
+	fixer.offsys.injectedDrvList = append(fixer.offsys.injectedDrvList, dr.Id)
+	return nil
 }
 
 func (fixer *linuxSystemFixer) logf(level LogLevel, tpl LangTpl, v ...interface{}) {
