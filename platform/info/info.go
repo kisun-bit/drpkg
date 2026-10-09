@@ -82,6 +82,15 @@ type WindowsPrivateInfo struct {
 	// FIXME
 }
 
+// RecoveryDevice 表示待恢复的目标设备。
+type RecoveryDevice struct {
+	Device        string `json:"path"`          // 设备路径
+	Size          uint64 `json:"size"`          // 设备容量，单位：字节
+	Safe          bool   `json:"safe"`          // 设备是否安全可写；仅当设备前 64KB 空间的数据全部为 0 时有效
+	RaidUUID      string `json:"raidUUID"`      // RAID 阵列 UUID；仅适用于 RAID 设备
+	MultipathUUID string `json:"multipathUUID"` // Multipath 设备 UUID；仅适用于 Multipath 设备
+}
+
 // QueryPsInfo 查询系统信息
 func QueryPsInfo() (pi *PsInfo, err error) {
 	pi = new(PsInfo)
@@ -163,6 +172,70 @@ func (p *PsInfo) HardwareFingerprintChanged(other *PsInfo) bool {
 		return false
 	}
 	return p.Public.HardwareFingerprint.Equals(&other.Public.HardwareFingerprint)
+}
+
+func (p *PsInfo) RecoveryDevices() []RecoveryDevice {
+	var rds []RecoveryDevice
+
+	switch runtime.GOOS {
+	case "linux":
+		// 记录已被 RAID 或 Multipath 聚合的底层设备，
+		// 避免将其重复作为普通磁盘返回。
+		slaves := make(map[string]struct{})
+
+		// RAID 设备
+		for _, md := range p.Private.Linux.Raid {
+			rds = append(rds, RecoveryDevice{
+				Device:   md.Device,
+				Size:     uint64(md.Size),
+				Safe:     isRecoveryDeviceSafe(md.Device),
+				RaidUUID: md.UUID,
+			})
+
+			for _, slave := range md.Slaves {
+				slaves[slave] = struct{}{}
+			}
+		}
+
+		// Multipath 设备
+		for _, mp := range p.Private.Linux.Multipath {
+			rds = append(rds, RecoveryDevice{
+				Device:        mp.Device,
+				Size:          uint64(mp.Size),
+				Safe:          isRecoveryDeviceSafe(mp.Device),
+				MultipathUUID: mp.UUID,
+			})
+
+			for _, slave := range mp.Slaves {
+				slaves[slave] = struct{}{}
+			}
+		}
+
+		// 普通磁盘：排除 RAID 和 Multipath 的底层设备
+		for _, d := range p.Public.Disks {
+			if _, ok := slaves[d.Device]; ok {
+				continue
+			}
+
+			rds = append(rds, RecoveryDevice{
+				Device: d.Device,
+				Size:   uint64(d.Size),
+				Safe:   isRecoveryDeviceSafe(d.Device),
+			})
+		}
+
+	case "windows":
+		// 普通磁盘
+		for _, d := range p.Public.Disks {
+			rds = append(rds, RecoveryDevice{
+				Device: d.Device,
+				Size:   uint64(d.Size),
+				Safe:   isRecoveryDeviceSafe(d.Device),
+			})
+		}
+	}
+
+	return rds
 }
 
 func (p *PsInfo) fillPublicInfo() (err error) {

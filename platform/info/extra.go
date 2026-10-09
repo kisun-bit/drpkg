@@ -2,6 +2,7 @@ package info
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -223,4 +224,27 @@ func fillDefaultBootFile(e *EFI) {
 		}
 		return
 	}
+}
+
+func isRecoveryDeviceSafe(dev string) bool {
+	fd, err := os.Open(dev)
+	if err != nil {
+		return false
+	}
+	defer fd.Close()
+
+	const checkSize = 64 << 10 // 64 KiB
+	buf := make([]byte, checkSize)
+
+	if _, err := io.ReadFull(fd, buf); err != nil {
+		return false
+	}
+
+	for _, b := range buf {
+		if b != 0 {
+			return false
+		}
+	}
+
+	return true
 }
