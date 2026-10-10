@@ -419,10 +419,7 @@ func (x *X2XLib) SelectWindowsBestNormalDriver(
 	// hardware_compat 入库时统一为小写；查询侧同样归一化，
 	// 并用 LOWER() 包裹列，兼容历史大小写混存的记录。
 	idsLower := make([]string, 0)
-	for _, id := range compatIds {
-		idsLower = append(idsLower, strings.ToLower(id))
-	}
-	for _, id := range hwIds {
+	for _, id := range append(compatIds, hwIds...) {
 		idsLower = append(idsLower, strings.ToLower(id))
 	}
 
