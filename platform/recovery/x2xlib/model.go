@@ -183,5 +183,19 @@ func InitDB(dbFile string, readonly bool) (*gorm.DB, error) {
 		return nil, err
 	}
 
+	if !readonly {
+		// SQLite 的 Windows VFS 在数据库文件被其他进程以排他方式占用时，
+		// 会静默降级为只读打开（READWRITE 打开失败后回退到 READONLY）。
+		// 此时若表已存在，AutoMigrate 会静默通过，后续写操作才报
+		// "attempt to write a readonly database"，问题被延迟到事务里才暴露。
+		// 这里用一条零行 DELETE 探测写能力，把错误提前到打开阶段并给出明确提示。
+		if err = db.Exec("DELETE FROM driver WHERE 1=0").Error; err != nil {
+			return nil, errors.Wrap(
+				err,
+				"driver database is not writable (file may be locked by another process or read-only)",
+			)
+		}
+	}
+
 	return db, nil
 }
