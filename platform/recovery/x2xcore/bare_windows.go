@@ -146,6 +146,22 @@ func (fixer *windowsSystemFixer) checkPciInDriverStore(up *universal.UniPci) err
 		}
 	}
 
+	if up.BaseClassId() != 0x01 {
+		// 非存储类的驱动已在 C:\Windows\System32\DriverStore\FileRepository 成功匹配，那么这个驱动会自己走pnp匹配，我们忽略即可。
+		m, _ := fixer.matchInfMap(up)
+		if m != nil {
+			logger.Debugf("checkPciInDriverStore: matched inf map (FileRepository), service=%v inf=%s",
+				m.serviceNames, m.infName)
+
+			fixer.infof(LogTplForMatchDriverDbWith2Args, up.String(), m.infName+"(System32\\DriverStore\\FileRepository)")
+			//if e := fixer.installLegacyDriverFromInfMap(m, up); e != nil {
+			//	return e
+			//}
+
+			return nil
+		}
+	}
+
 	if infName == "" {
 		logger.Debug("checkPciInDriverStore: no matching driver found")
 
@@ -626,6 +642,11 @@ func (fixer *windowsSystemFixer) buildInfMaps() error {
 //
 // 返回匹配到的索引条目与命中的归一化 ID；未匹配时返回 (nil, "")。
 func (fixer *windowsSystemFixer) matchInfMap(up *universal.UniPci) (*infMap, string) {
+	logger.Debugf("matchInfMap: ++")
+	defer logger.Debugf("matchInfMap: --")
+
+	logger.Debugf("matchInfMap: pci: %s", up)
+
 	// 设备的硬件 ID 与兼容 ID 逐一归一化为 CDB 键名形式，
 	// 在 pciIndex 中 O(1) 查找匹配的 INF 条目；
 	// 先匹配硬件 ID（更精确），再匹配兼容 ID。
