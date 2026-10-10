@@ -2,8 +2,12 @@ package x2xcore
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/binary"
+	"fmt"
 	"os"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/thoas/go-funk"
 )
@@ -22,11 +26,15 @@ type INF struct {
 }
 
 func ParseINF(path string) (*INF, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+
+	content, err := decodeInfText(data)
+	if err != nil {
+		return nil, err
+	}
 
 	inf := &INF{
 		Sections:             make(map[string][]string),
@@ -36,7 +44,7 @@ func ParseINF(path string) (*INF, error) {
 
 	var sec string
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
@@ -69,6 +77,37 @@ func ParseINF(path string) (*INF, error) {
 	return inf, nil
 }
 
+// decodeInfText 将 INF 原始字节解码为 UTF-8 文本。
+//
+// Windows INF 文件通常为 UTF-16 LE（带 BOM），微软提供的驱动 INF
+// （如 Intel 网卡驱动）几乎都是这种编码；也有 UTF-16 BE、UTF-8 与
+// ANSI。按 BOM 识别编码后统一转成 UTF-8，否则直接按字节扫描会因
+// UTF-16 字符间的 NUL 字节导致段名匹配失败、解析结果为空。
+func decodeInfText(data []byte) (string, error) {
+	switch {
+	case bytes.HasPrefix(data, []byte{0xFF, 0xFE}): // UTF-16 LE
+		return decodeUTF16(data[2:], binary.LittleEndian)
+	case bytes.HasPrefix(data, []byte{0xFE, 0xFF}): // UTF-16 BE
+		return decodeUTF16(data[2:], binary.BigEndian)
+	case bytes.HasPrefix(data, []byte{0xEF, 0xBB, 0xBF}): // UTF-8 BOM
+		return string(data[3:]), nil
+	default:
+		return string(data), nil
+	}
+}
+
+func decodeUTF16(data []byte, order binary.ByteOrder) (string, error) {
+	if len(data)%2 != 0 {
+		return "", fmt.Errorf("invalid UTF-16 INF: odd byte length %d", len(data))
+	}
+
+	u := make([]uint16, len(data)/2)
+	for i := range u {
+		u[i] = order.Uint16(data[i*2 : i*2+2])
+	}
+	return string(utf16.Decode(u)), nil
+}
+
 // parseStrings 解析 [Strings] 段，建立 %字符串% 替换表。
 // 设备段中的设备描述与制造商名通常以 %xxx% 形式引用，
 // 匹配硬件 ID 时需要先展开这些引用。
@@ -97,10 +136,28 @@ func (inf *INF) parseManufacturerSections() {
 		}
 
 		fields := splitComma(v)
-		for _, f := range fields {
-			name := strings.ToLower(strings.TrimSpace(f))
-			if name != "" {
-				inf.manufacturerSections[name] = true
+		if len(fields) == 0 {
+			continue
+		}
+
+		// 第一个字段是设备段基名，其后是可选的架构装饰后缀。
+		// 例如 %Intel% = Intel, NTamd64.6.2, NTamd64.6.2.1 实际引用的
+		// 设备段是 Intel.NTamd64.6.2 与 Intel.NTamd64.6.2.1。
+		base := strings.ToLower(strings.TrimSpace(fields[0]))
+		if base == "" {
+			continue
+		}
+
+		// 无装饰（如 %Vendor% = DeviceSection）：设备段即 base。
+		if len(fields) == 1 {
+			inf.manufacturerSections[base] = true
+			continue
+		}
+
+		for _, dec := range fields[1:] {
+			dec = strings.ToLower(strings.TrimSpace(dec))
+			if dec != "" {
+				inf.manufacturerSections[base+"."+dec] = true
 			}
 		}
 	}

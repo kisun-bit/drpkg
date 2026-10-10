@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 // ---------------------------------------------------------------------------
@@ -520,5 +521,72 @@ func BenchmarkFindByHwid_Real(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = idx.FindByHwid(hwid)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// UTF-16 编码
+// ---------------------------------------------------------------------------
+
+// TestParseInfFile_UTF16LE 验证 UTF-16 LE（带 BOM）编码的 INF 能正确解析，
+// 且带架构装饰的 [Manufacturer] 段（如 %Intel% = Intel, NTamd64.6.2, ...）
+// 能正确映射到实际设备段名（Intel.NTamd64.6.2 等）。
+func TestParseInfFile_UTF16LE(t *testing.T) {
+	content := `[Version]
+Signature = "$Windows NT$"
+Class = Net
+ClassGUID = {4d36e972-e325-11ce-bfc1-08002be10318}
+Provider = %Intel%
+
+[Manufacturer]
+%Intel% = Intel, NTamd64.6.2, NTamd64.6.2.1
+
+[Intel.NTamd64.6.2]
+%Desc% = E10DE, PCI\VEN_8086&DEV_10DE
+
+[Intel.NTamd64.6.2.1]
+%Desc% = E10DE, PCI\VEN_8086&DEV_10DE&SUBSYS_10DE8086
+
+[Strings]
+Intel = "Intel"
+Desc = "Intel NIC"
+`
+
+	var data []byte
+	data = append(data, 0xFF, 0xFE) // UTF-16 LE BOM
+	for _, r := range content {
+		for _, u := range utf16.Encode([]rune{r}) {
+			data = append(data, byte(u), byte(u>>8))
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "test.inf")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	inf, err := parseInfFile(path)
+	if err != nil {
+		t.Fatalf("parseInfFile: %v", err)
+	}
+
+	ids := inf.hardwareIds()
+	want := map[string]bool{
+		"pci\\ven_8086&dev_10de":                 true,
+		"pci\\ven_8086&dev_10de&subsys_10de8086": true,
+	}
+
+	got := map[string]bool{}
+	for _, id := range ids {
+		got[id] = true
+	}
+
+	for id := range want {
+		if !got[id] {
+			t.Errorf("missing hardware id %q (got %v)", id, ids)
+		}
+	}
+	if len(ids) != len(want) {
+		t.Errorf("unexpected hardware ids: %v", ids)
 	}
 }

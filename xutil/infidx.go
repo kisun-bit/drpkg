@@ -10,12 +10,15 @@ package xutil
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf16"
 )
 
 // ---------------------------------------------------------------------------
@@ -68,11 +71,15 @@ type rawInf struct {
 
 // parseInfFile 解析单个 INF 文件。
 func parseInfFile(path string) (*rawInf, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+
+	content, err := _decodeInfText(data)
+	if err != nil {
+		return nil, err
+	}
 
 	inf := &rawInf{
 		sections:             make(map[string][]string),
@@ -81,7 +88,7 @@ func parseInfFile(path string) (*rawInf, error) {
 	}
 
 	var sec string
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ";") {
@@ -116,27 +123,70 @@ func parseInfFile(path string) (*rawInf, error) {
 	// 解析 [Manufacturer] 段引用的设备段名。
 	//
 	// INF 格式：%strkey% = models-section [, TargetOSVersion ...]
-	// 实际设备段名 = models-section.TargetOSVersion1.TargetOSVersion2...
-	// 因此需要将逗号分隔的字段用 "." 拼接，生成所有可能的前缀形式。
+	// 第一个字段是设备段基名，其后每个字段是架构装饰后缀，
+	// 实际设备段名为 base.装饰（如 Intel.NTamd64.6.2）。
 	for _, line := range inf.sections["manufacturer"] {
 		_, v, ok := _splitKeyValue(line)
 		if !ok {
 			continue
 		}
-		fields := strings.Split(v, ",")
-		for i := range fields {
-			fields[i] = strings.TrimSpace(fields[i])
+
+		fields := _splitComma(v)
+		if len(fields) == 0 {
+			continue
 		}
-		// 生成所有前缀拼接：第一个字段、前两个字段用 "." 拼接 ...
-		for n := 1; n <= len(fields); n++ {
-			name := strings.ToLower(strings.Join(fields[:n], "."))
-			if name != "" {
-				inf.manufacturerSections[name] = true
+
+		base := strings.ToLower(strings.TrimSpace(fields[0]))
+		if base == "" {
+			continue
+		}
+
+		// 无装饰（如 %Vendor% = DeviceSection）：设备段即 base。
+		if len(fields) == 1 {
+			inf.manufacturerSections[base] = true
+			continue
+		}
+
+		for _, dec := range fields[1:] {
+			dec = strings.ToLower(strings.TrimSpace(dec))
+			if dec != "" {
+				inf.manufacturerSections[base+"."+dec] = true
 			}
 		}
 	}
 
 	return inf, nil
+}
+
+// _decodeInfText 将 INF 原始字节解码为 UTF-8 文本。
+//
+// Windows INF 文件通常为 UTF-16 LE（带 BOM），微软提供的驱动 INF
+// （如 Intel 网卡驱动）几乎都是这种编码；也有 UTF-16 BE、UTF-8 与
+// ANSI。按 BOM 识别编码后统一转成 UTF-8，否则直接按字节扫描会因
+// UTF-16 字符间的 NUL 字节导致段名匹配失败、解析结果为空。
+func _decodeInfText(data []byte) (string, error) {
+	switch {
+	case bytes.HasPrefix(data, []byte{0xFF, 0xFE}): // UTF-16 LE
+		return _decodeUTF16(data[2:], binary.LittleEndian)
+	case bytes.HasPrefix(data, []byte{0xFE, 0xFF}): // UTF-16 BE
+		return _decodeUTF16(data[2:], binary.BigEndian)
+	case bytes.HasPrefix(data, []byte{0xEF, 0xBB, 0xBF}): // UTF-8 BOM
+		return string(data[3:]), nil
+	default:
+		return string(data), nil
+	}
+}
+
+func _decodeUTF16(data []byte, order binary.ByteOrder) (string, error) {
+	if len(data)%2 != 0 {
+		return "", fmt.Errorf("invalid UTF-16 INF: odd byte length %d", len(data))
+	}
+
+	u := make([]uint16, len(data)/2)
+	for i := range u {
+		u[i] = order.Uint16(data[i*2 : i*2+2])
+	}
+	return string(utf16.Decode(u)), nil
 }
 
 func (inf *rawInf) expandStrings(s string) string {
