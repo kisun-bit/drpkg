@@ -271,57 +271,80 @@ func (fixer *linuxSystemFixer) Repair() error {
 		return errors.Wrap(err, "fix grub")
 	}
 
-	netijt, err := NewNetworkInjector(fixer.offsys.root, &fixer.opts.RecoveryParam.Network)
+	netijt, err := NewNetworkInjector(
+		fixer.offsys.root,
+		&fixer.opts.RecoveryParam.Network,
+	)
 	if err != nil {
 		fixer.warnf(LogTplForInjectNetworkToolFailedWith1Args, err)
 		logger.Warnf("NewNetworkInjector: %v", err)
-	} else {
-		if err = netijt.Inject(); err != nil {
-			fixer.warnf(LogTplForInjectNetworkConfigFailedWith1Args, err)
-			logger.Warnf("Inject: %v", err)
+	} else if err = netijt.Inject(); err != nil {
+		fixer.warnf(LogTplForInjectNetworkConfigFailedWith1Args, err)
+		logger.Warnf("Inject: %v", err)
+	}
+
+	if err := fixer.adaptPlatform(); err != nil {
+		return errors.Wrap(err, "adapt platform")
+	}
+
+	return nil
+}
+
+// adaptPlatform 根据目标平台调整恢复后 Linux 系统的相关配置。
+func (fixer *linuxSystemFixer) adaptPlatform() error {
+	param := fixer.opts.RecoveryParam
+
+	// 源端与目标端的平台配置未发生变化，且允许跳过驱动修复时，无需适配。
+	if param.SkipDriverRepairIfPlatformUnchanged {
+		switch {
+		case param.Source.Base == defs.HPVirt &&
+			param.Target.Base == defs.HPVirt &&
+			param.Source.Virt == param.Target.Virt:
+			logger.Debugf("adaptPlatform: source and target virtualization platforms are unchanged, skipping adaptation")
+			return nil
+
+		case param.Source.Base == defs.HPBareMetal &&
+			param.Target.Base == defs.HPBareMetal &&
+			xutil.SliceEqualIgnoreOrder(param.Source.PciList, param.Target.PciList):
+			logger.Debugf("adaptPlatform: source and target PCI device lists are unchanged, skipping adaptation")
+			return nil
 		}
 	}
 
-	if fixer.opts.RecoveryParam.SkipDriverRepairIfPlatformUnchanged &&
-		fixer.opts.RecoveryParam.Source.Base == defs.HPVirt &&
-		fixer.opts.RecoveryParam.Target.Base == defs.HPVirt &&
-		fixer.opts.RecoveryParam.Source.Virt == fixer.opts.RecoveryParam.Target.Virt {
-		// TODO 虚拟化硬件平台相同时，忽略修复
-	} else {
-		var unconfigFun = fixer.unconfigBareMetal
-		switch fixer.opts.RecoveryParam.Source.Virt {
-		case defs.HPVTXen:
-			unconfigFun = fixer.unconfigXen
-		case defs.HPVTVmware:
-			unconfigFun = fixer.unconfigVmware
-		case defs.HPVTKvm:
-			unconfigFun = fixer.unconfigKvm
-		case defs.HPVTHyperV:
-			unconfigFun = fixer.unconfigHyperV
-		case defs.HPVTParallels:
-			unconfigFun = fixer.unconfigParallel
-		}
+	unconfigFun := fixer.unconfigBareMetal
+	switch param.Source.Virt {
+	case defs.HPVTXen:
+		unconfigFun = fixer.unconfigXen
+	case defs.HPVTVmware:
+		unconfigFun = fixer.unconfigVmware
+	case defs.HPVTKvm:
+		unconfigFun = fixer.unconfigKvm
+	case defs.HPVTHyperV:
+		unconfigFun = fixer.unconfigHyperV
+	case defs.HPVTParallels:
+		unconfigFun = fixer.unconfigParallel
+	}
 
-		var configFun = fixer.configBareMetal
-		switch fixer.opts.RecoveryParam.Target.Virt {
-		case defs.HPVTXen:
-			configFun = fixer.configXen
-		case defs.HPVTVmware:
-			configFun = fixer.configVmware
-		case defs.HPVTKvm:
-			configFun = fixer.configKvm
-		case defs.HPVTHyperV:
-			configFun = fixer.configHyperV
-		case defs.HPVTParallels:
-			configFun = fixer.configParallel
-		}
+	configFun := fixer.configBareMetal
+	switch param.Target.Virt {
+	case defs.HPVTXen:
+		configFun = fixer.configXen
+	case defs.HPVTVmware:
+		configFun = fixer.configVmware
+	case defs.HPVTKvm:
+		configFun = fixer.configKvm
+	case defs.HPVTHyperV:
+		configFun = fixer.configHyperV
+	case defs.HPVTParallels:
+		configFun = fixer.configParallel
+	}
 
-		if err = unconfigFun(); err != nil {
-			return errors.Wrapf(err, "unconfig %s", fixer.opts.RecoveryParam.Source.Virt)
-		}
-		if err = configFun(); err != nil {
-			return errors.Wrapf(err, "config %s", fixer.opts.RecoveryParam.Target.Virt)
-		}
+	if err := unconfigFun(); err != nil {
+		return errors.Wrapf(err, "unconfig %s", param.Source.Virt)
+	}
+
+	if err := configFun(); err != nil {
+		return errors.Wrapf(err, "config %s", param.Target.Virt)
 	}
 
 	return nil

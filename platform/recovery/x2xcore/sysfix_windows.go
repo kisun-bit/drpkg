@@ -177,7 +177,7 @@ func (fixer *windowsSystemFixer) Repair() (err error) {
 	}
 
 	// 4. 虚拟化平台驱动适配
-	if err = fixer.adaptVirtPlatform(); err != nil {
+	if err = fixer.adaptPlatform(); err != nil {
 		return err
 	}
 
@@ -206,17 +206,25 @@ func (fixer *windowsSystemFixer) repairBaseSystem() error {
 	return nil
 }
 
-// adaptVirtPlatform 根据源/目标虚拟化平台执行驱动卸载与安装
-func (fixer *windowsSystemFixer) adaptVirtPlatform() error {
+// adaptPlatform 根据目标平台调整恢复后 Windows 系统的相关配置。
+func (fixer *windowsSystemFixer) adaptPlatform() error {
 	param := fixer.opts.RecoveryParam
 
-	// 同源同目标虚拟化平台且配置要求跳过时，无需适配
-	if param.SkipDriverRepairIfPlatformUnchanged &&
-		param.Source.Base == defs.HPVirt &&
-		param.Target.Base == defs.HPVirt &&
-		param.Source.Virt == param.Target.Virt {
-		// TODO: 虚拟化硬件平台相同时，忽略修复
-		return nil
+	// 开启跳过条件时，若源端与目标端的虚拟化平台相同，或物理机 PCI 设备列表一致，则跳过平台适配。
+	if param.SkipDriverRepairIfPlatformUnchanged {
+		switch {
+		case param.Source.Base == defs.HPVirt &&
+			param.Target.Base == defs.HPVirt &&
+			param.Source.Virt == param.Target.Virt:
+			logger.Debugf("adaptVirtPlatform: source and target virtualization platforms are unchanged, skipping adaptation")
+			return nil
+
+		case param.Source.Base == defs.HPBareMetal &&
+			param.Target.Base == defs.HPBareMetal &&
+			xutil.SliceEqualIgnoreOrder(param.Source.PciList, param.Target.PciList):
+			logger.Debugf("adaptVirtPlatform: source and target hardware configurations are unchanged, skipping adaptation")
+			return nil
+		}
 	}
 
 	unconfigFun := fixer.getUnconfigFunc(param.Source.Virt)
