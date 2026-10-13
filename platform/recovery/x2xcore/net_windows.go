@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kisun-bit/drpkg/logger"
+	"github.com/kisun-bit/drpkg/platform/info"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
@@ -431,55 +432,115 @@ func waitNetworkInterfacesReady(
 	timeout time.Duration,
 ) error {
 
+	logger.Debugf("waitNetworkInterfacesReady: ++")
+	defer logger.Debugf("waitNetworkInterfacesReady: --")
+
 	deadline := time.Now().Add(timeout)
 
 	targetMACs := make(map[string]struct{})
 
 	for _, ic := range cfg.Interfaces {
 		if ic.Enabled {
-			targetMACs[normalizeMAC(ic.MAC)] = struct{}{}
+			mac := normalizeMAC(ic.MAC)
+			if mac == "" {
+				logger.Debugf("waitNetworkInterfacesReady: skip enabled interface with empty MAC")
+				continue
+			}
+			targetMACs[mac] = struct{}{}
 		}
 	}
 
+	logger.Debugf(
+		"waitNetworkInterfacesReady: waiting for %d enabled network interfaces, timeout=%s, targetMACs=%v",
+		len(targetMACs),
+		timeout,
+		mapKeys(targetMACs),
+	)
+
+	if len(targetMACs) == 0 {
+		logger.Debugf("waitNetworkInterfacesReady: no enabled network interfaces to wait for")
+		return nil
+	}
+
+	attempt := 0
+
 	for time.Now().Before(deadline) {
+		attempt++
 
-		ready := true
-
-		interfaces, err := net.Interfaces()
+		interfaces, err := info.QueryIFList()
 		if err != nil {
-			ready = false
-		} else {
+			logger.Warnf(
+				"waitNetworkInterfacesReady: attempt=%d failed to enumerate network interfaces: %v",
+				attempt,
+				err,
+			)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		//logger.Debugf("waitNetworkInterfacesReady: interfaces: %s", xutil.Pretty(interfaces))
 
-			found := make(map[string]bool)
+		found := make(map[string]bool)
+		var currentMACs []string
 
-			for _, nic := range interfaces {
-
-				mac := normalizeMAC(string(nic.HardwareAddr))
-
-				if _, ok := targetMACs[mac]; ok {
-
-					// 网卡存在即可
-					// 如果希望更严格，可以判断 OperStatus
-					found[mac] = true
-				}
+		for _, nic := range interfaces {
+			mac := normalizeMAC(nic.HardwareAddr)
+			if mac == "" {
+				continue
 			}
 
-			for mac := range targetMACs {
-				if !found[mac] {
-					ready = false
-					break
-				}
+			currentMACs = append(currentMACs, mac)
+
+			if _, ok := targetMACs[mac]; ok {
+				found[mac] = true
 			}
 		}
 
-		if ready {
+		var missingMACs []string
+
+		for mac := range targetMACs {
+			if !found[mac] {
+				missingMACs = append(missingMACs, mac)
+			}
+		}
+
+		if len(missingMACs) == 0 {
+			logger.Debugf(
+				"waitNetworkInterfacesReady: all target network interfaces are ready, attempt=%d, elapsed=%s",
+				attempt,
+				time.Since(deadline.Add(-timeout)),
+			)
 			return nil
 		}
 
-		time.Sleep(2 * time.Second)
+		logger.Debugf(
+			"waitNetworkInterfacesReady: attempt=%d, detected=%d/%d, missingMACs=%v, currentMACs=%v",
+			attempt,
+			len(found),
+			len(targetMACs),
+			missingMACs,
+			currentMACs,
+		)
+
+		time.Sleep(10 * time.Second)
 	}
+
+	logger.Errorf(
+		"waitNetworkInterfacesReady: timed out after %s waiting for network interfaces, targetMACs=%v",
+		timeout,
+		mapKeys(targetMACs),
+	)
 
 	return errors.Errorf(
 		"timed out waiting for Windows network device initialization (%s)",
-		timeout)
+		timeout,
+	)
+}
+
+// mapKeys returns the keys of a MAC address set.
+func mapKeys(m map[string]struct{}) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
 }
