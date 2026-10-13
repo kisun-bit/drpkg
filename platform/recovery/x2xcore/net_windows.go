@@ -388,7 +388,7 @@ func applyRoute(r RouteConfig, macToName map[string]string) error {
 // ApplyNetworkConfig 应用整份网络配置。单个接口/路由失败不会阻断其它项，
 // 所有错误会在最后汇总返回；调用方可根据需要决定是否整体重试或回滚。
 func ApplyNetworkConfig(cfg NetworkConfig) error {
-	if err := waitNetworkInterfacesReady(cfg, 120*time.Second); err != nil {
+	if err := waitNetworkInterfacesReady(cfg, 1*time.Hour); err != nil {
 		logger.Warnf("failed to wait for network interfaces ready: %v", err)
 	}
 
