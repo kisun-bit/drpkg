@@ -362,12 +362,19 @@ func (vm *Vm) addStorage() {
 			}
 
 			driveID := fmt.Sprintf("scsi-disk%d", scsiIndex)
+			lba, pba := d.LBA, d.PBA
+			if lba == 0 {
+				lba = 512
+			}
+			if pba == 0 {
+				pba = 512
+			}
 
 			vm.cmdArgs = append(vm.cmdArgs,
 				"-drive", fmt.Sprintf("id=%s,if=none,file=%s,format=%s,file.locking=on,cache=none,aio=threads",
 					driveID, d.Path, format),
-				"-device", fmt.Sprintf("scsi-hd,drive=%s,bus=scsi0.0",
-					driveID),
+				"-device", fmt.Sprintf("scsi-hd,drive=%s,bus=scsi0.0,logical_block_size=%d,physical_block_size=%d",
+					driveID, lba, pba),
 			)
 
 			switch vm.opt.RecoveryParams.OSType {
