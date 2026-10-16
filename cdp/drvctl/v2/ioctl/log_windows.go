@@ -44,13 +44,18 @@ func (e *LogEvent) Close() error {
 
 // Wait 等待日志事件，timeoutMs 为超时毫秒数。
 //
-// timeoutMs 为 0 时立即返回，为 windows.INFINITE 时无限等待。
-func (e *LogEvent) Wait(timeoutMs uint32) error {
+// timeoutMs 为 0 时立即返回，为 -1 时无限等待。
+func (e *LogEvent) Wait(timeoutMs int) error {
 	if e.handle == windows.InvalidHandle {
 		return errors.New("invalid handle")
 	}
 
-	result, err := windows.WaitForSingleObject(e.handle, timeoutMs)
+	tsMs := uint32(timeoutMs)
+	if timeoutMs < 0 {
+		tsMs = windows.INFINITE
+	}
+
+	result, err := windows.WaitForSingleObject(e.handle, tsMs)
 	if err != nil {
 		return errors.Wrapf(err, "WaitForSingleObject")
 	}

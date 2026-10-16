@@ -494,6 +494,7 @@ func SetLogEvent(event uint64) error {
 // GetLog 从驱动获取一条日志条目。
 //
 // 返回的 LogEntry 包含日志级别、时间戳和最多 512 字节的日志内容。
+// 注意：调用此方法前，请先调用 SetLogEvent 设置日志事件
 func GetLog() (*LogEntry, error) {
 	resp := &LogEntry{}
 	inBuf, err := pack(resp)

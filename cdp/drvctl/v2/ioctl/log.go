@@ -1,5 +1,13 @@
 package ioctl
 
+import (
+	"fmt"
+	"strings"
+
+	"github.com/kisun-bit/drpkg/xutil"
+	"go.uber.org/zap"
+)
+
 //
 // CDP 日志管理：
 // * 设置日志事件
@@ -63,4 +71,85 @@ func ReadLog() (*LogEntry, LogStatus, error) {
 	normalizeLogTimestamp(entry)
 
 	return entry, LogSuccess, nil
+}
+
+// DataBytes 返回 Data 中有效字节的切片。
+// DataLen 异常（大于 512）时收敛到缓冲区长度，避免越界。
+func (l *LogEntry) DataBytes() []byte {
+	n := l.DataLen
+	if n > uint32(len(l.Data)) {
+		n = uint32(len(l.Data))
+	}
+	return l.Data[:n]
+}
+
+func (l *LogEntry) Message() string {
+	ts := xutil.TimeByMicrosoftTimestamp(l.Timestamp)
+	return fmt.Sprintf("[%s] %d %s", ts.String(), l.Level, strings.TrimSpace(xutil.TrimZeroString(l.DataBytes())))
+}
+
+// 驱动日志级别（与驱动 log.h 的 BIOTRK_LOG_LEVEL_* 保持一致）。
+const (
+	// DriverLogLevelTrace 对应 BIOTRK_LOG_LEVEL_TRACE(0x1)。
+	DriverLogLevelTrace uint8 = 0x1
+
+	// DriverLogLevelInfo 对应 BIOTRK_LOG_LEVEL_INFO(0x2)。
+	DriverLogLevelInfo uint8 = 0x2
+
+	// DriverLogLevelWarn 对应 BIOTRK_LOG_LEVEL_WARN(0x4)。
+	DriverLogLevelWarn uint8 = 0x4
+
+	// DriverLogLevelError 对应 BIOTRK_LOG_LEVEL_ERROR(0x8)。
+	DriverLogLevelError uint8 = 0x8
+)
+
+// OutputDriverLog 持续从驱动读取日志，并按级别映射到 logger 输出。
+//
+// 级别映射：
+//
+//	DriverLogLevelTrace(0x1) → Debug
+//	DriverLogLevelInfo (0x2) → Info
+//	DriverLogLevelWarn  (0x4) → Warn
+//	DriverLogLevelError (0x8) → Error
+//
+// 该函数会阻塞直到发生错误才返回，err 非 nil 表示读取或事件等待失败。
+func OutputDriverLog(logger *zap.SugaredLogger) error {
+	if logger == nil {
+		logger = zap.NewNop().Sugar()
+	}
+
+	le, err := NewLogEvent()
+	if err != nil {
+		return err
+	}
+	defer le.Close()
+
+	for {
+		entry, status, err := ReadLog()
+		if err != nil {
+			return err
+		}
+
+		if status == LogNoData { // 无日志数据，等待
+			if err := le.Wait(-1); err != nil {
+				return err
+			}
+			continue
+		}
+
+		msg := strings.TrimSpace(xutil.TrimZeroString(entry.DataBytes()))
+
+		switch entry.Level {
+		case DriverLogLevelTrace:
+			logger.Debug(msg)
+		case DriverLogLevelInfo:
+			logger.Info(msg)
+		case DriverLogLevelWarn:
+			logger.Warn(msg)
+		case DriverLogLevelError:
+			logger.Error(msg)
+		default:
+			logger.Infof("[unknown-level-%d] %s", entry.Level, msg)
+		}
+	}
 }
