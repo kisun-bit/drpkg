@@ -35,6 +35,14 @@ func (fixer *windowsSystemFixer) configKvm() error {
 
 	fixer.infof(LogTplForConfigKVMWith0Args)
 
+	// FIXME: 兼容旧版异构组件的功能，后续将移除此逻辑
+	//////////////////////////////////////////////
+	e1 := fixer.unconfigXen()
+	logger.Debugf("configKvm: unconfigXen: %v", e1)
+	e2 := fixer.configVmware()
+	logger.Debugf("configKvm: configVmware: %v", e2)
+	//////////////////////////////////////////////
+
 	legacy, e := fixer.isLegacyWindows()
 	if e != nil {
 		return e
