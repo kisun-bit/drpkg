@@ -103,17 +103,18 @@ const (
 	DriverLogLevelError uint8 = 0x8
 )
 
-// OutputDriverLog 持续从驱动读取日志，并按级别映射到 logger 输出。
+// ForwardDriverLogs continuously reads driver logs and forwards them
+// to the logger using the corresponding log levels.
 //
-// 级别映射：
+// Level mapping:
+//   - DriverLogLevelTrace (0x1) → Debug
+//   - DriverLogLevelInfo  (0x2) → Info
+//   - DriverLogLevelWarn  (0x4) → Warn
+//   - DriverLogLevelError (0x8) → Error
 //
-//	DriverLogLevelTrace(0x1) → Debug
-//	DriverLogLevelInfo (0x2) → Info
-//	DriverLogLevelWarn  (0x4) → Warn
-//	DriverLogLevelError (0x8) → Error
-//
-// 该函数会阻塞直到发生错误才返回，err 非 nil 表示读取或事件等待失败。
-func OutputDriverLog(logger *zap.SugaredLogger) error {
+// The function blocks until an error occurs and returns a non-nil error
+// if reading logs or waiting for a log event fails.
+func ForwardDriverLogs(logger *zap.SugaredLogger) error {
 	if logger == nil {
 		logger = zap.NewNop().Sugar()
 	}
